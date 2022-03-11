@@ -1,0 +1,15 @@
+test: &test
+  adapter: postgresql
+  database: duty_free_test
+  username: postgres
+  password: 
+  host:     localhost
+  port:     5432
+
+foo:
+  <<: *test
+  database: duty_free_foo
+
+bar:
+  <<: *test
+  database: duty_free_bar
