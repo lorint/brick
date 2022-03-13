@@ -79,17 +79,6 @@ require 'brick/config'
 require 'brick/frameworks/rails'
 module Brick
   class << self
-    def append_routes
-      ::Rails.application.routes.append do
-        relations = (::Brick.instance_variable_get(:@relations) || {})[ActiveRecord::Base.connection_pool.object_id] || {}
-        relations.each do |k, v|
-          options = {}
-          options[:only] = [:index, :show] if v.key?(:isView)
-          send(:resources, k.underscore.pluralize.to_sym, **options)
-        end
-      end
-    end
-
     # All tables and views (what Postgres calls "relations" including column and foreign key info)
     def relations
       connections = Brick.instance_variable_get(:@relations) ||

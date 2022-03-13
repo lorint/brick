@@ -55,10 +55,32 @@ module Brick
           end
         end
 
-        # Auto-routing behaviour
         if (::Brick.enable_routes = app.config.brick.fetch(:enable_routes, true))
-          ::Brick.append_routes
+          ActionDispatch::Routing::RouteSet.class_exec do
+            alias _brick_finalize_routeset! finalize!
+            def finalize!(*args, **options)
+              unless @finalized
+                existing_controllers = routes.each_with_object({}) { |r, s| c = r.defaults[:controller]; s[c] = nil if c }
+                # TODO: honour .api_only?
+                # (also for controllers)
+                ::Rails.application.routes.append do
+                  # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
+                  # If auto-controllers and auto-models are both enabled then this makes sense:
+                  relations = (::Brick.instance_variable_get(:@relations) || {})[ActiveRecord::Base.connection_pool.object_id] || {}
+                  relations.each do |k, v|
+                    unless existing_controllers.key?(controller_name = k.underscore.pluralize)
+                      options = {}
+                      options[:only] = [:index, :show] if v.key?(:isView)
+                      send(:resources, controller_name.to_sym, **options)
+                    end
+                  end
+                end
+              end
+              _brick_finalize_routeset!(*args, **options)
+            end
+          end
         end
+
         # Additional references (virtual foreign keys)
         if (ars = (::Brick.additional_references = app.config.brick.fetch(:additional_references, nil)))
           ars = ars.call if ars.is_a?(Proc)
