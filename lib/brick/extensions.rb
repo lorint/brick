@@ -28,56 +28,16 @@
 
 # Drag TmfModel#name onto the rows and have it automatically add five columns -- where type=zone / where type = sectionn / etc
 
-
-# ====================================
-# Dynamically create generic templates
-# ====================================
-
-# For templates:
-class ActionView::LookupContext
-  alias :_brick_template_exists? :template_exists?
-  def template_exists?(*args, **options)
-    x = _brick_template_exists?(*args, **options)
-    # Need to return true if we can fill in the blanks for a missing one
-    # args will be something like:  ["index", ["categories"]]
-    unless x
-      relations = Brick.instance_variable_get(:@relations)[ActiveRecord::Base.connection_pool.object_id] || {}
-      matching = [views_name = args[1]&.first, views_name.singularize].find { |m| relations.key?(m) }
-      if (x = matching && (matching = relations[matching]) &&
-           (['index', 'show'].include?(args.first) || # Everything has index and show
-             # Only CRU stuff has create / update / destroy
-             (!matching.key?(:isView) && ['new', 'create', 'edit', 'update', 'destroy'].include?(args.first))
-           )
-         )
-        instance_variable_set(:@_brick_match, matching)
-      end
-    end
-    x
-  end
-
-  alias :_brick_find_template :find_template
-  def find_template(*args, **options)
-    if @_brick_match
-      inline = case args.first
-      when 'index'
-        # Something like:  <%= @categories.inspect %>
-        "<%= @#{@_brick_match[:index]}.inspect %>"
-      when 'show'
-        "<%= @#{@_brick_match[:show]}.inspect %>"
-      end
-      # As if it were an inline template (see #determine_template in actionview-5.2.6.2/lib/action_view/renderer/template_renderer.rb)
-      keys = options.has_key?(:locals) ? options[:locals].keys : []
-      handler = ActionView::Template.handler_for_extension(options[:type] || 'erb')
-      ActionView::Template.new(inline, "auto-generated #{args.first} template", handler, locals: keys)
-    else
-      _brick_find_template(*args, **options)
-    end
-  end
-end
-
 # ==========================================================
 # Dynamically create model or controller classes when needed
 # ==========================================================
+
+# By default all models indicate that they are not views
+class ActiveRecord::Base
+  def self.is_view?
+    false
+  end
+end
 
 # Object.class_exec do
 class Object
@@ -96,29 +56,28 @@ class Object
       # If the file really exists, go and snag it:
       return Object._brick_const_missing(*args) if ActiveSupport::Dependencies.search_for_file(class_name.underscore)
 
-      if class_name.end_with?('Controller') && (plural_class_name = class_name[0..-11]).length.positive?
+      relations = ::Brick.instance_variable_get(:@relations)[ActiveRecord::Base.connection_pool.object_id] || {}
+      result = if ::Brick.enable_controllers? && class_name.end_with?('Controller') && (plural_class_name = class_name[0..-11]).length.positive?
         # Otherwise now it's up to us to fill in the gaps
-        is_controller = true
-        table_name = ActiveSupport::Inflector.underscore(plural_class_name)
-        model_name = ActiveSupport::Inflector.singularize(plural_class_name)
-        singular_table_name = ActiveSupport::Inflector.singularize(table_name)
-      else # Model
+        if (model = ActiveSupport::Inflector.singularize(plural_class_name).constantize)
+          # if it's a controller and no match or a model doesn't really use the same table name, eager load all models and try to find a model class of the right name.
+          build_controller(class_name, plural_class_name, model, relations)
+        end
+      elsif ::Brick.enable_models?
         # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
         # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
         plural_class_name = ActiveSupport::Inflector.pluralize(model_name = class_name)
         singular_table_name = ActiveSupport::Inflector.underscore(model_name)
         table_name = ActiveSupport::Inflector.pluralize(singular_table_name)
+
+        # Maybe, just maybe there's a database table that will satisfy this need
+        if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(m) })
+          build_model(model_name, singular_table_name, table_name, relations, matching)
+        end
       end
-      relations = Brick.instance_variable_get(:@relations)[ActiveRecord::Base.connection_pool.object_id] || {}
-      # Maybe, just maybe there's a database table that will satisfy this need
-      matches = [table_name, singular_table_name, plural_class_name, model_name]
-      if matching = matches.find { |m| relations.key?(m) }
-        built_class, code = if is_controller
-                              build_controller(class_name, model_name, singular_table_name, table_name, relations, matching)
-                            else
-                              build_model(model_name, singular_table_name, table_name, relations, matching)
-                            end
-        puts "#{code}end # #{ is_controller ? 'controller' : 'model' }\n\n"
+      if result
+        built_class, code = result
+        puts "\n#{code}"
         built_class
       else
         puts "MISSING! #{args.inspect} #{table_name}"
@@ -131,7 +90,7 @@ class Object
     def build_model(model_name, singular_table_name, table_name, relations, matching)
       # Are they trying to use a pluralised class name such as "Employees" instead of "Employee"?
       if table_name == singular_table_name && !ActiveSupport::Inflector.inflections.uncountable.include?(table_name)
-        raise NameError.new("Class name for a model that references table \"#{matching}\" should be \"#{ActiveSupport::Inflector.singularize(class_name)}\".")
+        raise NameError.new("Class name for a model that references table \"#{matching}\" should be \"#{ActiveSupport::Inflector.singularize(model_name)}\".")
       end
       code = +"class #{model_name} < ActiveRecord::Base\n"
       built_model = Class.new(ActiveRecord::Base) do |new_model_class|
@@ -139,11 +98,13 @@ class Object
         # Accommodate singular or camel-cased table names such as "order_detail" or "OrderDetails"
         code << "  self.table_name = '#{self.table_name = matching}'\n" unless table_name == matching
 
-        # By default, views get marked as read-only
-        if (relation = relations[matching]).key?(:isView)
-          self.define_method :'readonly?' do
+        # Override models backed by a view so they return true for #is_view?
+        # (Dynamically-created controllers and view templates for such models will then act in a read-only way)
+        if (is_view = (relation = relations[matching]).key?(:isView))
+          new_model_class.define_singleton_method :'is_view?' do
             true
           end
+          code << "  def self.is_view?; true; end\n"
         end
 
         # Missing a primary key column?  (Usually "id")
@@ -165,7 +126,7 @@ class Object
             code << "  self.primary_key = #{pk_sym.inspect}\n"
           end
         else
-          code << "  # Could not identify any column(s) to use as a primary key\n"
+          code << "  # Could not identify any column(s) to use as a primary key\n" unless is_view
         end
 
         # if relation[:cols].key?('last_update')
@@ -217,28 +178,31 @@ class Object
             end
           end
         end
+        code << "end # model #{model_name}\n\n"
       end # class definition
       [built_model, code]
     end
 
 
-    def build_controller(class_name, model_name, singular_table_name, table_name, relations, matching)
+    def build_controller(class_name, plural_class_name, model, relations)
+      table_name = ActiveSupport::Inflector.underscore(plural_class_name)
+      singular_table_name = ActiveSupport::Inflector.singularize(table_name)
+
       code = +"class #{class_name} < ApplicationController\n"
       built_controller = Class.new(ActionController::Base) do |new_controller_class|
         Object.const_set(class_name.to_sym, new_controller_class)
 
-        model = model_name.constantize
         code << "  def index\n"
-        code << "    @#{table_name} = #{model_name}#{model.primary_key ? ".order(#{model.primary_key.inspect}" : '.all'})\n"
+        code << "    @#{table_name} = #{model.name}#{model.primary_key ? ".order(#{model.primary_key.inspect}" : '.all'})\n"
         code << "  end\n"
         self.define_method :index do
-          relation = model.primary_key ? model.order(model.primary_key) : model.all
-          instance_variable_set("@#{table_name}".to_sym, relation)
+          ar_relation = model.primary_key ? model.order(model.primary_key) : model.all
+          instance_variable_set("@#{table_name}".to_sym, ar_relation)
         end
 
         if model.primary_key
           code << "  def show\n"
-          code << "    @#{singular_table_name} = #{model_name}.find(params[:id].split(','))\n"
+          code << "    @#{singular_table_name} = #{model.name}.find(params[:id].split(','))\n"
           code << "  end\n"
           self.define_method :show do
             instance_variable_set("@#{singular_table_name}".to_sym, model.find(params[:id].split(',')))
@@ -246,9 +210,11 @@ class Object
         end
 
         # By default, views get marked as read-only
-        unless (relation = relations[matching]).key?(:isView)
+        unless (relation = relations[model.table_name]).key?(:isView)
           code << "  # (Define :new, :create, :edit, :update, and :destroy)\n"
+          # Get column names for params from relations[model.table_name][:cols].keys
         end
+        code << "end # #{class_name}\n\n"
       end # class definition
       [built_controller, code]
     end
@@ -270,14 +236,10 @@ end
 module ActiveRecord::ConnectionHandling
   alias old_establish_connection establish_connection
   def establish_connection(*args)
-    connections = Brick.instance_variable_get(:@relations) ||
-      Brick.instance_variable_set(:@relations, (connections = {}))
     # puts connections.inspect
     x = old_establish_connection(*args)
-    # Key our list of relations for this connection off of the connection pool's object_id
-    relations = (connections[ActiveRecord::Base.connection_pool.object_id] ||= Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = {} } })
 
-    if relations.empty?
+    if (relations = ::Brick.relations).empty?
       schema = 'public'
       puts ActiveRecord::Base.connection.execute("SELECT current_setting('SEARCH_PATH')").to_a.inspect
       sql = ActiveRecord::Base.send(:sanitize_sql_array, [
@@ -326,7 +288,7 @@ module ActiveRecord::ConnectionHandling
       end
 
       sql = ActiveRecord::Base.send(:sanitize_sql_array, [
-        "SELECT kcu1.CONSTRAINT_NAME, kcu1.TABLE_NAME, kcu1.COLUMN_NAME, kcu2.TABLE_NAME
+        "SELECT kcu1.TABLE_NAME, kcu1.COLUMN_NAME, kcu2.TABLE_NAME, kcu1.CONSTRAINT_NAME
         FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS rc
           INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu1
             ON kcu1.CONSTRAINT_CATALOG = rc.CONSTRAINT_CATALOG
@@ -340,31 +302,8 @@ module ActiveRecord::ConnectionHandling
         WHERE kcu1.CONSTRAINT_SCHEMA = ? -- COALESCE(current_setting('SEARCH_PATH'), 'public')", schema
         # AND kcu2.TABLE_NAME = ?;", Apartment::Tenant.current, table_name
       ])
-      ActiveRecord::Base.connection.execute(sql).values.each do |fk|
-        bt_assoc_name = fk[2].underscore
-        bt_assoc_name = bt_assoc_name[0..-4] if bt_assoc_name.end_with?('_id')
+      ActiveRecord::Base.connection.execute(sql).values.each { |fk| ::Brick._add_bt_and_hm(fk, relations) }
 
-        bts = (relation = relations[fk[1]]).fetch(:fks) { relation[:fks] = {} }
-        if (assoc_bt = bts[fk[0]])
-          assoc_bt[:fk] = assoc_bt[:fk].is_a?(String) ? [assoc_bt[:fk], fk[2]] : assoc_bt[:fk].concat(fk[2])
-          assoc_bt[:assoc_name] = "#{assoc_bt[:assoc_name]}_#{fk[2]}"
-        else
-          assoc_bt = bts[fk[0]] = { is_bt: true, fk: fk[2], assoc_name: bt_assoc_name, inverse_table: fk[3] }
-        end
-
-        hms = (relation = relations[fk[3]]).fetch(:fks) { relation[:fks] = {} }
-        if (assoc_hm = hms[fk[0]])
-          assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[2]] : assoc_hm[:fk].concat(fk[2])
-          assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
-          assoc_hm[:inverse] = assoc_bt
-        else
-          assoc_hm = hms[fk[0]] = { is_bt: false, fk: fk[2], assoc_name: fk[1], alternate_name: bt_assoc_name, inverse_table: fk[1], inverse: assoc_bt }
-          hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
-          hm_counts[fk[1]] = hm_counts.fetch(fk[1]) { 0 } + 1
-        end
-        assoc_bt[:inverse] = assoc_hm
-        # hms[fk[0]] << { is_bt: false, fk: fk[2], assoc_name: fk[1], alternate_name: bt_assoc_name, inverse_table: fk[1] }
-      end
       # Find associative tables that can be set up for has_many :through
       relations.each do |_key, tbl|
         tbl_cols = tbl[:cols].keys
@@ -406,11 +345,61 @@ module Brick
 
     private
 
-      def _create_class()
-      end
     end
   end # module Extensions
   # rubocop:enable Style/CommentedKeyword
+
+  def self._add_bt_and_hm(fk, relations = nil)
+    relations ||= ::Brick.relations
+    bt_assoc_name = fk[1].underscore
+    bt_assoc_name = bt_assoc_name[0..-4] if bt_assoc_name.end_with?('_id')
+
+    bts = (relation = relations.fetch(fk[0], nil))&.fetch(:fks) { relation[:fks] = {} }
+    hms = (relation = relations.fetch(fk[2], nil))&.fetch(:fks) { relation[:fks] = {} }
+
+    unless (cnstr_name = fk[3])
+      # For any appended references (those that come from config), arrive upon a definitely unique constraint name
+      cnstr_base = cnstr_name = "(brick) #{fk[0]}_#{fk[2]}"
+      cnstr_added_num = 1
+      cnstr_name = "#{cnstr_base}_#{cnstr_added_num += 1}" while bts&.key?(cnstr_name) || hms&.key?(cnstr_name)
+      missing = []
+      missing << fk[0] unless relations.key?(fk[0])
+      missing << fk[2] unless relations.key?(fk[2])
+      unless missing.empty?
+        tables = relations.reject { |k, v| v.fetch(:isView, nil) }.keys.sort
+        puts "Brick: Additional reference #{fk.inspect} refers to non-existent #{'table'.pluralize(missing.length)} #{missing.join(' and ')}. (Available tables include #{tables.join(', ')}.)"
+        return
+      end
+      unless (cols = relations[fk[0]][:cols]).key?(fk[1])
+        columns = cols.map { |k, v| "#{k} (#{v.first.split(' ').first})" }
+        puts "Brick: Additional reference #{fk.inspect} refers to non-existent column #{fk[1]}. (Columns present in #{fk[0]} are #{columns.join(', ')}.)"
+        return
+      end
+      if (redundant = bts.find{|k, v| v[:inverse][:inverse_table] == fk[0] && v[:fk] == fk[1] && v[:inverse_table] == fk[2] })
+        puts "Brick: Additional reference #{fk.inspect} is redundant and can be removed.  (Already established by #{redundant.first}.)"
+        return
+      end
+    end
+
+    if (assoc_bt = bts[cnstr_name])
+      assoc_bt[:fk] = assoc_bt[:fk].is_a?(String) ? [assoc_bt[:fk], fk[1]] : assoc_bt[:fk].concat(fk[1])
+      assoc_bt[:assoc_name] = "#{assoc_bt[:assoc_name]}_#{fk[1]}"
+    else
+      assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[1], assoc_name: bt_assoc_name, inverse_table: fk[2] }
+    end
+
+    if (assoc_hm = hms[cnstr_name])
+      assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[1]] : assoc_hm[:fk].concat(fk[1])
+      assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
+      assoc_hm[:inverse] = assoc_bt
+    else
+      assoc_hm = hms[cnstr_name] = { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0], inverse: assoc_bt }
+      hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
+      hm_counts[fk[0]] = hm_counts.fetch(fk[0]) { 0 } + 1
+    end
+    assoc_bt[:inverse] = assoc_hm
+    # hms[cnstr_name] << { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0] }
+  end
 
   # Rails < 4.0 doesn't have ActiveRecord::RecordNotUnique, so use the more generic ActiveRecord::ActiveRecordError instead
   ar_not_unique_error = ActiveRecord.const_defined?('RecordNotUnique') ? ActiveRecord::RecordNotUnique : ActiveRecord::ActiveRecordError

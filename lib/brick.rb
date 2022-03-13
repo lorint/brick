@@ -90,18 +90,72 @@ module Brick
       end
     end
 
+    # All tables and views (what Postgres calls "relations" including column and foreign key info)
+    def relations
+      connections = Brick.instance_variable_get(:@relations) ||
+        Brick.instance_variable_set(:@relations, (connections = {}))
+      # Key our list of relations for this connection off of the connection pool's object_id
+      (connections[ActiveRecord::Base.connection_pool.object_id] ||= Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = {} } })
+    end
+
+    # Switches Brick auto-models on or off, for all threads
+    # @api public
+    def enable_models=(value)
+      Brick.config.enable_models = value
+    end
+
+    # Returns `true` if Brick models are on, `false` otherwise. This affects all
+    # threads. Enabled by default.
+    # @api public
+    def enable_models?
+      !!Brick.config.enable_models
+    end
+
+    # Switches Brick auto-controllers on or off, for all threads
+    # @api public
+    def enable_controllers=(value)
+      Brick.config.enable_controllers = value
+    end
+
+    # Returns `true` if Brick controllers are on, `false` otherwise. This affects all
+    # threads. Enabled by default.
+    # @api public
+    def enable_controllers?
+      !!Brick.config.enable_controllers
+    end
+
+    # Switches Brick auto-views on or off, for all threads
+    # @api public
+    def enable_views=(value)
+      Brick.config.enable_views = value
+    end
+
+    # Returns `true` if Brick views are on, `false` otherwise. This affects all
+    # threads. Enabled by default.
+    # @api public
+    def enable_views?
+      !!Brick.config.enable_views
+    end
+
     # Switches Brick auto-routes on or off, for all threads
     # @api public
     def enable_routes=(value)
       Brick.config.enable_routes = value
     end
 
-    # Returns `true` if Brick routes are on, `false` otherwise. This is the
-    # on/off switch that affects all threads. Enabled by default.
+    # Returns `true` if Brick routes are on, `false` otherwise. This affects all
+    # threads. Enabled by default.
     # @api public
     def enable_routes?
       !!Brick.config.enable_routes
     end
+
+    # Additional table associations to use (Think of these as virtual foreign keys perhaps)
+    # @api public
+    def additional_references=(value)
+      Brick.config.additional_references = value
+    end
+
 
     # Returns Brick's `::Gem::Version`, convenient for comparisons. This is
     # recommended over `::Brick::VERSION::STRING`.
