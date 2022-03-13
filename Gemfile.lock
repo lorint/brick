@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    brick (1.0.1)
+    brick (1.0.2)
       activerecord (>= 3.0, < 7.1)
 
 GEM

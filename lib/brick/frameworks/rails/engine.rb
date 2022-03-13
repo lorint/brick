@@ -37,13 +37,110 @@ module Brick
             alias :_brick_find_template :find_template
             def find_template(*args, **options)
               if @_brick_model
+                model_name = @_brick_model.name
+                pk = @_brick_model.primary_key
+                obj_name = model_name.underscore
+                table_name = model_name.pluralize.underscore
+                # This gets has_many as well as has_many :through
+                # %%% weed out ones that don't have an available model to reference
+                bts, hms = @_brick_model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
+                  case a.macro
+                  when :belongs_to
+                    # Build #brick_descrip if needed
+                    unless a.klass.instance_methods(false).include?(:brick_descrip)
+                      descrip_col = (a.klass.columns.map(&:name) - a.klass._brick_get_fks -
+                                    (::Brick.config.metadata_columns || []) -
+                                    [a.klass.primary_key]).first&.to_sym
+                      if descrip_col
+                        a.klass.define_method :brick_descrip do
+                          send(descrip_col)
+                        end
+                      end
+                    end
+
+                    s.first[a.foreign_key] = [a.name, a.klass]
+                  when :has_many
+                    s.last[a.name] = a
+                  end
+                  s
+                end
+                # Weed out has_manys that go to an associative table
+                hms.select { |k, v| v.options[:through] }.each { |_k, hmt| hms.delete(hmt.options[:through]) }
+                show_obj_blurb = "<td><%= link_to \"#\{#{obj_name}.class.name\} ##\{#{obj_name}.id\}\", #{obj_name} %></td>\n"
+                hms_headers = hms.each_with_object(+'') { |hm, s| s << "<th>HM #{hm.first}</th>\n" }
+                hms_columns = hms.each_with_object(+'') do |hm, s|
+                  s << "<td>
+  <%= link_to \"#\{#{obj_name}.#{hm.first}.count\} #{hm.first}\", #{hm.last.klass.name.underscore.pluralize}_path({ #{hm.last.foreign_key}: #{obj_name}.#{pk} }) %>
+</td>\n"
+                end
+
                 inline = case args.first
                 when 'index'
-                  # Something like:  <%= @categories.inspect %>
-                  "<%= @#{@_brick_model.name.underscore.pluralize}.inspect %>"
+                  "<p style=\"color: green\"><%= notice %></p>
+
+<h1>#{model_name.pluralize}</h1>
+<% if @_brick_params&.present? %><h3>where <%= @_brick_params.each_with_object([]) { |v, s| s << \"#\{v.first\} = #\{v.last.inspect\}\" }.join(', ') %></h3><% end %>
+
+<table id=\"#{table_name}\">
+  <tr>
+  <% is_first = true; is_need_id_col = nil
+     bts = { #{bts.each_with_object([]) { |v, s| s << "#{v.first.inspect} => [#{v.last.first.inspect}, #{v.last.last.name}, #{v.last.last.primary_key.inspect}]"}.join(', ')} }
+     @#{table_name}.columns.map(&:name).each do |col| %>
+    <% next if col == '#{pk}' || ::Brick.config.metadata_columns.include?(col) %>
+    <th>
+    <% if bt = bts[col]
+        if is_first
+          is_first = false
+          is_need_id_col = true %>
+          </th><th>
+        <% end %>
+      BT <%= bt[1].name %>
+    <% else
+        is_first = false %>
+      <%= col %>
+    <% end %>
+    </th>
+  <% end %>
+  <% if is_first # STILL haven't been able to write a first non-key / non-metadata column?
+    is_first = false
+    is_need_id_col = true %>
+    <td></td>
+  <% end %>
+#{hms_headers}
+  </tr>
+
+  <% @#{table_name}.each do |#{obj_name}| %>
+  <tr>
+    <% if is_need_id_col %>
+      <td>#{show_obj_blurb}</td>
+    <% end %>
+    <% is_first = true; #{obj_name}.attributes.each do |k, val| %>
+      <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) %>
+      <% if (bt = bts[k]) %>
+        <td>
+        <%= obj = bt[1].find_by(bt.last => val); link_to obj.brick_descrip, obj %>
+      <% elsif is_first %>
+        <td>
+        <%= is_first = false; link_to val, #{obj_name} %>
+      <% else %>
+        <td>
+        <%= val %>
+      <% end %>
+      </td>
+    <% end %>
+#{hms_columns}
+    <!-- td>X</td -->
+  </tr>
+  <% end %>
+</table>
+
+<%= link_to \"New #{obj_name}\", new_#{obj_name}_path %>
+"
+                  # "<%= @#{@_brick_model.name.underscore.pluralize}.inspect %>"
                 when 'show'
                   "<%= @#{@_brick_model.name.underscore}.inspect %>"
                 end
+puts inline
                 # As if it were an inline template (see #determine_template in actionview-5.2.6.2/lib/action_view/renderer/template_renderer.rb)
                 keys = options.has_key?(:locals) ? options[:locals].keys : []
                 handler = ActionView::Template.handler_for_extension(options[:type] || 'erb')

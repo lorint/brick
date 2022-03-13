@@ -33,9 +33,38 @@
 # ==========================================================
 
 # By default all models indicate that they are not views
-class ActiveRecord::Base
-  def self.is_view?
-    false
+module ActiveRecord
+  class Base
+    def self.is_view?
+      false
+    end
+
+    # Used to show a little prettier name for an object
+    def brick_descrip
+      klass = self.class
+      klass.primary_key ? "#{klass.name} ##{send(klass.primary_key)}" : to_s
+    end
+
+  private
+
+    def self._brick_get_fks
+      @_brick_get_fks ||= reflect_on_all_associations.select { |a2| a2.macro == :belongs_to }.map(&:foreign_key)
+    end
+  end
+
+  class Relation
+    def brick_where(params)
+      wheres = {}
+      params.each do |k, v|
+        next unless klass._brick_get_fks.include?(k)
+
+        wheres[k] = v.split(',')
+      end
+      unless wheres.empty?
+        where!(wheres)
+        wheres # Return the specific parameters that we did use
+      end
+    end
   end
 end
 
@@ -196,9 +225,11 @@ class Object
 
         code << "  def index\n"
         code << "    @#{table_name} = #{model.name}#{model.primary_key ? ".order(#{model.primary_key.inspect}" : '.all'})\n"
+        code << "    @#{table_name}.brick_where(params)\n"
         code << "  end\n"
         self.define_method :index do
           ar_relation = model.primary_key ? model.order(model.primary_key) : model.all
+          instance_variable_set(:@_brick_params, ar_relation.brick_where(params))
           instance_variable_set("@#{table_name}".to_sym, ar_relation)
         end
 
@@ -269,9 +300,6 @@ module ActiveRecord::ConnectionHandling
         # next if internal_views.include?(r['relation_name']) # Skip internal views such as v_all_assessments
 
         relation = relations[r['relation_name']]
-        relation[:index] = r['relation_name'].underscore
-        relation[:show] = relation[:index].singularize
-        relation[:index] = relation[:index].pluralize
         relation[:isView] = true if r['table_type'] == 'VIEW'
         col_name = r['column_name']
         cols = relation[:cols] # relation.fetch(:cols) { relation[:cols] = [] }
