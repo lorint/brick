@@ -61,8 +61,6 @@ module Brick
             def finalize!(*args, **options)
               unless @finalized
                 existing_controllers = routes.each_with_object({}) { |r, s| c = r.defaults[:controller]; s[c] = nil if c }
-                # TODO: honour .api_only?
-                # (also for controllers)
                 ::Rails.application.routes.append do
                   # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
                   # If auto-controllers and auto-models are both enabled then this makes sense:
@@ -81,6 +79,15 @@ module Brick
           end
         end
 
+        # Do not consider database views when auto-creating models
+        ::Brick.skip_database_views = app.config.brick.fetch(:skip_database_views, false)
+
+        # Specific database tables and views to omit when auto-creating models
+        ::Brick.exclude_tables = app.config.brick.fetch(:exclude_tables, [])
+
+        # Columns to treat as being metadata for purposes of identifying associative tables for has_many :through
+        ::Brick.metadata_columns = app.config.brick.fetch(:metadata_columns, ['created_at', 'updated_at', 'deleted_at'])
+
         # Additional references (virtual foreign keys)
         if (ars = (::Brick.additional_references = app.config.brick.fetch(:additional_references, nil)))
           ars = ars.call if ars.is_a?(Proc)
@@ -88,6 +95,17 @@ module Brick
           ars = [ars] unless ars.empty? || ars.first.is_a?(Array)
           ars.each do |fk|
             ::Brick._add_bt_and_hm(fk[0..2])
+          end
+        end
+
+        # Find associative tables that can be set up for has_many :through
+        ::Brick.relations.each do |_key, tbl|
+          tbl_cols = tbl[:cols].keys
+          fks = tbl[:fks].each_with_object({}) { |fk, s| s[fk.last[:fk]] = fk.last[:inverse_table] if fk.last[:is_bt]; s }
+          # Aside from the primary key and the metadata columns created_at, updated_at, and deleted_at, if this table only has
+          # foreign keys then it can act as an associative table and thus be used with has_many :through.
+          if fks.length > 1 && (tbl_cols - fks.keys - (::Brick.config.metadata_columns || []) - tbl[:pkey].values.first).length.zero?
+            fks.each { |fk| tbl[:hmt_fks][fk.first] = fk.last }
           end
         end
       end

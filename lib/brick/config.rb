@@ -57,12 +57,36 @@ module Brick
     end
 
     # Additional table associations to use (Think of these as virtual foreign keys perhaps)
+    def additional_references
+      @mutex.synchronize { @additional_references }
+    end
+
     def additional_references=(references)
       @mutex.synchronize { @additional_references = references }
     end
 
-    def additional_references
-      @mutex.synchronize { @additional_references }
+    def skip_database_views
+      @mutex.synchronize { @skip_database_views }
+    end
+
+    def skip_database_views=(disable)
+      @mutex.synchronize { @skip_database_views = disable }
+    end
+
+    def exclude_tables
+      @mutex.synchronize { @exclude_tables }
+    end
+
+    def exclude_tables=(value)
+      @mutex.synchronize { @exclude_tables = value }
+    end
+
+    def metadata_columns
+      @mutex.synchronize { @metadata_columns }
+    end
+
+    def metadata_columns=(columns)
+      @mutex.synchronize { @metadata_columns = columns }
     end
   end
 end

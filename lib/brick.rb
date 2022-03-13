@@ -139,6 +139,21 @@ module Brick
       !!Brick.config.enable_routes
     end
 
+    # @api public
+    def skip_database_views=(value)
+      Brick.config.skip_database_views = value
+    end
+
+    # @api public
+    def exclude_tables=(value)
+      Brick.config.exclude_tables = value
+    end
+
+    # @api public
+    def metadata_columns=(value)
+      Brick.config.metadata_columns = value
+    end
+
     # Additional table associations to use (Think of these as virtual foreign keys perhaps)
     # @api public
     def additional_references=(value)

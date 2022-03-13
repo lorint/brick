@@ -88,6 +88,9 @@ class Object
   private
 
     def build_model(model_name, singular_table_name, table_name, relations, matching)
+      return if ((is_view = (relation = relations[matching]).key?(:isView)) && ::Brick.config.skip_database_views) ||
+                ::Brick.config.exclude_tables.include?(matching)
+
       # Are they trying to use a pluralised class name such as "Employees" instead of "Employee"?
       if table_name == singular_table_name && !ActiveSupport::Inflector.inflections.uncountable.include?(table_name)
         raise NameError.new("Class name for a model that references table \"#{matching}\" should be \"#{ActiveSupport::Inflector.singularize(model_name)}\".")
@@ -100,7 +103,7 @@ class Object
 
         # Override models backed by a view so they return true for #is_view?
         # (Dynamically-created controllers and view templates for such models will then act in a read-only way)
-        if (is_view = (relation = relations[matching]).key?(:isView))
+        if is_view
           new_model_class.define_singleton_method :'is_view?' do
             true
           end
@@ -183,7 +186,6 @@ class Object
       [built_model, code]
     end
 
-
     def build_controller(class_name, plural_class_name, model, relations)
       table_name = ActiveSupport::Inflector.underscore(plural_class_name)
       singular_table_name = ActiveSupport::Inflector.singularize(table_name)
@@ -234,10 +236,9 @@ end
 # ==========================================================
 
 module ActiveRecord::ConnectionHandling
-  alias old_establish_connection establish_connection
+  alias _brick_establish_connection establish_connection
   def establish_connection(*args)
-    # puts connections.inspect
-    x = old_establish_connection(*args)
+    x = _brick_establish_connection(*args)
 
     if (relations = ::Brick.relations).empty?
       schema = 'public'
@@ -303,16 +304,6 @@ module ActiveRecord::ConnectionHandling
         # AND kcu2.TABLE_NAME = ?;", Apartment::Tenant.current, table_name
       ])
       ActiveRecord::Base.connection.execute(sql).values.each { |fk| ::Brick._add_bt_and_hm(fk, relations) }
-
-      # Find associative tables that can be set up for has_many :through
-      relations.each do |_key, tbl|
-        tbl_cols = tbl[:cols].keys
-        fks = tbl[:fks].each_with_object({}) { |fk, s| s[fk.last[:fk]] = fk.last[:inverse_table] if fk.last[:is_bt]; s }
-        # Aside from the primary key and created_at, updated_at,This table has only foreign keys?
-        if fks.length > 1 && (tbl_cols - fks.keys - ['created_at', 'updated_at', 'deleted_at', 'last_update'] - tbl[:pkey].values.first).length.zero?
-          fks.each { |fk| tbl[:hmt_fks][fk.first] = fk.last }
-        end
-      end
     end
 
     puts "Classes built from tables:"
