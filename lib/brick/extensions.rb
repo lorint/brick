@@ -55,13 +55,22 @@ module ActiveRecord
   class Relation
     def brick_where(params)
       wheres = {}
+      rel_joins = []
       params.each do |k, v|
-        next unless klass._brick_get_fks.include?(k)
+        if (ks = k.split('.')).length > 1
+          assoc_name = ks.first.to_sym
+          # Make sure it's a good association name and that the model has that column name
+          next unless klass.reflect_on_association(assoc_name)&.klass&.columns&.map(&:name)&.include?(ks.last)
 
+          rel_joins << assoc_name unless rel_joins.include?(assoc_name)
+        else
+          next unless klass._brick_get_fks.include?(k)
+        end
         wheres[k] = v.split(',')
       end
       unless wheres.empty?
         where!(wheres)
+        joins!(rel_joins) unless rel_joins.empty?
         wheres # Return the specific parameters that we did use
       end
     end
@@ -334,9 +343,9 @@ module ActiveRecord::ConnectionHandling
       ActiveRecord::Base.connection.execute(sql).values.each { |fk| ::Brick._add_bt_and_hm(fk, relations) }
     end
 
-    puts "Classes built from tables:"
+    puts "Classes that can be built from tables:"
     relations.select { |_k, v| !v.key?(:isView) }.keys.each { |k| puts ActiveSupport::Inflector.singularize(k).camelize }
-    puts "Classes built from views:"
+    puts "Classes that can be built from views:"
     relations.select { |_k, v| v.key?(:isView) }.keys.each { |k| puts ActiveSupport::Inflector.singularize(k).camelize }
     # pp relations; nil
 
