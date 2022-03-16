@@ -273,9 +273,13 @@ end
 module ActiveRecord::ConnectionHandling
   alias _brick_establish_connection establish_connection
   def establish_connection(*args)
-    x = _brick_establish_connection(*args)
+    conn = _brick_establish_connection(*args)
+    _brick_reflect_tables
+    conn
+  end
 
-    if (relations = ::Brick.relations).empty?
+  def _brick_reflect_tables
+      if (relations = ::Brick.relations).empty?
       # Only for Postgres?  (Doesn't work in sqlite3)
       # puts ActiveRecord::Base.connection.execute("SELECT current_setting('SEARCH_PATH')").to_a.inspect
 
@@ -389,9 +393,10 @@ module ActiveRecord::ConnectionHandling
       else
       end
       if sql
-        result = ActiveRecord::Base.connection.execute(sql)
-        result = result.values unless result.is_a?(Array)
-        result.each { |fk| ::Brick._add_bt_and_hm(fk, relations) }
+        ActiveRecord::Base.connection.execute(sql).each do |fk|
+          fk = fk.values unless fk.is_a?(Array)
+          ::Brick._add_bt_and_hm(fk, relations)
+        end
       end
     end
 
@@ -403,7 +408,6 @@ module ActiveRecord::ConnectionHandling
 
     # relations.keys.each { |k| ActiveSupport::Inflector.singularize(k).camelize.constantize }
     # Layout table describes permissioned hierarchy throughout
-    x
   end
 end
 

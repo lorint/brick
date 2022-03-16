@@ -78,8 +78,8 @@ class SetUpTestTables < (
       t.string :name
     end
     create_table :foo_habtms_widgets, force: true, id: false do |t|
-      t.references :foo_habtm
-      t.references :widget
+      t.references :foo_habtm, foreign_key: true
+      t.references :widget, foreign_key: true
     end
 
     # HMT
@@ -87,8 +87,8 @@ class SetUpTestTables < (
       t.string :name
     end
     create_table :foo_hmt_widgets, force: true, id: false do |t|
-      t.references :foo_hmt
-      t.references :widget
+      t.references :foo_hmt, foreign_key: true
+      t.references :widget, foreign_key: true
     end
 
     if ENV['DB'] == 'postgres'
@@ -170,7 +170,7 @@ class SetUpTestTables < (
 
     create_table :things, force: true do |t|
       t.string    :name
-      t.references :person
+      t.references :person, foreign_key: true
     end
 
     create_table :translations, force: true do |t|
@@ -245,8 +245,8 @@ class SetUpTestTables < (
       t.string :name
     end
     create_table :ingredient_recipes, force: true do |t|
-      t.references :ingredient
-      t.references :recipe
+      t.references :ingredient, foreign_key: true
+      t.references :recipe, foreign_key: true
     end
 
     # Northwind tables
@@ -267,8 +267,10 @@ class SetUpTestTables < (
       t.string :home_phone
       t.string :extension
       t.text :notes
-      t.references :reports_to
+      t.integer :reports_to_id
     end
+    add_foreign_key :employees, :employees, column: :reports_to_id
+
     create_table :customers do |t|
       t.string :company_code
       t.string :company_name
@@ -299,8 +301,8 @@ class SetUpTestTables < (
       t.string :ship_postal_code
       t.string :ship_country
       t.string :customer_code
-      t.references :customer, index: true
-      t.references :employee, index: true
+      t.references :customer, index: true, foreign_key: true
+      t.references :employee, index: true, foreign_key: true
     end
     create_table :categories do |t|
       t.string :category_name
@@ -319,7 +321,7 @@ class SetUpTestTables < (
       t.integer :reorder_level
       t.boolean :discontinued
       t.references :supplier, index: true
-      t.references :category, index: true
+      t.references :category, index: true, foreign_key: true
     end
     create_table :order_details do |t|
       if is_mysql
@@ -331,18 +333,18 @@ class SetUpTestTables < (
         t.integer :quantity
         t.decimal :discount
       end
-      t.references :order, index: true
-      t.references :product, index: true
+      t.references :order, index: true, foreign_key: true
+      t.references :product, index: true, foreign_key: true
     end
 
     create_table :restaurant_categories do |t|
       t.string :name
-      t.references :parent, index: true
+      t.references :parent, index: true, foreign_key: true
     end
     create_table :restaurants do |t|
       t.string :name
       t.string :address
-      t.references :category, index: true
+      t.references :category, index: true, foreign_key: true
     end
 
     # custom_primary_key_records use a uuid column (string)
@@ -384,7 +386,7 @@ class SetUpTestTables < (
       t.string :status
     end
     create_table :children do |t|
-      t.references :parent
+      t.references :parent, foreign_key: true
       t.string :firstname
       t.string :lastname
       t.date :dateofbirth

@@ -8,116 +8,19 @@ require 'csv'
 # ========
 
 RSpec.describe 'Parent', type: :model do
-  # Set up Models
-  # =============
-  before(:all) do
-    unload_class('Parent')
-    class Parent < ActiveRecord::Base
-      if ActiveRecord.version >= ::Gem::Version.new('4.2')
-        has_many :children, dependent: :destroy
-      else
-        # Rails before 4.2 didn't automatically create inverse_of entries on associations,
-        # so we'll need to do that dirty work ourselves
-        has_many :children, inverse_of: :parent, dependent: :destroy
-      end
-
-      def self.import(file)
-        df_import(file)
-      end
-    end
-
-    unload_class('Child')
-    class Child < ActiveRecord::Base
-      if ActiveRecord.version >= ::Gem::Version.new('4.2')
-        belongs_to :parent
-      else
-        # Rails before 4.2 didn't automatically create inverse_of entries on associations,
-        # so we'll need to do that dirty work ourselves
-        belongs_to :parent, inverse_of: :children
-      end
-    end
-  end
-
   before(:each) do
     Parent.destroy_all
   end
 
   context 'with valid attributes' do
-    it 'should be able to suggest a template that relates Parent and Child' do
-      # Default template has only Parent information
-      # This is as if you had simply run:  Parent.suggest_template
-      template = Parent.suggest_template(false, true, 0, false, false)
-      # All columns includes the three string columns in the parents table
-      expect(template[:all]).to eq(
-        [:firstname, :lastname, :address, :address_line_2, :city, :province, :postal_code,
-         :telephone_number, :email, :admin_notes, :gross_income, :created_by_admin, :status]
-      )
-      # Uniques finds the first available string column
-      expect(template[:uniques]).to eq([:firstname])
+    it 'should auto-create models that relate Parent and Child' do
+      parent_children = Parent.reflect_on_association(:children)
+      expect(parent_children.macro).to eq(:has_many)
+      expect(parent_children.klass).to eq(Child)
 
-      # ----------------------------------------------------
-      # Now including tables directly linked by any has_many
-      template_has_many_children = Parent.suggest_template(true, true, 0, false, false)
-      # All columns should include the three string columns in the parents table,
-      # plus the first column in children
-      expect(template_has_many_children[:all]).to eq(
-        [:firstname, :lastname, :address, :address_line_2, :city, :province, :postal_code,
-         :telephone_number, :email, :admin_notes, :gross_income, :created_by_admin, :status,
-          { children: [:firstname] }]
-      )
-      # # Uniques should now also include the first available string column in the children table
-      # expect(template_has_many_children[:uniques]).to eq ([:firstname, :children_firstname])
-
-      # Using this template should generate column headers
-      column_headers = Parent.df_export(false, template_has_many_children).first
-      expect(column_headers).to eq(['Firstname', 'Lastname',
-        'Address', 'Address Line 2', 'City', 'Province', 'Postal Code',
-        'Telephone Number', 'Email', 'Admin Notes', 'Gross Income', 'Created By Admin', 'Status',
-        'Children Firstname'])
-
-      # ------------------------------------------------------------------------------
-      # Now including one full hop away of tables, and directly linked by any has_many
-      template_with_children = Parent.suggest_template(true, true, 1, false, false)
-      # All columns should include the three string columns in the parents table,
-      # plus the first column in children
-      expect(template_with_children[:all]).to eq(
-        [:firstname, :lastname, :address, :address_line_2, :city, :province, :postal_code,
-         :telephone_number, :email, :admin_notes, :gross_income, :created_by_admin, :status,
-          { children: [:firstname, :lastname, :dateofbirth, :gender] }]
-      )
-      # # Uniques should still include the first available string column in the children table
-      # expect(template_with_children[:uniques]).to eq ([:firstname, :children_firstname])
-
-      # Using this template should generate column headers
-      column_headers = Parent.df_export(false, template_with_children).first
-      expect(column_headers).to eq(
-        ['Firstname', 'Lastname',
-          'Address', 'Address Line 2', 'City', 'Province', 'Postal Code',
-          'Telephone Number', 'Email', 'Admin Notes', 'Gross Income', 'Created By Admin', 'Status',
-          'Children Firstname', 'Children Lastname', 'Children Dateofbirth', 'Children Gender']
-      )
-      # Adding aliases to the template using :as allows for six custom column headings to work
-      template_with_children[:as] = {
-        'parent_1_firstname' => 'Firstname',
-        'parent_1_lastname' => 'Lastname',
-        'address' => 'Address',
-        'childfirstname' => 'Children Firstname',
-        'childlastname' => 'Children Lastname',
-        'childdateofbirth' => 'Children Dateofbirth'
-      }
-      column_headers = Parent.df_export(false, template_with_children).first
-      expect(column_headers).to eq(
-        ['parent_1_firstname', 'parent_1_lastname', 'address',
-         # Although Address Line 2 wasn't specified in the :as list, because it begins with something
-         # that was in the list -- Address -- then its first part gets changed out, so this changed the
-         # first word here from Address down to address.  If you wanted it to have a different custom
-         # name then an entry must be placed BEFORE the more generic "Address" entry that changed it.
-         'address Line 2',
-         'City', 'Province', 'Postal Code', 'Telephone Number', 'Email', 'Admin Notes', 'Gross Income', 'Created By Admin', 'Status',
-         'childfirstname', 'childlastname', 'childdateofbirth',
-         # Children Gender wasn't specified in the :as list, so it retains its titleized naming
-         'Children Gender']
-      )
+      child_parent = Child.reflect_on_association(:parent)
+      expect(child_parent.macro).to eq(:belongs_to)
+      expect(child_parent.klass).to eq(Parent)
     end
 
     it 'should be able to import from an array' do
