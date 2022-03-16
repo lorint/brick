@@ -1,7 +1,7 @@
 PATH
   remote: ..
   specs:
-    brick (1.0.0)
+    brick (1.0.4)
       activerecord (>= 3.0, < 7.1)
 
 GEM
@@ -138,6 +138,7 @@ DEPENDENCIES
   ffaker (~> 2.11)
   generator_spec (~> 0.9.4)
   memory_profiler (~> 0.9.14)
+  mysql2 (~> 0.5)
   pg (>= 0.18, < 2.0)
   pry-byebug (~> 3.7.0)
   rake (~> 13.0)

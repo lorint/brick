@@ -76,7 +76,10 @@ end
 # is first established), and then automatically creates models, controllers, views,
 # and routes based on those available relations.
 require 'brick/config'
-require 'brick/frameworks/rails'
+if Gem::Specification.all_names.any? { |g| g.start_with?('rails-') }
+  require 'rails'
+  require 'brick/frameworks/rails'
+end
 module Brick
   class << self
     # All tables and views (what Postgres calls "relations" including column and foreign key info)
@@ -197,10 +200,7 @@ module Brick
   end
 end
 
-require 'brick/extensions'
 require 'brick/version_number'
-# require 'brick/serializers/json'
-# require 'brick/serializers/yaml'
 
 require 'active_record'
 # Major compatibility fixes for ActiveRecord < 4.2
@@ -426,18 +426,18 @@ ActiveSupport.on_load(:active_record) do
     end
   end
 
-  include ::Brick::Extensions
+  # include ::Brick::Extensions
 
-  unless ::Brick::Extensions::IS_AMOEBA
-    # Add amoeba-compatible support
-    module ActiveRecord
-      class Base
-        def self.amoeba(*args)
-          puts "Amoeba called from #{name} with #{args.inspect}"
-        end
-      end
-    end
-  end
+  # unless ::Brick::Extensions::IS_AMOEBA
+  #   # Add amoeba-compatible support
+  #   module ActiveRecord
+  #     class Base
+  #       def self.amoeba(*args)
+  #         puts "Amoeba called from #{name} with #{args.inspect}"
+  #       end
+  #     end
+  #   end
+  # end
 end
 
 # Do this earlier because stuff here gets mixed into JoinDependency::JoinAssociation and AssociationScope
@@ -526,3 +526,5 @@ if ActiveRecord.version < ::Gem::Version.new('5.2')
   end # module ActiveRecord
   # rubocop:enable Style/CommentedKeyword
 end
+
+require 'brick/extensions'

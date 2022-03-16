@@ -9,7 +9,7 @@ An ActiveRecord extension that auto-creates models, views, controllers, and rout
 | Version        | Documentation                                             |
 | -------------- | --------------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.0          | https://github.com/lorint/brick/blob/v1.0.0/README.md |
+| 1.0.4          | https://github.com/lorint/brick/blob/v1.0.0/README.md |
 
 ## Table of Contents
 
@@ -257,10 +257,46 @@ DB=sqlite bundle exec appraisal
 
 See our [contribution guidelines][5]
 
-## Setting my MySQL
+## Setting up my MySQL
 
 If you're on Ruby 2.7 or later:
-sudo apt-get install default-libmysqlclient-dev
+    sudo apt-get install default-libmysqlclient-dev
+
+On OSX / MacOS with Homebrew:
+    brew install mysql 
+    brew services start mysql
+
+On an Apple Silicon machine (M1 / M2 / M3 processor) then also set this:
+    bundle config --local build.mysql2 "--with-ldflags=-L$(brew --prefix zstd)/lib"
+
+(and maybe even this if the above doesn't work out)
+    bundle config --local build.mysql2 "--with-opt-dir=$(brew --prefix openssl)" "--with-ldflags=-L$(brew --prefix zstd)/lib"
+
+
+And once the service is up and running you can connect through socket /tmp/mysql.sock like this:
+    mysql -uroot
+
+And inside this console now create two users with various permissions (these databases do not need to yet exist).  Trade out "my_username" with your real username, such as "sally@localhost".
+
+    CREATE USER my_username@localhost IDENTIFIED BY '';
+    GRANT ALL PRIVILEGES ON duty_free_test.* TO my_username@localhost;
+    GRANT ALL PRIVILEGES ON duty_free_foo.* TO my_username@localhost;
+    GRANT ALL PRIVILEGES ON duty_free_bar.* TO my_username@localhost;
+
+    And then create the user "duty_free" who can only connect locally:
+    CREATE USER duty_free@localhost IDENTIFIED BY '';
+    GRANT ALL PRIVILEGES ON duty_free_test.* TO duty_free@localhost;
+    GRANT ALL PRIVILEGES ON duty_free_foo.* TO duty_free@localhost;
+    GRANT ALL PRIVILEGES ON duty_free_bar.* TO duty_free@localhost;
+    EXIT
+
+Now you should be able to set up the test database for MySQL with:
+
+    DB=mysql bundle exec rake prepare
+
+And run the tests on MySQL with:
+
+    bundle exec appraisal ar-7.0 rspec spec
 
 ## Intellectual Property
 

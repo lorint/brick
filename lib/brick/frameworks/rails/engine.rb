@@ -119,7 +119,7 @@ module Brick
           is_need_id_col = true %>
           </th><th>
         <% end %>
-      BT <%= bt[1].name %>
+      BT <%= \"#\{bt.first\}-\" unless bt[1].name.underscore == bt.first.to_s %><%= bt[1].name %>
     <% else
         is_first = false %>
       <%= col %>
@@ -159,9 +159,8 @@ module Brick
   <% end %>
 </table>
 
-<%= link_to \"New #{obj_name}\", new_#{obj_name}_path %>
+#{"<hr><%= link_to \"New #{obj_name}\", new_#{obj_name}_path %>" unless @_brick_model.is_view?}
 "
-                    # "<%= @#{@_brick_model.name.underscore.pluralize}.inspect %>"
                   when 'show'
                     "<%= @#{@_brick_model.name.underscore}.inspect %>"
                   end

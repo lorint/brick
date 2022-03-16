@@ -1,2 +1,3 @@
 ---
 BUNDLE_RETRY: "1"
+BUNDLE_BUILD__MYSQL2: "--with-ldflags=-L/opt/homebrew/opt/zstd/lib"

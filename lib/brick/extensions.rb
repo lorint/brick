@@ -26,7 +26,11 @@
 
 # colour coded origins
 
-# Drag TmfModel#name onto the rows and have it automatically add five columns -- where type=zone / where type = sectionn / etc
+# Drag something like TmfModel#name onto the rows and have it automatically add five columns -- where type=zone / where type = section / etc
+
+# Support for Postgres / MySQL enums (add enum to model, use model enums to make a drop-down in the UI)
+
+# Currently quadrupling up routes
 
 # ==========================================================
 # Dynamically create model or controller classes when needed
@@ -170,15 +174,6 @@ class Object
           code << "  # Could not identify any column(s) to use as a primary key\n" unless is_view
         end
 
-        # if relation[:cols].key?('last_update')
-        #   define_method :updated_at do
-        #     last_update
-        #   end
-        #   define_method :'updated_at=' do |val|
-        #     last_update=(val)
-        #   end
-        # end
-
         fks = relation[:fks] || {}
         fks.each do |_constraint_name, assoc|
           assoc_name = assoc[:assoc_name]
@@ -194,7 +189,7 @@ class Object
                     # need_class_name = ActiveSupport::Inflector.singularize(assoc_name) == ActiveSupport::Inflector.singularize(table_name.underscore)
                     # Are there multiple foreign keys out to the same table?
                     assoc_name, need_class_name = _brick_get_hm_assoc_name(relation, assoc)
-                    need_fk = "#{singular_table_name}_id" != assoc[:fk]
+                    need_fk = "#{ActiveSupport::Inflector.singularize(assoc[:inverse][:inverse_table])}_id" != assoc[:fk]
                     # fks[table_name].find { |other_assoc| other_assoc.object_id != assoc.object_id && other_assoc[:assoc_name] == assoc[assoc_name] }
                     :has_many
                   end
@@ -233,7 +228,7 @@ class Object
         Object.const_set(class_name.to_sym, new_controller_class)
 
         code << "  def index\n"
-        code << "    @#{table_name} = #{model.name}#{model.primary_key ? ".order(#{model.primary_key.inspect}" : '.all'})\n"
+        code << "    @#{table_name} = #{model.name}#{model.primary_key ? ".order(#{model.primary_key.inspect})" : '.all'}\n"
         code << "    @#{table_name}.brick_where(params)\n"
         code << "  end\n"
         self.define_method :index do
@@ -281,13 +276,31 @@ module ActiveRecord::ConnectionHandling
     x = _brick_establish_connection(*args)
 
     if (relations = ::Brick.relations).empty?
-      schema = 'public'
-      puts ActiveRecord::Base.connection.execute("SELECT current_setting('SEARCH_PATH')").to_a.inspect
-      sql = ActiveRecord::Base.send(:sanitize_sql_array, [
+      # Only for Postgres?  (Doesn't work in sqlite3)
+      # puts ActiveRecord::Base.connection.execute("SELECT current_setting('SEARCH_PATH')").to_a.inspect
+
+      case ActiveRecord::Base.connection.adapter_name
+      when 'PostgreSQL'
+        schema = 'public'
+      when 'Mysql2'
+        schema = ActiveRecord::Base.connection.current_database
+      when 'SQLite'
+        sql = "SELECT m.name AS relation_name, UPPER(m.type) AS table_type,
+          p.name AS column_name, p.type AS data_type,
+          CASE p.pk WHEN 1 THEN 'PRIMARY KEY' END AS const
+        FROM sqlite_master AS m
+          INNER JOIN pragma_table_info(m.name) AS p
+        WHERE m.name NOT IN ('ar_internal_metadata', 'schema_migrations')
+        ORDER BY m.name, p.cid"
+      else
+        puts "Unfamiliar with connection adapter #{ActiveRecord::Base.connection.adapter_name}"
+      end
+
+      sql ||= ActiveRecord::Base.send(:sanitize_sql_array, [
         "SELECT t.table_name AS relation_name, t.table_type,
           c.column_name, c.data_type,
           COALESCE(c.character_maximum_length, c.numeric_precision) AS max_length,
-          tc.constraint_type AS const, kcu.constraint_name AS key
+          tc.constraint_type AS const, kcu.constraint_name AS \"key\"
         FROM INFORMATION_SCHEMA.tables AS t
           LEFT OUTER JOIN INFORMATION_SCHEMA.columns AS c ON t.table_schema = c.table_schema
             AND t.table_name = c.table_name
@@ -299,48 +312,87 @@ module ActiveRecord::ConnectionHandling
             AND kcu.ordinal_position = c.ordinal_position
           LEFT OUTER JOIN INFORMATION_SCHEMA.table_constraints AS tc
             ON kcu.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+            AND kcu.TABLE_NAME = tc.TABLE_NAME
             AND kcu.CONSTRAINT_NAME = tc.constraint_name
         WHERE t.table_schema = ? -- COALESCE(current_setting('SEARCH_PATH'), 'public')
   --          AND t.table_type IN ('VIEW') -- 'BASE TABLE', 'FOREIGN TABLE'
           AND t.table_name NOT IN ('pg_stat_statements', 'ar_internal_metadata', 'schema_migrations')
         ORDER BY 1, t.table_type DESC, c.ordinal_position", schema
       ])
-      ActiveRecord::Base.connection.execute(sql).each do |r|
-        # next if internal_views.include?(r['relation_name']) # Skip internal views such as v_all_assessments
 
-        relation = relations[r['relation_name']]
-        relation[:isView] = true if r['table_type'] == 'VIEW'
-        col_name = r['column_name']
-        cols = relation[:cols] # relation.fetch(:cols) { relation[:cols] = [] }
-        key = case r['const']
-              when 'PRIMARY KEY'
-                relation[:pkey][r['key']] ||= []
-              when 'UNIQUE'
-                relation[:ukeys][r['key']] ||= []
-                # key = (relation[:ukeys] = Hash.new { |h, k| h[k] = [] }) if key.is_a?(Array)
-                # key[r['key']]
-              end
-        key << col_name if key
-        cols[col_name] = [r['data_type'], r['max_length'], r['measures']&.include?(col_name)]
-        # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
+      measures = []
+      case ActiveRecord::Base.connection.adapter_name
+      when 'PostgreSQL', 'SQLite' # These bring back a hash for each row because the query uses column aliases
+        ActiveRecord::Base.connection.execute(sql).each do |r|
+          # next if internal_views.include?(r['relation_name']) # Skip internal views such as v_all_assessments
+          relation = relations[(relation_name = r['relation_name'])]
+          relation[:isView] = true if r['table_type'] == 'VIEW'
+          col_name = r['column_name']
+          key = case r['const']
+                when 'PRIMARY KEY'
+                  relation[:pkey][r['key'] || relation_name] ||= []
+                when 'UNIQUE'
+                  relation[:ukeys][r['key'] || "#{relation_name}.#{col_name}"] ||= []
+                  # key = (relation[:ukeys] = Hash.new { |h, k| h[k] = [] }) if key.is_a?(Array)
+                  # key[r['key']]
+                end
+          key << col_name if key
+          cols = relation[:cols] # relation.fetch(:cols) { relation[:cols] = [] }
+          cols[col_name] = [r['data_type'], r['max_length'], measures&.include?(col_name)]
+          # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
+        end
+      else # MySQL2 acts a little differently, bringing back an array for each row
+        ActiveRecord::Base.connection.execute(sql).each do |r|
+          # next if internal_views.include?(r['relation_name']) # Skip internal views such as v_all_assessments
+          relation = relations[(relation_name = r[0])] # here relation represents a table or view from the database
+          relation[:isView] = true if r[1] == 'VIEW' # table_type
+          col_name = r[2]
+          key = case r[5] # constraint type
+                when 'PRIMARY KEY'
+                  # key
+                  relation[:pkey][r[6] || relation_name] ||= []
+                when 'UNIQUE'
+                  relation[:ukeys][r[6] || "#{relation_name}.#{col_name}"] ||= []
+                  # key = (relation[:ukeys] = Hash.new { |h, k| h[k] = [] }) if key.is_a?(Array)
+                  # key[r['key']]
+                end
+          key << col_name if key
+          cols = relation[:cols] # relation.fetch(:cols) { relation[:cols] = [] }
+          # 'data_type', 'max_length'
+          cols[col_name] = [r[3], r[4], measures&.include?(col_name)]
+          # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
+        end
       end
 
-      sql = ActiveRecord::Base.send(:sanitize_sql_array, [
-        "SELECT kcu1.TABLE_NAME, kcu1.COLUMN_NAME, kcu2.TABLE_NAME, kcu1.CONSTRAINT_NAME
-        FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS rc
-          INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu1
-            ON kcu1.CONSTRAINT_CATALOG = rc.CONSTRAINT_CATALOG
-            AND kcu1.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
-            AND kcu1.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
-          INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu2
-            ON kcu2.CONSTRAINT_CATALOG = rc.UNIQUE_CONSTRAINT_CATALOG
-            AND kcu2.CONSTRAINT_SCHEMA = rc.UNIQUE_CONSTRAINT_SCHEMA
-            AND kcu2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME
-            AND kcu2.ORDINAL_POSITION = kcu1.ORDINAL_POSITION
-        WHERE kcu1.CONSTRAINT_SCHEMA = ? -- COALESCE(current_setting('SEARCH_PATH'), 'public')", schema
-        # AND kcu2.TABLE_NAME = ?;", Apartment::Tenant.current, table_name
-      ])
-      ActiveRecord::Base.connection.execute(sql).values.each { |fk| ::Brick._add_bt_and_hm(fk, relations) }
+      case ActiveRecord::Base.connection.adapter_name
+      when 'PostgreSQL', 'Mysql2'
+        sql = ActiveRecord::Base.send(:sanitize_sql_array, [
+          "SELECT kcu1.TABLE_NAME, kcu1.COLUMN_NAME, kcu2.TABLE_NAME, kcu1.CONSTRAINT_NAME
+          FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS rc
+            INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu1
+              ON kcu1.CONSTRAINT_CATALOG = rc.CONSTRAINT_CATALOG
+              AND kcu1.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
+              AND kcu1.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
+            INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu2
+              ON kcu2.CONSTRAINT_CATALOG = rc.UNIQUE_CONSTRAINT_CATALOG
+              AND kcu2.CONSTRAINT_SCHEMA = rc.UNIQUE_CONSTRAINT_SCHEMA
+              AND kcu2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME
+              AND kcu2.ORDINAL_POSITION = kcu1.ORDINAL_POSITION
+          WHERE kcu1.CONSTRAINT_SCHEMA = ? -- COALESCE(current_setting('SEARCH_PATH'), 'public')", schema
+          # AND kcu2.TABLE_NAME = ?;", Apartment::Tenant.current, table_name
+        ])
+      when 'SQLite'
+        sql = "SELECT m.name, fkl.\"from\", fkl.\"table\", m.name || '_' || fkl.\"from\" AS constraint_name
+        FROM sqlite_master m
+          INNER JOIN pragma_foreign_key_list(m.name) fkl ON m.type = 'table'
+        ORDER BY m.name, fkl.seq"
+      else
+      end
+      if sql
+        result = ActiveRecord::Base.connection.execute(sql)
+        result = result.values unless result.is_a?(Array)
+        result.each { |fk| ::Brick._add_bt_and_hm(fk, relations) }
+      end
     end
 
     puts "Classes that can be built from tables:"

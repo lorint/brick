@@ -44,7 +44,11 @@ gem_spec = Gem::Specification.new do |s|
 
   # Check for presence of libmysqlclient-dev, default-libmysqlclient-dev, libmariadb-dev, mysql-devel, etc
   require 'mkmf'
-  s.add_development_dependency 'mysql2', '~> 0.5' if have_library('mysqlclient')
+  have_mysql = false
+  ['/usr/local/lib', '/usr/local/opt/mysql/lib', '/usr/lib/mysql', '/opt/homebrew/opt/mysql/lib'].each do |lib_path|
+    break if (have_mysql = find_library('mysqlclient', nil, lib_path))
+  end
+  s.add_development_dependency 'mysql2', '~> 0.5' if have_mysql
   s.add_development_dependency 'pg', '>= 0.18', '< 2.0'
   s.add_development_dependency 'sqlite3', '~> 1.4'
 end

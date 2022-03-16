@@ -109,6 +109,7 @@ DEPENDENCIES
   ffaker (~> 2.11)
   generator_spec (~> 0.9.4)
   memory_profiler (~> 0.9.14)
+  mysql2 (< 0.5.2)
   pg (>= 0.18, < 1.0)
   pry-byebug (~> 3.7.0)
   rake (~> 13.0)
