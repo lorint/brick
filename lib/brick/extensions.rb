@@ -80,6 +80,18 @@ module ActiveRecord
       end
     end
   end
+
+  module Inheritance
+    module ClassMethods
+      private
+
+      alias _brick_find_sti_class find_sti_class
+      def find_sti_class(type_name)
+        ::Brick.sti_models[type_name] = { base: self } unless type_name.blank?
+        _brick_find_sti_class(type_name)
+      end
+    end
+  end
 end
 
 # Object.class_exec do
@@ -113,6 +125,11 @@ class Object
         singular_table_name = ActiveSupport::Inflector.underscore(model_name)
         table_name = ActiveSupport::Inflector.pluralize(singular_table_name)
 
+        # Adjust for STI if we know of a base model for the requested model name
+        if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
+          table_name = base_model.table_name
+        end
+
         # Maybe, just maybe there's a database table that will satisfy this need
         if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(m) })
           build_model(model_name, singular_table_name, table_name, relations, matching)
@@ -138,8 +155,9 @@ class Object
       if table_name == singular_table_name && !ActiveSupport::Inflector.inflections.uncountable.include?(table_name)
         raise NameError.new("Class name for a model that references table \"#{matching}\" should be \"#{ActiveSupport::Inflector.singularize(model_name)}\".")
       end
-      code = +"class #{model_name} < ActiveRecord::Base\n"
-      built_model = Class.new(ActiveRecord::Base) do |new_model_class|
+      base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil) || ActiveRecord::Base
+      code = +"class #{model_name} < #{base_model.name}\n"
+      built_model = Class.new(base_model) do |new_model_class|
         Object.const_set(model_name.to_sym, new_model_class)
         # Accommodate singular or camel-cased table names such as "order_detail" or "OrderDetails"
         code << "  self.table_name = '#{self.table_name = matching}'\n" unless table_name == matching
