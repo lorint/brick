@@ -133,7 +133,7 @@ module Brick
       <% if (bt = bts[k]) %>
         <%= obj = bt[1].find_by(bt.last => val); link_to(obj.brick_descrip, obj) if obj %>
       <% elsif is_first %>
-        <%= is_first = false; link_to val, #{obj_name} %>
+        <%= is_first = false; link_to val, #{obj_name}_path(#{obj_name}.#{pk}) %>
       <% else %>
         <%= val %>
       <% end %>

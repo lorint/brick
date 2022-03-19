@@ -81,6 +81,10 @@ if Gem::Specification.all_names.any? { |g| g.start_with?('rails-') }
   require 'brick/frameworks/rails'
 end
 module Brick
+  def self.sti_models
+    @sti_models ||= {}
+  end
+
   class << self
     # All tables and views (what Postgres calls "relations" including column and foreign key info)
     def relations

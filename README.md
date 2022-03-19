@@ -9,7 +9,7 @@ An ActiveRecord extension that auto-creates models, views, controllers, and rout
 | Version        | Documentation                                             |
 | -------------- | --------------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.5         | https://github.com/lorint/brick/blob/v1.0.0/README.md |
+| 1.0.6         | https://github.com/lorint/brick/blob/v1.0.0/README.md |
 
 ## Table of Contents
 
