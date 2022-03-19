@@ -23,6 +23,32 @@ RSpec.describe 'Parent', type: :model do
       expect(child_parent.klass).to eq(Parent)
     end
 
+    it 'should auto-create controllers for parents and children' do
+      path = '/parents'
+      qs = 'taco=pasta'
+      env = { 'QUERY_STRING' => qs, 'REQUEST_PATH' => path, 'REQUEST_URI' => "#{path}?#{qs}" }
+      (parents = ParentsController.new).set_request!(ActionDispatch::Request.new(env))
+
+      expect(parents).to respond_to(:index)
+      expect(parents).to respond_to(:show)
+      # parents.index
+      # expect(object.instance_variable_get(:@parents)).not_to be_nil
+
+      children = ChildrenController.new
+      expect(children).to respond_to(:index)
+      expect(children).to respond_to(:show)
+    end
+
+    it 'should auto-create a single set of routes for parents and children' do
+      parent_children = Parent.reflect_on_association(:children)
+      expect(parent_children.macro).to eq(:has_many)
+      expect(parent_children.klass).to eq(Child)
+
+      child_parent = Child.reflect_on_association(:parent)
+      expect(child_parent.macro).to eq(:belongs_to)
+      expect(child_parent.klass).to eq(Parent)
+    end
+
     it 'should be able to import from an array' do
       child_info = [
         ['Firstname', 'Lastname', 'Address', 'Children Firstname', 'Children Lastname', 'Children Dateofbirth'],
