@@ -90,6 +90,30 @@ module Brick
       (connections[ActiveRecord::Base.connection_pool.object_id] ||= Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = {} } })
     end
 
+    def get_bts_and_hms(model)
+      model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
+        case a.macro
+        when :belongs_to
+          # Build #brick_descrip if needed
+          if a.klass.instance_methods(false).exclude?(:brick_descrip)
+            descrip_col = (a.klass.columns.map(&:name) - a.klass._brick_get_fks -
+                          (::Brick.config.metadata_columns || []) -
+                          [a.klass.primary_key]).first&.to_sym
+            if descrip_col
+              a.klass.define_method :brick_descrip do
+                send(descrip_col)
+              end
+            end
+          end
+
+          s.first[a.foreign_key] = [a.name, a.klass]
+        when :has_many, :has_one
+          s.last[a.name] = a
+        end
+        s
+      end
+    end
+
     # Switches Brick auto-models on or off, for all threads
     # @api public
     def enable_models=(value)
@@ -159,8 +183,28 @@ module Brick
 
     # Additional table associations to use (Think of these as virtual foreign keys perhaps)
     # @api public
-    def additional_references=(value)
-      Brick.config.additional_references = value
+    def additional_references=(ars)
+      if ars
+        ars = ars.call if ars.is_a?(Proc)
+        ars = ars.to_a unless ars.is_a?(Array)
+        ars = [ars] unless ars.empty? || ars.first.is_a?(Array)
+        Brick.config.additional_references = ars
+      end
+    end
+
+    # Associations to treat has a has_one
+    # @api public
+    def has_ones=(hos)
+      if hos
+        hos = hos.call if hos.is_a?(Proc)
+        hos = hos.to_a unless hos.is_a?(Array)
+        hos = [hos] unless hos.empty? || hos.first.is_a?(Array)
+        # Translate to being nested hashes
+        Brick.config.has_ones = hos&.each_with_object(Hash.new { |h, k| h[k] = {} }) do |v, s|
+          s[v.first][v[1]] = v[2] if v[1]
+          s
+        end
+      end
     end
 
 
