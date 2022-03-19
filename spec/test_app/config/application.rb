@@ -4,11 +4,10 @@ require File.expand_path('boot', __dir__)
 
 require 'brick'
 
-# Make it so when #establish_connection is called, we migrate before Brick goes to check out the tables
+# Make it so when #establish_connection is called, we migrate right before Brick goes to check out the tables
 module ActiveRecord::ConnectionHandling
   alias _brick_testing_reflect_tables _brick_reflect_tables
   def _brick_reflect_tables
-    # Migrate the database
     require_relative '../../support/brick_spec_migrator'
     ::BrickSpecMigrator.new(::File.expand_path('../db/migrate/', __dir__)).migrate
     _brick_testing_reflect_tables

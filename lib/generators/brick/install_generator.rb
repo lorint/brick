@@ -48,6 +48,14 @@ module Brick
 # Brick.additional_references = [['orders', 'customer_id', 'customer'],
 #                                ['customer', 'region_id', 'regions']]
 
+# # By default primary tables involved in a foreign key relationship will indicate a \"has_many\" relationship pointing
+# # back to the foreign table.  In order to represent a \"has_one\" association instead, an override can be provided
+# # using the primary model name and the association name which you instead want to have treated as a \"has_one\":
+# Brick.has_ones = [['User', 'user_profile']]
+# # If you want to use an alternate name for the \"has_one\", such as in the case above calling the association \"profile\"
+# # instead of \"user_profile\", then apply that as a third parameter like this:
+# Brick.has_ones = [['User', 'user_profile', 'profile']]
+
 # # We normally don't consider the timestamp columns \"created_at\", \"updated_at\", and \"deleted_at\" to count when
 # # finding tables which can serve as associative tables in an N:M association.  That is, ones that can be a
 # # part of a has_many :through association.  If you want to use different exclusion columns than our defaults

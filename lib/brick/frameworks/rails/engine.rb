@@ -5,10 +5,8 @@ module Brick
     # See http://guides.rubyonrails.org/engines.html
     class Engine < ::Rails::Engine
       # paths['app/models'] << 'lib/brick/frameworks/active_record/models'
-      puts "BEFORE - engine set config"
       config.brick = ActiveSupport::OrderedOptions.new
       ActiveSupport.on_load(:before_initialize) do |app|
-        puts "BEFORE - engine initialisation"
         ::Brick.enable_models = app.config.brick.fetch(:enable_models, true)
         ::Brick.enable_controllers = app.config.brick.fetch(:enable_controllers, true)
         ::Brick.enable_views = app.config.brick.fetch(:enable_views, true)
@@ -23,11 +21,13 @@ module Brick
 
         # Additional references (virtual foreign keys)
         ::Brick.additional_references = app.config.brick.fetch(:additional_references, nil)
+
+        # Has one relationships
+        ::Brick.has_ones = app.config.brick.fetch(:has_ones, nil)
       end
 
       # After we're initialized and before running the rest of stuff, put our configuration in place
-      ActiveSupport.on_load(:after_initialize) do |xyz|
-        puts "AFTER - engine initialisation"
+      ActiveSupport.on_load(:after_initialize) do
         # ====================================
         # Dynamically create generic templates
         # ====================================
@@ -61,32 +61,12 @@ module Brick
                 table_name = model_name.pluralize.underscore
                 # This gets has_many as well as has_many :through
                 # %%% weed out ones that don't have an available model to reference
-                bts, hms = @_brick_model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
-                  case a.macro
-                  when :belongs_to
-                    # Build #brick_descrip if needed
-                    unless a.klass.instance_methods(false).include?(:brick_descrip)
-                      descrip_col = (a.klass.columns.map(&:name) - a.klass._brick_get_fks -
-                                    (::Brick.config.metadata_columns || []) -
-                                    [a.klass.primary_key]).first&.to_sym
-                      if descrip_col
-                        a.klass.define_method :brick_descrip do
-                          send(descrip_col)
-                        end
-                      end
-                    end
-
-                    s.first[a.foreign_key] = [a.name, a.klass]
-                  when :has_many
-                    s.last[a.name] = a
-                  end
-                  s
-                end
+                bts, hms = ::Brick.get_bts_and_hms(@_brick_model)
                 # Weed out has_manys that go to an associative table
                 associatives = hms.select { |k, v| v.options[:through] }.each_with_object({}) do |hmt, s|
                   s[hmt.first] = hms.delete(hmt.last.options[:through]) # End up with a hash of HMT names pointing to join-table associations
                 end
-                hms_headers = hms.each_with_object(+'') { |hm, s| s << "<th>HM#{'T' if hm.last.options[:through]} #{hm.first}</th>\n" }
+                hms_headers = hms.each_with_object(+'') { |hm, s| s << "<th>H#{hm.last.macro == :has_one ? 'O' : 'M'}#{'T' if hm.last.options[:through]} #{hm.first}</th>\n" }
                 hms_columns = hms.each_with_object(+'') do |hm, s|
                   hm_fk_name = if hm.last.options[:through]
                     associative = associatives[hm.last.name]
@@ -94,9 +74,15 @@ module Brick
                   else
                     hm.last.foreign_key
                   end
-                  s << "<td>
-  <%= link_to \"#\{#{obj_name}.#{hm.first}.count\} #{hm.first}\", #{hm.last.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: #{obj_name}.#{pk} }) %>
+                  s << if hm.last.macro == :has_many
+"<td>
+  <%= link_to \"#\{#{obj_name}.#{hm.first}.count\} #{hm.first}\", #{hm.last.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: #{obj_name}.#{pk} }) unless #{obj_name}.#{hm.first}.count.zero? %>
 </td>\n"
+                         else # has_one
+"<td>
+  <%= obj = #{obj_name}.#{hm.first}; link_to(obj.brick_descrip, obj) if obj %>
+</td>\n"
+                       end
                 end
 
                 inline = case args.first
@@ -109,7 +95,7 @@ module Brick
 <table id=\"#{table_name}\">
   <tr>
   <% is_first = true; is_need_id_col = nil
-     bts = { #{bts.each_with_object([]) { |v, s| s << "#{v.first.inspect} => [#{v.last.first.inspect}, #{v.last.last.name}, #{v.last.last.primary_key.inspect}]"}.join(', ')} }
+     bts = { #{bts.each_with_object([]) { |v, s| s << "#{v.first.inspect} => [#{v.last.first.inspect}, #{v.last[1].name}, #{v.last[1].primary_key.inspect}]"}.join(', ')} }
      @#{table_name}.columns.map(&:name).each do |col| %>
     <% next if col == '#{pk}' || ::Brick.config.metadata_columns.include?(col) %>
     <th>
@@ -145,7 +131,7 @@ module Brick
       <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) %>
       <td>
       <% if (bt = bts[k]) %>
-        <%= obj = bt[1].find_by(bt.last => val); link_to obj.brick_descrip, obj %>
+        <%= obj = bt[1].find_by(bt.last => val); link_to(obj.brick_descrip, obj) if obj %>
       <% elsif is_first %>
         <%= is_first = false; link_to val, #{obj_name} %>
       <% else %>
@@ -184,8 +170,7 @@ module Brick
                 ::Rails.application.routes.append do
                   # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
                   # If auto-controllers and auto-models are both enabled then this makes sense:
-                  relations = (::Brick.instance_variable_get(:@relations) || {})[ActiveRecord::Base.connection_pool.object_id] || {}
-                  relations.each do |k, v|
+                  ::Brick.relations.each do |k, v|
                     unless existing_controllers.key?(controller_name = k.underscore.pluralize)
                       options = {}
                       options[:only] = [:index, :show] if v.key?(:isView)
@@ -201,9 +186,6 @@ module Brick
 
         # Additional references (virtual foreign keys)
         if (ars = ::Brick.config.additional_references)
-          ars = ars.call if ars.is_a?(Proc)
-          ars = ars.to_a unless ars.is_a?(Array)
-          ars = [ars] unless ars.empty? || ars.first.is_a?(Array)
           ars.each do |fk|
             ::Brick._add_bt_and_hm(fk[0..2])
           end

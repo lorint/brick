@@ -65,6 +65,15 @@ module Brick
       @mutex.synchronize { @additional_references = references }
     end
 
+    # Associations to treat as a has_one
+    def has_ones
+      @mutex.synchronize { @has_ones }
+    end
+
+    def has_ones=(references)
+      @mutex.synchronize { @has_ones = references }
+    end
+
     def skip_database_views
       @mutex.synchronize { @skip_database_views }
     end

@@ -61,14 +61,15 @@ module ActiveRecord
       wheres = {}
       rel_joins = []
       params.each do |k, v|
-        if (ks = k.split('.')).length > 1
+        case (ks = k.split('.')).length
+        when 1
+          next unless klass._brick_get_fks.include?(k)
+        when 2
           assoc_name = ks.first.to_sym
           # Make sure it's a good association name and that the model has that column name
           next unless klass.reflect_on_association(assoc_name)&.klass&.columns&.map(&:name)&.include?(ks.last)
 
           rel_joins << assoc_name unless rel_joins.include?(assoc_name)
-        else
-          next unless klass._brick_get_fks.include?(k)
         end
         wheres[k] = v.split(',')
       end
@@ -184,6 +185,14 @@ class Object
                     need_class_name = singular_table_name.underscore != assoc_name
                     need_fk = "#{assoc_name}_id" != assoc[:fk]
                     inverse_assoc_name, _x = _brick_get_hm_assoc_name(relations[assoc[:inverse_table]], assoc[:inverse])
+                    if (has_ones = ::Brick.config.has_ones&.fetch(assoc[:inverse][:alternate_name].camelize, nil))&.key?(singular_inv_assoc_name = ActiveSupport::Inflector.singularize(inverse_assoc_name))
+                      inverse_assoc_name = if has_ones[singular_inv_assoc_name]
+                                             need_inverse_of = true
+                                             has_ones[singular_inv_assoc_name]
+                                           else
+                                             singular_inv_assoc_name
+                                           end
+                    end
                     :belongs_to
                   else
                     # need_class_name = ActiveSupport::Inflector.singularize(assoc_name) == ActiveSupport::Inflector.singularize(table_name.underscore)
@@ -191,14 +200,31 @@ class Object
                     assoc_name, need_class_name = _brick_get_hm_assoc_name(relation, assoc)
                     need_fk = "#{ActiveSupport::Inflector.singularize(assoc[:inverse][:inverse_table])}_id" != assoc[:fk]
                     # fks[table_name].find { |other_assoc| other_assoc.object_id != assoc.object_id && other_assoc[:assoc_name] == assoc[assoc_name] }
-                    :has_many
+                    if (has_ones = ::Brick.config.has_ones&.fetch(model_name, nil))&.key?(singular_assoc_name = ActiveSupport::Inflector.singularize(assoc_name))
+                      assoc_name = if has_ones[singular_assoc_name]
+                                     need_class_name = true
+                                     has_ones[singular_assoc_name]
+                                   else
+                                     singular_assoc_name
+                                   end
+                      :has_one
+                    else
+                      :has_many
+                    end
                   end
+          # Figure out if we need to specially call out the class_name and/or foreign key
+          # (and if either of those then definitely also a specific inverse_of)
           options[:class_name] = singular_table_name.camelize if need_class_name
-          # Figure out if we need to specially call out the foreign key
+          # Work around a bug in CPK where self-referencing belongs_to associations double up their foreign keys
           if need_fk # Funky foreign key?
-            options[:foreign_key] = assoc[:fk].to_sym
+            options[:foreign_key] = if assoc[:fk].is_a?(Array)
+                                      assoc_fk = assoc[:fk].uniq
+                                      assoc_fk.length < 2 ? assoc_fk.first : assoc_fk
+                                    else
+                                      assoc[:fk].to_sym
+                                    end
           end
-          options[:inverse_of] = inverse_assoc_name.to_sym if need_class_name || need_fk
+          options[:inverse_of] = inverse_assoc_name.to_sym if need_class_name || need_fk || need_inverse_of
           assoc_name = assoc_name.to_sym
           code << "  #{macro} #{assoc_name.inspect}#{options.map { |k, v| ", #{k}: #{v.inspect}" }.join}\n"
           self.send(macro, assoc_name, **options)
@@ -257,7 +283,7 @@ class Object
     end
 
     def _brick_get_hm_assoc_name(relation, hm_assoc)
-      if relation[:hm_counts][hm_assoc[:assoc_name]] > 1
+      if relation[:hm_counts][hm_assoc[:assoc_name]]&.> 1
         [ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name]), true]
       else
         [ActiveSupport::Inflector.pluralize(hm_assoc[:inverse_table]), nil]
@@ -371,7 +397,7 @@ module ActiveRecord::ConnectionHandling
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'Mysql2'
         sql = ActiveRecord::Base.send(:sanitize_sql_array, [
-          "SELECT kcu1.TABLE_NAME, kcu1.COLUMN_NAME, kcu2.TABLE_NAME, kcu1.CONSTRAINT_NAME
+          "SELECT kcu1.TABLE_NAME, kcu1.COLUMN_NAME, kcu2.TABLE_NAME AS primary_table, kcu1.CONSTRAINT_NAME
           FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS rc
             INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu1
               ON kcu1.CONSTRAINT_CATALOG = rc.CONSTRAINT_CATALOG
