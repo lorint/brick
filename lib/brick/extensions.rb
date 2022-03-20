@@ -194,8 +194,10 @@ class Object
         end
 
         fks = relation[:fks] || {}
-        fks.each do |_constraint_name, assoc|
-          assoc_name = assoc[:assoc_name]
+        # Do the bulk of the has_many / belongs_to processing, and store details about HMT so they can be done at the very last
+        hmts = fks.each_with_object(Hash.new { |h, k| h[k] = [] }) do |fk, hmts|
+          # The key in each hash entry (fk.first) is the constraint name
+          assoc_name = (assoc = fk.last)[:assoc_name]
           inverse_assoc_name = assoc[:inverse][:assoc_name]
           options = {}
           singular_table_name = ActiveSupport::Inflector.singularize(assoc[:inverse_table])
@@ -243,21 +245,41 @@ class Object
                                     end
           end
           options[:inverse_of] = inverse_assoc_name.to_sym if need_class_name || need_fk || need_inverse_of
-          assoc_name = assoc_name.to_sym
-          code << "  #{macro} #{assoc_name.inspect}#{options.map { |k, v| ", #{k}: #{v.inspect}" }.join}\n"
-          self.send(macro, assoc_name, **options)
 
-          # Look for any valid "has_many :through"
+          # Prepare a list of entries for "has_many :through"
           if macro == :has_many
             relations[assoc[:inverse_table]][:hmt_fks].each do |k, hmt_fk|
               next if k == assoc[:fk]
 
-              hmt_fk = ActiveSupport::Inflector.pluralize(hmt_fk)
-              code << "  has_many :#{hmt_fk}, through: #{assoc_name.inspect}\n"
-              self.send(:has_many, hmt_fk.to_sym, **{ through: assoc_name })
+              hmts[ActiveSupport::Inflector.pluralize(hmt_fk.last)] << [assoc, hmt_fk.first]
             end
           end
+
+          # And finally create a has_one, has_many, or belongs_to for this association
+          assoc_name = assoc_name.to_sym
+          code << "  #{macro} #{assoc_name.inspect}#{options.map { |k, v| ", #{k}: #{v.inspect}" }.join}\n"
+          self.send(macro, assoc_name, **options)
+          hmts
         end
+        hmts.each do |hmt_fk, fks|
+          fks.each do |fk|
+            source = nil
+            this_hmt_fk = if fks.length > 1
+                            singular_assoc_name = ActiveSupport::Inflector.singularize(fk.first[:inverse][:assoc_name])
+                            source = fk.last
+                            through = ActiveSupport::Inflector.pluralize(fk.first[:alternate_name])
+                            "#{singular_assoc_name}_#{hmt_fk}"
+                          else
+                            through = fk.first[:assoc_name]
+                            hmt_fk
+                          end
+            code << "  has_many :#{this_hmt_fk}, through: #{(assoc_name = through.to_sym).to_sym.inspect}#{", source: :#{source}" if source}\n"
+            options = { through: assoc_name }
+            options[:source] = source.to_sym if source
+            self.send(:has_many, this_hmt_fk.to_sym, **options)
+          end
+        end
+
         code << "end # model #{model_name}\n\n"
       end # class definition
       [built_model, code]
