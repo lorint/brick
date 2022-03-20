@@ -69,11 +69,11 @@ module Brick
                 hms_headers = hms.each_with_object(+'') { |hm, s| s << "<th>H#{hm.last.macro == :has_one ? 'O' : 'M'}#{'T' if hm.last.options[:through]} #{hm.first}</th>\n" }
                 hms_columns = hms.each_with_object(+'') do |hm, s|
                   hm_fk_name = if hm.last.options[:through]
-                    associative = associatives[hm.last.name]
-                    "'#{associative.name}.#{associative.foreign_key}'"
-                  else
-                    hm.last.foreign_key
-                  end
+                                 associative = associatives[hm.last.name]
+                                 "'#{associative.name}.#{associative.foreign_key}'"
+                               else
+                                 hm.last.foreign_key
+                               end
                   s << if hm.last.macro == :has_many
 "<td>
   <%= link_to \"#\{#{obj_name}.#{hm.first}.count\} #{hm.first}\", #{hm.last.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: #{obj_name}.#{pk} }) unless #{obj_name}.#{hm.first}.count.zero? %>
@@ -194,7 +194,7 @@ module Brick
         # Find associative tables that can be set up for has_many :through
         ::Brick.relations.each do |_key, tbl|
           tbl_cols = tbl[:cols].keys
-          fks = tbl[:fks].each_with_object({}) { |fk, s| s[fk.last[:fk]] = fk.last[:inverse_table] if fk.last[:is_bt]; s }
+          fks = tbl[:fks].each_with_object({}) { |fk, s| s[fk.last[:fk]] = [fk.last[:assoc_name], fk.last[:inverse_table]] if fk.last[:is_bt]; s }
           # Aside from the primary key and the metadata columns created_at, updated_at, and deleted_at, if this table only has
           # foreign keys then it can act as an associative table and thus be used with has_many :through.
           if fks.length > 1 && (tbl_cols - fks.keys - (::Brick.config.metadata_columns || []) - (tbl[:pkey].values.first || [])).length.zero?
