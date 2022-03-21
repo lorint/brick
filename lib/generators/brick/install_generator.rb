@@ -19,6 +19,62 @@ module Brick
 
     def create_initializer_file
       unless File.exists?(filename = 'config/initializers/brick.rb')
+        # See if we can make suggestions for additional_references
+        resembles_fks = []
+        possible_additional_references = (relations = ::Brick.relations).each_with_object([]) do |v, s|
+          v.last[:cols].each do |col, _type|
+            col_down = col.downcase
+            is_possible = true
+            if col_down.end_with?('_id')
+              col_down = col_down[0..-4]
+            elsif col_down.end_with?('id')
+              col_down = col_down[0..-3]
+              is_possible = false if col_down.length < 3 # Was it simply called "id" or something else really short?
+            elsif col_down.start_with?('id_')
+              col_down = col_down[3..-1]
+            elsif col_down.start_with?('id')
+              col_down = col_down[2..-1]
+            else
+              is_possible = false
+            end
+            if col_down.start_with?('fk_')
+              is_possible = true
+              col_down = col_down[3..-1]
+            end
+            # This possible key not really a primary key and not yet used as a foreign key?
+            if is_possible && !(relation = relations.fetch(v.first, {}))[:pkey].first&.last&.include?(col) &&
+               !relations.fetch(v.first, {})[:fks]&.any? { |_k, v| v[:is_bt] && v[:fk] == col }
+              if (relations.fetch(f_table = col_down, nil) ||
+                 relations.fetch(f_table = ActiveSupport::Inflector.pluralize(col_down), nil)) &&
+                 # Looks pretty promising ... just make sure a model file isn't present
+                 !File.exists?("app/models/#{ActiveSupport::Inflector.singularize(v.first)}.rb")
+                s << "['#{v.first}', '#{col}', '#{f_table}']"
+              else
+                resembles_fks << "#{v.first}.#{col}"
+              end
+            end
+          end
+          s
+        end
+
+        bar = case possible_additional_references.length
+      when 0
++"# Brick.additional_references = [['orders', 'customer_id', 'customer'],
+#                                ['customer', 'region_id', 'regions']]"
+      when 1
+        +"# # Here is a possible additional reference that has been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
+# Brick.additional_references = [[#{possible_additional_references.first}]"
+      else
+        +"# # Here are possible additional references that have been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
+# Brick.additional_references = [
+#   #{possible_additional_references.join(",\n#   ")}
+# ]"
+      end
+      if resembles_fks.length > 0
+        bar << "\n# # Columns named somewhat like a foreign key which you may wnat to consider:
+# #   #{resembles_fks.join(', ')}"
+      end
+
         create_file filename, "# frozen_string_literal: true
 
 # # Settings for the Brick gem
@@ -30,7 +86,7 @@ module Brick
 # Brick.enable_controllers = false
 # Brick.enable_views = false
 
-# # By default models are auto-created from database views, and set to be read-only.  This can be skipped.
+# # By default models are auto-created for database views, and set to be read-only.  This can be skipped.
 # Brick.skip_database_views = true
 
 # # Any tables or views you'd like to skip when auto-creating models
@@ -44,9 +100,8 @@ module Brick
 # #   foreign table name / foreign key column / primary table name.
 # # (We boldly expect that the primary key identified by ActiveRecord on the primary table will be accurate,
 # # usually this is \"id\" but there are some good smarts that are used in case some other column has been set
-# # to be the primary key.
-# Brick.additional_references = [['orders', 'customer_id', 'customer'],
-#                                ['customer', 'region_id', 'regions']]
+# # to be the primary key.)
+#{bar}
 
 # # By default primary tables involved in a foreign key relationship will indicate a \"has_many\" relationship pointing
 # # back to the foreign table.  In order to represent a \"has_one\" association instead, an override can be provided
@@ -56,10 +111,11 @@ module Brick
 # # instead of \"user_profile\", then apply that as a third parameter like this:
 # Brick.has_ones = [['User', 'user_profile', 'profile']]
 
-# # We normally don't consider the timestamp columns \"created_at\", \"updated_at\", and \"deleted_at\" to count when
-# # finding tables which can serve as associative tables in an N:M association.  That is, ones that can be a
-# # part of a has_many :through association.  If you want to use different exclusion columns than our defaults
-# # then this setting resets that list.  For instance, here is the override for the Sakila sample database:
+# # We normally don't show the timestamp columns \"created_at\", \"updated_at\", and \"deleted_at\", and also do
+# # not consider them when finding associative tables to support an N:M association.  (That is, ones that can be a
+# # part of a has_many :through association.)  If you want to use different exclusion columns than our defaults
+# # then this setting resets that list.  For instance, here is an override that is useful in the Sakila sample
+# # database:
 # Brick.metadata_columns = ['last_updated']
 
 # # If a default route is not supplied, Brick attempts to find the most \"central\" table and wires up the default
