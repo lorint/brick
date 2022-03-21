@@ -71,18 +71,20 @@ module Brick
                     s[hmt.first] = hms[through] # End up with a hash of HMT names pointing to join-table associations
                   elsif hmt.last.inverse_of.nil?
                     puts "SKIPPING #{hmt.last.name.inspect}"
+                    # %%% If we don't do this then below associative.name will find that associative is nil
                     skip_hms[hmt.last.name] = nil
                   end
                 end
+
+                schema_options = ::Brick.db_schemas.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
                 hms_headers = +''
-                puts skip_hms.inspect
+                # puts skip_hms.inspect
                 hms_columns = hms.each_with_object(+'') do |hm, s|
                   next if skip_hms.key?(hm.last.name)
 
                   hms_headers << "<th>H#{hm.last.macro == :has_one ? 'O' : 'M'}#{'T' if hm.last.options[:through]} #{hm.first}</th>\n"
                   hm_fk_name = if hm.last.options[:through]
                                  associative = associatives[hm.last.name]
-                                #  binding.pry if associative&.name.nil?
                                  "'#{associative.name}.#{associative.foreign_key}'"
                                else
                                  hm.last.foreign_key
@@ -100,8 +102,8 @@ module Brick
 
                 inline = case args.first
                 when 'index'
-                  "<p style=\"color: green\"><%= notice %></p>
-
+                  "<p style=\"color: green\"><%= notice %></p>#{"
+<select id=\"schema\">#{schema_options}</select>" if ::Brick.db_schemas.length > 1}
 <h1>#{model_name.pluralize}</h1>
 <% if @_brick_params&.present? %><h3>where <%= @_brick_params.each_with_object([]) { |v, s| s << \"#\{v.first\} = #\{v.last.inspect\}\" }.join(', ') %></h3><% end %>
 
@@ -144,9 +146,9 @@ module Brick
       <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) %>
       <td>
       <% if (bt = bts[k]) %>
-        <%= obj = bt[1].find_by(bt.last => val); link_to(obj.brick_descrip, obj) if obj %>
+        <%= obj = bt[1].find_by(bt.last => val); link_to(obj.brick_descrip, obj) if obj %>#{"
       <% elsif is_first %>
-        <%= is_first = false; link_to val, #{obj_name}_path(#{obj_name}.#{pk}) %>
+        <%= is_first = false; link_to val, #{obj_name}_path(#{obj_name}.#{pk}) %>" if pk }
       <% else %>
         <%= val %>
       <% end %>
@@ -159,6 +161,29 @@ module Brick
 </table>
 
 #{"<hr><%= link_to \"New #{obj_name}\", new_#{obj_name}_path %>" unless @_brick_model.is_view?}
+
+<script>
+var schemaSelect = document.getElementById(\"schema\");
+if (schemaSelect) {
+  var brickSchema = changeout(location.href, \"_brick_schema\");
+  if (brickSchema) {
+    [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
+  }
+  schemaSelect.value = brickSchema || \"public\";
+  schemaSelect.focus();
+  schemaSelect.addEventListener(\"change\", function () {
+    location.href = changeout(location.href, \"_brick_schema\", this.value);
+  });
+}
+function changeout(href, param, value) {
+  var hrefParts = href.split(\"?\");
+  var params = hrefParts.length > 1 ? hrefParts[1].split(\"&\") : [];
+  params = params.reduce(function (s, v) { var parts = v.split(\"=\"); s[parts[0]] = parts[1]; return s; }, {});
+  if (value === undefined) return params[param];
+  params[param] = value;
+  return hrefParts[0] + \"?\" + Object.keys(params).reduce(function (s, v) { s.push(v + \"=\" + params[v]); return s; }, []).join(\"&\");
+}
+</script>
 "
                 when 'show'
                   "<%= @#{@_brick_model.name.underscore}.inspect %>"

@@ -304,6 +304,8 @@ class Object
         code << "    @#{table_name}.brick_where(params)\n"
         code << "  end\n"
         self.define_method :index do
+          schema = params['_brick_schema'] || 'public'
+          ActiveRecord::Base.connection.execute("SET SEARCH_PATH='#{schema}';") if schema && ::Brick.db_schemas&.include?(schema)
           ar_relation = model.primary_key ? model.order(model.primary_key) : model.all
           instance_variable_set(:@_brick_params, ar_relation.brick_where(params))
           instance_variable_set("@#{table_name}".to_sym, ar_relation)
@@ -355,9 +357,11 @@ module ActiveRecord::ConnectionHandling
       # Only for Postgres?  (Doesn't work in sqlite3)
       # puts ActiveRecord::Base.connection.execute("SELECT current_setting('SEARCH_PATH')").to_a.inspect
 
-      case ActiveRecord::Base.connection.adapter_name
+    schema_sql = 'SELECT NULL AS table_schema;'
+    case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL'
         schema = 'public'
+        schema_sql = 'SELECT DISTINCT table_schema FROM INFORMATION_SCHEMA.tables;'
       when 'Mysql2'
         schema = ActiveRecord::Base.connection.current_database
       when 'SQLite'
@@ -465,6 +469,10 @@ module ActiveRecord::ConnectionHandling
       else
       end
       if sql
+        ::Brick.db_schemas = ActiveRecord::Base.connection.execute(schema_sql)
+        ::Brick.db_schemas = ::Brick.db_schemas.to_a unless ::Brick.db_schemas.is_a?(Array)
+        ::Brick.db_schemas.map! { |row| row['table_schema'] } unless ::Brick.db_schemas.empty? || ::Brick.db_schemas.first.is_a?(String)
+        ::Brick.db_schemas -= ['information_schema', 'pg_catalog']
         ActiveRecord::Base.connection.execute(sql).each do |fk|
           fk = fk.values unless fk.is_a?(Array)
           ::Brick._add_bt_and_hm(fk, relations)
@@ -505,64 +513,68 @@ module Brick
   end # module Extensions
   # rubocop:enable Style/CommentedKeyword
 
-  def self._add_bt_and_hm(fk, relations = nil)
-    relations ||= ::Brick.relations
-    bt_assoc_name = fk[1].underscore
-    bt_assoc_name = bt_assoc_name[0..-4] if bt_assoc_name.end_with?('_id')
+  class << self
+    attr_accessor :db_schemas
 
-    bts = (relation = relations.fetch(fk[0], nil))&.fetch(:fks) { relation[:fks] = {} }
-    hms = (relation = relations.fetch(fk[2], nil))&.fetch(:fks) { relation[:fks] = {} }
+    def _add_bt_and_hm(fk, relations = nil)
+      relations ||= ::Brick.relations
+      bt_assoc_name = fk[1].underscore
+      bt_assoc_name = bt_assoc_name[0..-4] if bt_assoc_name.end_with?('_id')
 
-    unless (cnstr_name = fk[3])
-      # For any appended references (those that come from config), arrive upon a definitely unique constraint name
-      cnstr_base = cnstr_name = "(brick) #{fk[0]}_#{fk[2]}"
-      cnstr_added_num = 1
-      cnstr_name = "#{cnstr_base}_#{cnstr_added_num += 1}" while bts&.key?(cnstr_name) || hms&.key?(cnstr_name)
-      missing = []
-      missing << fk[0] unless relations.key?(fk[0])
-      missing << fk[2] unless relations.key?(fk[2])
-      unless missing.empty?
-        tables = relations.reject { |k, v| v.fetch(:isView, nil) }.keys.sort
-        puts "Brick: Additional reference #{fk.inspect} refers to non-existent #{'table'.pluralize(missing.length)} #{missing.join(' and ')}. (Available tables include #{tables.join(', ')}.)"
-        return
+      bts = (relation = relations.fetch(fk[0], nil))&.fetch(:fks) { relation[:fks] = {} }
+      hms = (relation = relations.fetch(fk[2], nil))&.fetch(:fks) { relation[:fks] = {} }
+
+      unless (cnstr_name = fk[3])
+        # For any appended references (those that come from config), arrive upon a definitely unique constraint name
+        cnstr_base = cnstr_name = "(brick) #{fk[0]}_#{fk[2]}"
+        cnstr_added_num = 1
+        cnstr_name = "#{cnstr_base}_#{cnstr_added_num += 1}" while bts&.key?(cnstr_name) || hms&.key?(cnstr_name)
+        missing = []
+        missing << fk[0] unless relations.key?(fk[0])
+        missing << fk[2] unless relations.key?(fk[2])
+        unless missing.empty?
+          tables = relations.reject { |k, v| v.fetch(:isView, nil) }.keys.sort
+          puts "Brick: Additional reference #{fk.inspect} refers to non-existent #{'table'.pluralize(missing.length)} #{missing.join(' and ')}. (Available tables include #{tables.join(', ')}.)"
+          return
+        end
+        unless (cols = relations[fk[0]][:cols]).key?(fk[1])
+          columns = cols.map { |k, v| "#{k} (#{v.first.split(' ').first})" }
+          puts "Brick: Additional reference #{fk.inspect} refers to non-existent column #{fk[1]}. (Columns present in #{fk[0]} are #{columns.join(', ')}.)"
+          return
+        end
+        if (redundant = bts.find{|k, v| v[:inverse][:inverse_table] == fk[0] && v[:fk] == fk[1] && v[:inverse_table] == fk[2] })
+          puts "Brick: Additional reference #{fk.inspect} is redundant and can be removed.  (Already established by #{redundant.first}.)"
+          return
+        end
       end
-      unless (cols = relations[fk[0]][:cols]).key?(fk[1])
-        columns = cols.map { |k, v| "#{k} (#{v.first.split(' ').first})" }
-        puts "Brick: Additional reference #{fk.inspect} refers to non-existent column #{fk[1]}. (Columns present in #{fk[0]} are #{columns.join(', ')}.)"
-        return
+      if (assoc_bt = bts[cnstr_name])
+        assoc_bt[:fk] = assoc_bt[:fk].is_a?(String) ? [assoc_bt[:fk], fk[1]] : assoc_bt[:fk].concat(fk[1])
+        assoc_bt[:assoc_name] = "#{assoc_bt[:assoc_name]}_#{fk[1]}"
+      else
+        assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[1], assoc_name: bt_assoc_name, inverse_table: fk[2] }
       end
-      if (redundant = bts.find{|k, v| v[:inverse][:inverse_table] == fk[0] && v[:fk] == fk[1] && v[:inverse_table] == fk[2] })
-        puts "Brick: Additional reference #{fk.inspect} is redundant and can be removed.  (Already established by #{redundant.first}.)"
-        return
+
+      if (assoc_hm = hms[cnstr_name])
+        assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[1]] : assoc_hm[:fk].concat(fk[1])
+        assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
+        assoc_hm[:inverse] = assoc_bt
+      else
+        assoc_hm = hms[cnstr_name] = { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0], inverse: assoc_bt }
+        hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
+        hm_counts[fk[0]] = hm_counts.fetch(fk[0]) { 0 } + 1
       end
-    end
-    if (assoc_bt = bts[cnstr_name])
-      assoc_bt[:fk] = assoc_bt[:fk].is_a?(String) ? [assoc_bt[:fk], fk[1]] : assoc_bt[:fk].concat(fk[1])
-      assoc_bt[:assoc_name] = "#{assoc_bt[:assoc_name]}_#{fk[1]}"
-    else
-      assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[1], assoc_name: bt_assoc_name, inverse_table: fk[2] }
+      assoc_bt[:inverse] = assoc_hm
+      # hms[cnstr_name] << { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0] }
     end
 
-    if (assoc_hm = hms[cnstr_name])
-      assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[1]] : assoc_hm[:fk].concat(fk[1])
-      assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
-      assoc_hm[:inverse] = assoc_bt
-    else
-      assoc_hm = hms[cnstr_name] = { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0], inverse: assoc_bt }
-      hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
-      hm_counts[fk[0]] = hm_counts.fetch(fk[0]) { 0 } + 1
+    # Rails < 4.0 doesn't have ActiveRecord::RecordNotUnique, so use the more generic ActiveRecord::ActiveRecordError instead
+    ar_not_unique_error = ActiveRecord.const_defined?('RecordNotUnique') ? ActiveRecord::RecordNotUnique : ActiveRecord::ActiveRecordError
+    class NoUniqueColumnError < ar_not_unique_error
     end
-    assoc_bt[:inverse] = assoc_hm
-    # hms[cnstr_name] << { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0] }
-  end
 
-  # Rails < 4.0 doesn't have ActiveRecord::RecordNotUnique, so use the more generic ActiveRecord::ActiveRecordError instead
-  ar_not_unique_error = ActiveRecord.const_defined?('RecordNotUnique') ? ActiveRecord::RecordNotUnique : ActiveRecord::ActiveRecordError
-  class NoUniqueColumnError < ar_not_unique_error
-  end
-
-  # Rails < 4.2 doesn't have ActiveRecord::RecordInvalid, so use the more generic ActiveRecord::ActiveRecordError instead
-  ar_invalid_error = ActiveRecord.const_defined?('RecordInvalid') ? ActiveRecord::RecordInvalid : ActiveRecord::ActiveRecordError
-  class LessThanHalfAreMatchingColumnsError < ar_invalid_error
+    # Rails < 4.2 doesn't have ActiveRecord::RecordInvalid, so use the more generic ActiveRecord::ActiveRecordError instead
+    ar_invalid_error = ActiveRecord.const_defined?('RecordInvalid') ? ActiveRecord::RecordInvalid : ActiveRecord::ActiveRecordError
+    class LessThanHalfAreMatchingColumnsError < ar_invalid_error
+    end
   end
 end
