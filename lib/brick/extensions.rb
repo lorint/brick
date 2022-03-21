@@ -123,12 +123,13 @@ class Object
         # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
         plural_class_name = ActiveSupport::Inflector.pluralize(model_name = class_name)
         singular_table_name = ActiveSupport::Inflector.underscore(model_name)
-        table_name = ActiveSupport::Inflector.pluralize(singular_table_name)
 
         # Adjust for STI if we know of a base model for the requested model name
-        if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
-          table_name = base_model.table_name
-        end
+        table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
+                       base_model.table_name
+                     else
+                       ActiveSupport::Inflector.pluralize(singular_table_name)
+                     end
 
         # Maybe, just maybe there's a database table that will satisfy this need
         if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(m) })
@@ -155,7 +156,11 @@ class Object
       if table_name == singular_table_name && !ActiveSupport::Inflector.inflections.uncountable.include?(table_name)
         raise NameError.new("Class name for a model that references table \"#{matching}\" should be \"#{ActiveSupport::Inflector.singularize(model_name)}\".")
       end
-      base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil) || ActiveRecord::Base
+      if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
+        is_sti = true
+      else
+        base_model = ActiveRecord::Base
+      end
       code = +"class #{model_name} < #{base_model.name}\n"
       built_model = Class.new(base_model) do |new_model_class|
         Object.const_set(model_name.to_sym, new_model_class)
@@ -193,90 +198,92 @@ class Object
           code << "  # Could not identify any column(s) to use as a primary key\n" unless is_view
         end
 
-        fks = relation[:fks] || {}
-        # Do the bulk of the has_many / belongs_to processing, and store details about HMT so they can be done at the very last
-        hmts = fks.each_with_object(Hash.new { |h, k| h[k] = [] }) do |fk, hmts|
-          # The key in each hash entry (fk.first) is the constraint name
-          assoc_name = (assoc = fk.last)[:assoc_name]
-          inverse_assoc_name = assoc[:inverse][:assoc_name]
-          options = {}
-          singular_table_name = ActiveSupport::Inflector.singularize(assoc[:inverse_table])
-          macro = if assoc[:is_bt]
-                    need_class_name = singular_table_name.underscore != assoc_name
-                    need_fk = "#{assoc_name}_id" != assoc[:fk]
-                    inverse_assoc_name, _x = _brick_get_hm_assoc_name(relations[assoc[:inverse_table]], assoc[:inverse])
-                    if (has_ones = ::Brick.config.has_ones&.fetch(assoc[:inverse][:alternate_name].camelize, nil))&.key?(singular_inv_assoc_name = ActiveSupport::Inflector.singularize(inverse_assoc_name))
-                      inverse_assoc_name = if has_ones[singular_inv_assoc_name]
-                                             need_inverse_of = true
-                                             has_ones[singular_inv_assoc_name]
-                                           else
-                                             singular_inv_assoc_name
-                                           end
-                    end
-                    :belongs_to
-                  else
-                    # need_class_name = ActiveSupport::Inflector.singularize(assoc_name) == ActiveSupport::Inflector.singularize(table_name.underscore)
-                    # Are there multiple foreign keys out to the same table?
-                    assoc_name, need_class_name = _brick_get_hm_assoc_name(relation, assoc)
-                    need_fk = "#{ActiveSupport::Inflector.singularize(assoc[:inverse][:inverse_table])}_id" != assoc[:fk]
-                    # fks[table_name].find { |other_assoc| other_assoc.object_id != assoc.object_id && other_assoc[:assoc_name] == assoc[assoc_name] }
-                    if (has_ones = ::Brick.config.has_ones&.fetch(model_name, nil))&.key?(singular_assoc_name = ActiveSupport::Inflector.singularize(assoc_name))
-                      assoc_name = if has_ones[singular_assoc_name]
-                                     need_class_name = true
-                                     has_ones[singular_assoc_name]
-                                   else
-                                     singular_assoc_name
-                                   end
-                      :has_one
+        unless is_sti
+          fks = relation[:fks] || {}
+          # Do the bulk of the has_many / belongs_to processing, and store details about HMT so they can be done at the very last
+          hmts = fks.each_with_object(Hash.new { |h, k| h[k] = [] }) do |fk, hmts|
+            # The key in each hash entry (fk.first) is the constraint name
+            assoc_name = (assoc = fk.last)[:assoc_name]
+            inverse_assoc_name = assoc[:inverse][:assoc_name]
+            options = {}
+            singular_table_name = ActiveSupport::Inflector.singularize(assoc[:inverse_table])
+            macro = if assoc[:is_bt]
+                      need_class_name = singular_table_name.underscore != assoc_name
+                      need_fk = "#{assoc_name}_id" != assoc[:fk]
+                      inverse_assoc_name, _x = _brick_get_hm_assoc_name(relations[assoc[:inverse_table]], assoc[:inverse])
+                      if (has_ones = ::Brick.config.has_ones&.fetch(assoc[:inverse][:alternate_name].camelize, nil))&.key?(singular_inv_assoc_name = ActiveSupport::Inflector.singularize(inverse_assoc_name))
+                        inverse_assoc_name = if has_ones[singular_inv_assoc_name]
+                                              need_inverse_of = true
+                                              has_ones[singular_inv_assoc_name]
+                                            else
+                                              singular_inv_assoc_name
+                                            end
+                      end
+                      :belongs_to
                     else
-                      :has_many
-                    end
-                  end
-          # Figure out if we need to specially call out the class_name and/or foreign key
-          # (and if either of those then definitely also a specific inverse_of)
-          options[:class_name] = singular_table_name.camelize if need_class_name
-          # Work around a bug in CPK where self-referencing belongs_to associations double up their foreign keys
-          if need_fk # Funky foreign key?
-            options[:foreign_key] = if assoc[:fk].is_a?(Array)
-                                      assoc_fk = assoc[:fk].uniq
-                                      assoc_fk.length < 2 ? assoc_fk.first : assoc_fk
+                      # need_class_name = ActiveSupport::Inflector.singularize(assoc_name) == ActiveSupport::Inflector.singularize(table_name.underscore)
+                      # Are there multiple foreign keys out to the same table?
+                      assoc_name, need_class_name = _brick_get_hm_assoc_name(relation, assoc)
+                      need_fk = "#{ActiveSupport::Inflector.singularize(assoc[:inverse][:inverse_table])}_id" != assoc[:fk]
+                      # fks[table_name].find { |other_assoc| other_assoc.object_id != assoc.object_id && other_assoc[:assoc_name] == assoc[assoc_name] }
+                      if (has_ones = ::Brick.config.has_ones&.fetch(model_name, nil))&.key?(singular_assoc_name = ActiveSupport::Inflector.singularize(assoc_name))
+                        assoc_name = if has_ones[singular_assoc_name]
+                                      need_class_name = true
+                                      has_ones[singular_assoc_name]
                                     else
-                                      assoc[:fk].to_sym
+                                      singular_assoc_name
                                     end
-          end
-          options[:inverse_of] = inverse_assoc_name.to_sym if need_class_name || need_fk || need_inverse_of
-
-          # Prepare a list of entries for "has_many :through"
-          if macro == :has_many
-            relations[assoc[:inverse_table]][:hmt_fks].each do |k, hmt_fk|
-              next if k == assoc[:fk]
-
-              hmts[ActiveSupport::Inflector.pluralize(hmt_fk.last)] << [assoc, hmt_fk.first]
+                        :has_one
+                      else
+                        :has_many
+                      end
+                    end
+            # Figure out if we need to specially call out the class_name and/or foreign key
+            # (and if either of those then definitely also a specific inverse_of)
+            options[:class_name] = singular_table_name.camelize if need_class_name
+            # Work around a bug in CPK where self-referencing belongs_to associations double up their foreign keys
+            if need_fk # Funky foreign key?
+              options[:foreign_key] = if assoc[:fk].is_a?(Array)
+                                        assoc_fk = assoc[:fk].uniq
+                                        assoc_fk.length < 2 ? assoc_fk.first : assoc_fk
+                                      else
+                                        assoc[:fk].to_sym
+                                      end
             end
-          end
+            options[:inverse_of] = inverse_assoc_name.to_sym if need_class_name || need_fk || need_inverse_of
 
-          # And finally create a has_one, has_many, or belongs_to for this association
-          assoc_name = assoc_name.to_sym
-          code << "  #{macro} #{assoc_name.inspect}#{options.map { |k, v| ", #{k}: #{v.inspect}" }.join}\n"
-          self.send(macro, assoc_name, **options)
-          hmts
-        end
-        hmts.each do |hmt_fk, fks|
-          fks.each do |fk|
-            source = nil
-            this_hmt_fk = if fks.length > 1
-                            singular_assoc_name = ActiveSupport::Inflector.singularize(fk.first[:inverse][:assoc_name])
-                            source = fk.last
-                            through = ActiveSupport::Inflector.pluralize(fk.first[:alternate_name])
-                            "#{singular_assoc_name}_#{hmt_fk}"
-                          else
-                            through = fk.first[:assoc_name]
-                            hmt_fk
-                          end
-            code << "  has_many :#{this_hmt_fk}, through: #{(assoc_name = through.to_sym).to_sym.inspect}#{", source: :#{source}" if source}\n"
-            options = { through: assoc_name }
-            options[:source] = source.to_sym if source
-            self.send(:has_many, this_hmt_fk.to_sym, **options)
+            # Prepare a list of entries for "has_many :through"
+            if macro == :has_many
+              relations[assoc[:inverse_table]][:hmt_fks].each do |k, hmt_fk|
+                next if k == assoc[:fk]
+
+                hmts[ActiveSupport::Inflector.pluralize(hmt_fk.last)] << [assoc, hmt_fk.first]
+              end
+            end
+
+            # And finally create a has_one, has_many, or belongs_to for this association
+            assoc_name = assoc_name.to_sym
+            code << "  #{macro} #{assoc_name.inspect}#{options.map { |k, v| ", #{k}: #{v.inspect}" }.join}\n"
+            self.send(macro, assoc_name, **options)
+            hmts
+          end
+          hmts.each do |hmt_fk, fks|
+            fks.each do |fk|
+              source = nil
+              this_hmt_fk = if fks.length > 1
+                              singular_assoc_name = ActiveSupport::Inflector.singularize(fk.first[:inverse][:assoc_name])
+                              source = fk.last
+                              through = ActiveSupport::Inflector.pluralize(fk.first[:alternate_name])
+                              "#{singular_assoc_name}_#{hmt_fk}"
+                            else
+                              through = fk.first[:assoc_name]
+                              hmt_fk
+                            end
+              code << "  has_many :#{this_hmt_fk}, through: #{(assoc_name = through.to_sym).to_sym.inspect}#{", source: :#{source}" if source}\n"
+              options = { through: assoc_name }
+              options[:source] = source.to_sym if source
+              self.send(:has_many, this_hmt_fk.to_sym, **options)
+            end
           end
         end
         code << "end # model #{model_name}\n\n"
@@ -529,7 +536,6 @@ module Brick
         return
       end
     end
-
     if (assoc_bt = bts[cnstr_name])
       assoc_bt[:fk] = assoc_bt[:fk].is_a?(String) ? [assoc_bt[:fk], fk[1]] : assoc_bt[:fk].concat(fk[1])
       assoc_bt[:assoc_name] = "#{assoc_bt[:assoc_name]}_#{fk[1]}"

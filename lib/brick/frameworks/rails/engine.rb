@@ -62,14 +62,27 @@ module Brick
                 # This gets has_many as well as has_many :through
                 # %%% weed out ones that don't have an available model to reference
                 bts, hms = ::Brick.get_bts_and_hms(@_brick_model)
-                # Weed out has_manys that go to an associative table
-                associatives = hms.select { |k, v| v.options[:through] }.each_with_object({}) do |hmt, s|
-                  s[hmt.first] = hms.delete(hmt.last.options[:through]) # End up with a hash of HMT names pointing to join-table associations
+                # Mark has_manys that go to an associative ("join") table so that they are skipped in the UI,
+                # as well as any possible polymorphic associations
+                skip_hms = {}
+                associatives = hms.each_with_object({}) do |hmt, s|
+                  if (through = hmt.last.options[:through])
+                    skip_hms[through] = nil
+                    s[hmt.first] = hms[through] # End up with a hash of HMT names pointing to join-table associations
+                  elsif hmt.last.inverse_of.nil?
+                    puts "SKIPPING #{hmt.last.name.inspect}"
+                    skip_hms[hmt.last.name] = nil
+                  end
                 end
-                hms_headers = hms.each_with_object(+'') { |hm, s| s << "<th>H#{hm.last.macro == :has_one ? 'O' : 'M'}#{'T' if hm.last.options[:through]} #{hm.first}</th>\n" }
+                hms_headers = +''
+                puts skip_hms.inspect
                 hms_columns = hms.each_with_object(+'') do |hm, s|
+                  next if skip_hms.key?(hm.last.name)
+
+                  hms_headers << "<th>H#{hm.last.macro == :has_one ? 'O' : 'M'}#{'T' if hm.last.options[:through]} #{hm.first}</th>\n"
                   hm_fk_name = if hm.last.options[:through]
                                  associative = associatives[hm.last.name]
+                                #  binding.pry if associative&.name.nil?
                                  "'#{associative.name}.#{associative.foreign_key}'"
                                else
                                  hm.last.foreign_key
