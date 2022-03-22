@@ -86,6 +86,13 @@ module Brick
   end
 
   class << self
+    attr_accessor :db_schemas
+
+    def set_db_schema(params)
+      schema = params['_brick_schema'] || 'public'
+      ActiveRecord::Base.connection.execute("SET SEARCH_PATH='#{schema}';") if schema && ::Brick.db_schemas&.include?(schema)
+    end
+
     # All tables and views (what Postgres calls "relations" including column and foreign key info)
     def relations
       connections = Brick.instance_variable_get(:@relations) ||
@@ -98,23 +105,10 @@ module Brick
       model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
         case a.macro
         when :belongs_to
-          # Build #brick_descrip if needed
-          if a.klass.instance_methods(false).exclude?(:brick_descrip)
-            descrip_col = (a.klass.columns.map(&:name) - a.klass._brick_get_fks -
-                          (::Brick.config.metadata_columns || []) -
-                          [a.klass.primary_key]).first&.to_sym
-            if descrip_col
-              a.klass.define_method :brick_descrip do
-                send(descrip_col)
-              end
-            end
-          end
-
           s.first[a.foreign_key] = [a.name, a.klass]
         when :has_many, :has_one
           s.last[a.name] = a
         end
-        s
       end
     end
 
@@ -181,6 +175,11 @@ module Brick
     end
 
     # @api public
+    def table_name_prefixes=(value)
+      Brick.config.table_name_prefixes = value
+    end
+
+    # @api public
     def metadata_columns=(value)
       Brick.config.metadata_columns = value
     end
@@ -193,6 +192,18 @@ module Brick
         ars = ars.to_a unless ars.is_a?(Array)
         ars = [ars] unless ars.empty? || ars.first.is_a?(Array)
         Brick.config.additional_references = ars
+      end
+    end
+
+    # Skip creating a has_many association for these
+    # (Uses the same exact three-part format as would define an additional_reference)
+    # @api public
+    def skip_hms=(skips)
+      if skips
+        skips = skips.call if skips.is_a?(Proc)
+        skips = skips.to_a unless skips.is_a?(Array)
+        skips = [skips] unless skips.empty? || skips.first.is_a?(Array)
+        Brick.config.skip_hms = skips
       end
     end
 
@@ -211,6 +222,11 @@ module Brick
       end
     end
 
+    # DSL templates for individual models to provide prettier descriptions of objects
+    # @api public
+    def model_descrips=(descrips)
+      Brick.config.model_descrips = descrips
+    end
 
     # Returns Brick's `::Gem::Version`, convenient for comparisons. This is
     # recommended over `::Brick::VERSION::STRING`.

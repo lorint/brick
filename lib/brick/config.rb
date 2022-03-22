@@ -65,13 +65,30 @@ module Brick
       @mutex.synchronize { @additional_references = references }
     end
 
+    # Skip creating a has_many association for these
+    def skip_hms
+      @mutex.synchronize { @skip_hms }
+    end
+
+    def skip_hms=(skips)
+      @mutex.synchronize { @skip_hms = skips }
+    end
+
     # Associations to treat as a has_one
     def has_ones
       @mutex.synchronize { @has_ones }
     end
 
-    def has_ones=(references)
-      @mutex.synchronize { @has_ones = references }
+    def has_ones=(hos)
+      @mutex.synchronize { @has_ones = hos }
+    end
+
+    def model_descrips
+      @mutex.synchronize { @model_descrips }
+    end
+
+    def model_descrips=(descrips)
+      @mutex.synchronize { @model_descrips = descrips }
     end
 
     def skip_database_views
@@ -88,6 +105,14 @@ module Brick
 
     def exclude_tables=(value)
       @mutex.synchronize { @exclude_tables = value }
+    end
+
+    def table_name_prefixes
+      @mutex.synchronize { @table_name_prefixes }
+    end
+
+    def table_name_prefixes=(value)
+      @mutex.synchronize { @table_name_prefixes = value }
     end
 
     def metadata_columns

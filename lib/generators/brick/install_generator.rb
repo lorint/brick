@@ -71,7 +71,7 @@ module Brick
 # ]"
       end
       if resembles_fks.length > 0
-        bar << "\n# # Columns named somewhat like a foreign key which you may wnat to consider:
+        bar << "\n# # Columns named somewhat like a foreign key which you may want to consider:
 # #   #{resembles_fks.join(', ')}"
       end
 
@@ -92,6 +92,9 @@ module Brick
 # # Any tables or views you'd like to skip when auto-creating models
 # Brick.exclude_tables = ['custom_metadata', 'version_info']
 
+# # When table names have specific prefixes automatically place them in their own module with a table_name_prefix.
+# Brick.table_name_prefixes = { 'nav_' => 'Navigation' }
+
 # # Additional table references which are used to create has_many / belongs_to associations inside auto-created
 # # models.  (You can consider these to be \"virtual foreign keys\" if you wish)...  You only have to add these
 # # in cases where your database for some reason does not have foreign key constraints defined.  Sometimes for
@@ -102,6 +105,11 @@ module Brick
 # # usually this is \"id\" but there are some good smarts that are used in case some other column has been set
 # # to be the primary key.)
 #{bar}
+
+# # Skip creating a has_many association for these
+# # (Uses the same exact three-part format as would define an additional_reference)
+# # Say for instance that we didn't care to display the favourite colours that users have:
+# Brick.skip_hms = [['users', 'favourite_colour_id', 'colours']]
 
 # # By default primary tables involved in a foreign key relationship will indicate a \"has_many\" relationship pointing
 # # back to the foreign table.  In order to represent a \"has_one\" association instead, an override can be provided
@@ -117,6 +125,13 @@ module Brick
 # # then this setting resets that list.  For instance, here is an override that is useful in the Sakila sample
 # # database:
 # Brick.metadata_columns = ['last_updated']
+
+# # A simple DSL is available to allow more user-friendly display of objects.  Normally a user object might be shown
+# # as its first non-metadata column, or if that is not available then something like \"User #45\" where 45 is that
+# # object's ID.  If there is no primary key then even that is not possible, so the object's .to_s method is called.
+# # To override these defaults and specify exactly what you want shown, such as first names and last names for a
+# # user, then you can use model_descrips like this, putting expressions with property references in square brackets:
+# Brick.model_descrips = { 'User' => '[profile.firstname] [profile.lastname]' }
 
 # # If a default route is not supplied, Brick attempts to find the most \"central\" table and wires up the default
 # # route to go to the :index action for what would be a controller for that table.  You can specify any controller
