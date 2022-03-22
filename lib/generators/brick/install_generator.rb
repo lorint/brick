@@ -124,7 +124,7 @@ module Brick
 # # part of a has_many :through association.)  If you want to use different exclusion columns than our defaults
 # # then this setting resets that list.  For instance, here is an override that is useful in the Sakila sample
 # # database:
-# Brick.metadata_columns = ['last_updated']
+# Brick.metadata_columns = ['last_update']
 
 # # A simple DSL is available to allow more user-friendly display of objects.  Normally a user object might be shown
 # # as its first non-metadata column, or if that is not available then something like \"User #45\" where 45 is that
