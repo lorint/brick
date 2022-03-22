@@ -84,7 +84,7 @@ module Brick
     end
 
     def model_descrips
-      @mutex.synchronize { @model_descrips }
+      @mutex.synchronize { @model_descrips ||= {} }
     end
 
     def model_descrips=(descrips)

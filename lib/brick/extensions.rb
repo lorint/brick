@@ -401,7 +401,6 @@ class Object
     end
 
     def _brick_get_hm_assoc_name(relation, hm_assoc)
-      binding.pry if hm_assoc.nil?
       if relation[:hm_counts][hm_assoc[:assoc_name]]&.> 1
         [ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name]), true]
       else
@@ -551,10 +550,12 @@ module ActiveRecord::ConnectionHandling
       end
     end
 
-    puts "Classes that can be built from tables:"
+    puts "\nClasses that can be built from tables:"
     relations.select { |_k, v| !v.key?(:isView) }.keys.each { |k| puts ActiveSupport::Inflector.singularize(k).camelize }
-    puts "Classes that can be built from views:"
-    relations.select { |_k, v| v.key?(:isView) }.keys.each { |k| puts ActiveSupport::Inflector.singularize(k).camelize }
+    unless (views = relations.select { |_k, v| v.key?(:isView) }).empty?
+      puts "\nClasses that can be built from views:"
+      views.keys.each { |k| puts ActiveSupport::Inflector.singularize(k).camelize }
+    end
     # pp relations; nil
 
     # relations.keys.each { |k| ActiveSupport::Inflector.singularize(k).camelize.constantize }
