@@ -46,7 +46,56 @@ module ActiveRecord
     # Used to show a little prettier name for an object
     def brick_descrip
       klass = self.class
-      klass.primary_key ? "#{klass.name} ##{send(klass.primary_key)}" : to_s
+      # If available, parse simple DSL attached to a model in order to provide a friendlier name.
+      # Object property names can be referenced in square brackets like this:
+      # { 'User' => '[profile.firstname] [profile.lastname]' }
+
+      # If there's no DSL yet specified, just try to find the first usable column on this model
+      unless ::Brick.config.model_descrips[klass.name]
+        descrip_col = (klass.columns.map(&:name) - klass._brick_get_fks -
+                      (::Brick.config.metadata_columns || []) -
+                      [klass.primary_key]).first
+        ::Brick.config.model_descrips[klass.name] = "[#{descrip_col}]" if descrip_col
+      end
+      if (dsl ||= ::Brick.config.model_descrips[klass.name])
+        caches = {}
+        output = +''
+        is_brackets_have_content = false
+        bracket_name = nil
+        dsl.each_char do |ch|
+          if bracket_name
+            if ch == ']' # Time to process a bracketed thing?
+              obj_name = +''
+              obj = self
+              bracket_name.split('.').each do |part|
+                obj_name += ".#{part}"
+                obj = if caches.key?(obj_name)
+                        caches[obj_name]
+                      else
+                        (caches[obj_name] = obj&.send(part.to_sym))
+                      end
+              end
+              is_brackets_have_content = true unless (obj&.to_s).blank?
+              output << (obj&.to_s || '')
+              bracket_name = nil
+            else
+              bracket_name << ch
+            end
+          elsif ch == '['
+            bracket_name = +''
+          else
+            output << ch
+          end
+        end
+        output += bracket_name if bracket_name
+      end
+      if is_brackets_have_content
+        output
+      elsif klass.primary_key
+        "#{klass.name} ##{send(klass.primary_key)}"
+      else
+        to_s
+      end
     end
 
   private
@@ -223,20 +272,22 @@ class Object
           hmts = fks.each_with_object(Hash.new { |h, k| h[k] = [] }) do |fk, hmts|
             # The key in each hash entry (fk.first) is the constraint name
             assoc_name = (assoc = fk.last)[:assoc_name]
-            inverse_assoc_name = assoc[:inverse][:assoc_name]
+            inverse_assoc_name = assoc[:inverse]&.fetch(:assoc_name, nil)
             options = {}
             singular_table_name = ActiveSupport::Inflector.singularize(assoc[:inverse_table])
             macro = if assoc[:is_bt]
                       need_class_name = singular_table_name.underscore != assoc_name
                       need_fk = "#{assoc_name}_id" != assoc[:fk]
-                      inverse_assoc_name, _x = _brick_get_hm_assoc_name(relations[assoc[:inverse_table]], assoc[:inverse])
-                      if (has_ones = ::Brick.config.has_ones&.fetch(assoc[:inverse][:alternate_name].camelize, nil))&.key?(singular_inv_assoc_name = ActiveSupport::Inflector.singularize(inverse_assoc_name))
-                        inverse_assoc_name = if has_ones[singular_inv_assoc_name]
-                                              need_inverse_of = true
-                                              has_ones[singular_inv_assoc_name]
-                                            else
-                                              singular_inv_assoc_name
-                                            end
+                      if (inverse = assoc[:inverse])
+                        inverse_assoc_name, _x = _brick_get_hm_assoc_name(relations[assoc[:inverse_table]], inverse)
+                        if (has_ones = ::Brick.config.has_ones&.fetch(inverse[:alternate_name].camelize, nil))&.key?(singular_inv_assoc_name = ActiveSupport::Inflector.singularize(inverse_assoc_name))
+                          inverse_assoc_name = if has_ones[singular_inv_assoc_name]
+                                                need_inverse_of = true
+                                                has_ones[singular_inv_assoc_name]
+                                              else
+                                                singular_inv_assoc_name
+                                              end
+                        end
                       end
                       :belongs_to
                     else
@@ -269,7 +320,7 @@ class Object
                                         assoc[:fk].to_sym
                                       end
             end
-            options[:inverse_of] = inverse_assoc_name.to_sym if need_class_name || need_fk || need_inverse_of
+            options[:inverse_of] = inverse_assoc_name.to_sym if inverse_assoc_name && (need_class_name || need_fk || need_inverse_of)
 
             # Prepare a list of entries for "has_many :through"
             if macro == :has_many
@@ -323,8 +374,7 @@ class Object
         code << "    @#{table_name}.brick_where(params)\n"
         code << "  end\n"
         self.define_method :index do
-          schema = params['_brick_schema'] || 'public'
-          ActiveRecord::Base.connection.execute("SET SEARCH_PATH='#{schema}';") if schema && ::Brick.db_schemas&.include?(schema)
+          ::Brick.set_db_schema(params)
           ar_relation = model.primary_key ? model.order(model.primary_key) : model.all
           instance_variable_set(:@_brick_params, ar_relation.brick_where(params))
           instance_variable_set("@#{table_name}".to_sym, ar_relation)
@@ -335,6 +385,7 @@ class Object
           code << "    @#{singular_table_name} = #{model.name}.find(params[:id].split(','))\n"
           code << "  end\n"
           self.define_method :show do
+            ::Brick.set_db_schema(params)
             instance_variable_set("@#{singular_table_name}".to_sym, model.find(params[:id].split(',')))
           end
         end
@@ -350,6 +401,7 @@ class Object
     end
 
     def _brick_get_hm_assoc_name(relation, hm_assoc)
+      binding.pry if hm_assoc.nil?
       if relation[:hm_counts][hm_assoc[:assoc_name]]&.> 1
         [ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name]), true]
       else
@@ -533,8 +585,6 @@ module Brick
   # rubocop:enable Style/CommentedKeyword
 
   class << self
-    attr_accessor :db_schemas
-
     def _add_bt_and_hm(fk, relations = nil)
       relations ||= ::Brick.relations
       bt_assoc_name = fk[1].underscore
@@ -561,7 +611,7 @@ module Brick
           puts "Brick: Additional reference #{fk.inspect} refers to non-existent column #{fk[1]}. (Columns present in #{fk[0]} are #{columns.join(', ')}.)"
           return
         end
-        if (redundant = bts.find{|k, v| v[:inverse][:inverse_table] == fk[0] && v[:fk] == fk[1] && v[:inverse_table] == fk[2] })
+        if (redundant = bts.find { |k, v| v[:inverse]&.fetch(:inverse_table, nil) == fk[0] && v[:fk] == fk[1] && v[:inverse_table] == fk[2] })
           puts "Brick: Additional reference #{fk.inspect} is redundant and can be removed.  (Already established by #{redundant.first}.)"
           return
         end
@@ -573,16 +623,19 @@ module Brick
         assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[1], assoc_name: bt_assoc_name, inverse_table: fk[2] }
       end
 
-      if (assoc_hm = hms[cnstr_name])
-        assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[1]] : assoc_hm[:fk].concat(fk[1])
-        assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
-        assoc_hm[:inverse] = assoc_bt
-      else
-        assoc_hm = hms[cnstr_name] = { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0], inverse: assoc_bt }
-        hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
-        hm_counts[fk[0]] = hm_counts.fetch(fk[0]) { 0 } + 1
+      unless ::Brick.config.skip_hms&.any? { |skip| fk[0] == skip[0] && fk[1] == skip[1] && fk[2] == skip[2] }
+        cnstr_name = "hm_#{cnstr_name}"
+        if (assoc_hm = hms.fetch(cnstr_name, nil))
+          assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[1]] : assoc_hm[:fk].concat(fk[1])
+          assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
+          assoc_hm[:inverse] = assoc_bt
+        else
+          assoc_hm = hms[cnstr_name] = { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0], inverse: assoc_bt }
+          hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
+          hm_counts[fk[0]] = hm_counts.fetch(fk[0]) { 0 } + 1
+        end
+        assoc_bt[:inverse] = assoc_hm
       end
-      assoc_bt[:inverse] = assoc_hm
       # hms[cnstr_name] << { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0] }
     end
 

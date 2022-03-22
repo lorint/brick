@@ -16,11 +16,17 @@ module Brick
         # Specific database tables and views to omit when auto-creating models
         ::Brick.exclude_tables = app.config.brick.fetch(:exclude_tables, [])
 
+        # When table names have specific prefixes, automatically place them in their own module with a table_name_prefix.
+        ::Brick.table_name_prefixes = app.config.brick.fetch(:table_name_prefixes, [])
+
         # Columns to treat as being metadata for purposes of identifying associative tables for has_many :through
         ::Brick.metadata_columns = app.config.brick.fetch(:metadata_columns, ['created_at', 'updated_at', 'deleted_at'])
 
         # Additional references (virtual foreign keys)
         ::Brick.additional_references = app.config.brick.fetch(:additional_references, nil)
+
+        # Skip creating a has_many association for these
+        ::Brick.skip_hms = app.config.brick.fetch(:skip_hms, nil)
 
         # Has one relationships
         ::Brick.has_ones = app.config.brick.fetch(:has_ones, nil)
@@ -77,92 +83,79 @@ module Brick
                 end
 
                 schema_options = ::Brick.db_schemas.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
-                hms_headers = +''
+                hms_columns = +'' # Used for 'index'
                 # puts skip_hms.inspect
-                hms_columns = hms.each_with_object(+'') do |hm, s|
+                hms_headers = hms.each_with_object([]) do |hm, s|
                   next if skip_hms.key?(hm.last.name)
 
-                  hms_headers << "<th>H#{hm.last.macro == :has_one ? 'O' : 'M'}#{'T' if hm.last.options[:through]} #{hm.first}</th>\n"
-                  hm_fk_name = if hm.last.options[:through]
-                                 associative = associatives[hm.last.name]
-                                 "'#{associative.name}.#{associative.foreign_key}'"
-                               else
-                                 hm.last.foreign_key
-                               end
-                  s << if hm.last.macro == :has_many
+                  if args.first == 'index'
+                    hm_fk_name = if hm.last.options[:through]
+                                   associative = associatives[hm.last.name]
+                                   "'#{associative.name}.#{associative.foreign_key}'"
+                                 else
+                                   hm.last.foreign_key
+                                 end
+                    hms_columns << if hm.last.macro == :has_many
 "<td>
   <%= link_to \"#\{#{obj_name}.#{hm.first}.count\} #{hm.first}\", #{hm.last.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: #{obj_name}.#{pk} }) unless #{obj_name}.#{hm.first}.count.zero? %>
 </td>\n"
-                         else # has_one
+                                   else # has_one
 "<td>
   <%= obj = #{obj_name}.#{hm.first}; link_to(obj.brick_descrip, obj) if obj %>
 </td>\n"
-                       end
+                                   end
+                  end
+                  s << [hm.last, "H#{hm.last.macro == :has_one ? 'O' : 'M'}#{'T' if hm.last.options[:through]} #{hm.first}"]
                 end
 
-                inline = case args.first
-                when 'index'
-                  "<p style=\"color: green\"><%= notice %></p>#{"
-<select id=\"schema\">#{schema_options}</select>" if ::Brick.db_schemas.length > 1}
-<h1>#{model_name.pluralize}</h1>
-<% if @_brick_params&.present? %><h3>where <%= @_brick_params.each_with_object([]) { |v, s| s << \"#\{v.first\} = #\{v.last.inspect\}\" }.join(', ') %></h3><% end %>
+                css = "<style>
+table {
+  border-collapse: collapse;
+  margin: 25px 0;
+  font-size: 0.9em;
+  font-family: sans-serif;
+  min-width: 400px;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
+}
 
-<table id=\"#{table_name}\">
-  <tr>
-  <% is_first = true; is_need_id_col = nil
-     bts = { #{bts.each_with_object([]) { |v, s| s << "#{v.first.inspect} => [#{v.last.first.inspect}, #{v.last[1].name}, #{v.last[1].primary_key.inspect}]"}.join(', ')} }
-     @#{table_name}.columns.map(&:name).each do |col| %>
-    <% next if col == '#{pk}' || ::Brick.config.metadata_columns.include?(col) %>
-    <th>
-    <% if bt = bts[col]
-        if is_first
-          is_first = false
-          is_need_id_col = true %>
-          </th><th>
-        <% end %>
-      BT <%= \"#\{bt.first\}-\" unless bt[1].name.underscore == bt.first.to_s %><%= bt[1].name %>
-    <% else
-        is_first = false %>
-      <%= col %>
-    <% end %>
-    </th>
-  <% end %>
-  <% if is_first # STILL haven't been able to write a first non-key / non-metadata column?
-    is_first = false
-    is_need_id_col = true %>
-    <th></th>
-  <% end %>
-#{hms_headers}
-  </tr>
+table thead tr th, table tr th {
+  background-color: #009879;
+  color: #ffffff;
+  text-align: left;
+}
 
-  <% @#{table_name}.each do |#{obj_name}| %>
-  <tr>
-    <% is_first = true
-       if is_need_id_col
-         is_first = false %>
-      <td><%= link_to \"#\{#{obj_name}.class.name\} ##\{#{obj_name}.id\}\", #{obj_name} %></td>
-    <% end %>
-    <% #{obj_name}.attributes.each do |k, val| %>
-      <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) %>
-      <td>
-      <% if (bt = bts[k]) %>
-        <%= obj = bt[1].find_by(bt.last => val); link_to(obj.brick_descrip, obj) if obj %>#{"
-      <% elsif is_first %>
-        <%= is_first = false; link_to val, #{obj_name}_path(#{obj_name}.#{pk}) %>" if pk }
-      <% else %>
-        <%= val %>
-      <% end %>
-      </td>
-    <% end %>
-#{hms_columns}
-    <!-- td>X</td -->
-  </tr>
-  <% end %>
-</table>
+table th, table td {
+  padding: 0.2em 0.5em;
+}
 
-#{"<hr><%= link_to \"New #{obj_name}\", new_#{obj_name}_path %>" unless @_brick_model.is_view?}
+.show-field {
+  background-color: #004998;
+}
 
-<script>
+table tbody tr {
+  border-bottom: thin solid #dddddd;
+}
+
+table tbody tr:nth-of-type(even) {
+  background-color: #f3f3f3;
+}
+
+table tbody tr:last-of-type {
+  border-bottom: 2px solid #009879;
+}
+
+table tbody tr.active-row {
+  font-weight: bold;
+  color: #009879;
+}
+
+a.show-arrow {
+  font-size: 2.5em;
+  text-decoration: none;
+}
+</style>"
+
+                script = "<script>
 var schemaSelect = document.getElementById(\"schema\");
 if (schemaSelect) {
   var brickSchema = changeout(location.href, \"_brick_schema\");
@@ -183,10 +176,101 @@ function changeout(href, param, value) {
   params[param] = value;
   return hrefParts[0] + \"?\" + Object.keys(params).reduce(function (s, v) { s.push(v + \"=\" + params[v]); return s; }, []).join(\"&\");
 }
-</script>
-"
+</script>"
+
+                inline = case args.first
+                when 'index'
+"#{css}
+<p style=\"color: green\"><%= notice %></p>#{"
+<select id=\"schema\">#{schema_options}</select>" if ::Brick.db_schemas.length > 1}
+<h1>#{model_name.pluralize}</h1>
+<% if @_brick_params&.present? %><h3>where <%= @_brick_params.each_with_object([]) { |v, s| s << \"#\{v.first\} = #\{v.last.inspect\}\" }.join(', ') %></h3><% end %>
+<table id=\"#{table_name}\">
+  <thead><tr>#{"<th></th>" if pk }
+  <% bts = { #{bts.each_with_object([]) { |v, s| s << "#{v.first.inspect} => [#{v.last.first.inspect}, #{v.last[1].name}, #{v.last[1].primary_key.inspect}]"}.join(', ')} }
+     @#{table_name}.columns.map(&:name).each do |col| %>
+    <% next if col == '#{pk}' || ::Brick.config.metadata_columns.include?(col) %>
+    <th>
+    <% if (bt = bts[col]) %>
+      BT <%= \"#\{bt.first\}-\" unless bt[1].name.underscore == bt.first.to_s %><%= bt[1].name %>
+    <% else %>
+      <%= col %>
+    <% end %>
+    </th>
+  <% end %>
+  #{hms_headers.map { |h| "<th>#{h.last}</th>\n" }.join}
+  </tr></thead>
+
+  <tbody>
+  <% @#{table_name}.each do |#{obj_name}| %>
+  <tr>#{"
+    <td><%= link_to '⇛', #{obj_name}_path(#{obj_name}.#{pk}), { class: 'show-arrow' } %></td>" if pk }
+    <% #{obj_name}.attributes.each do |k, val| %>
+      <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) %>
+      <td>
+      <% if (bt = bts[k]) %>
+        <%# Instead of just 'bt_obj we have to put in all of this junk:
+        # send(\"#\{bt_obj_class = bt[1].name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym))
+        # Otherwise we get stuff like:
+        # ActionView::Template::Error (undefined method `vehicle_path' for #<ActionView::Base:0x0000000033a888>) %>
+        <%= bt_obj = bt[1].find_by(bt.last => val); link_to(bt_obj.brick_descrip, send(\"#\{bt_obj_class = bt[1].name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym))) if bt_obj %>
+      <% else %>
+        <%= val %>
+      <% end %>
+      </td>
+    <% end %>
+#{hms_columns}
+    <!-- td>X</td -->
+  </tr>
+  </tbody>
+  <% end %>
+</table>
+
+#{"<hr><%= link_to \"New #{obj_name}\", new_#{obj_name}_path %>" unless @_brick_model.is_view?}
+#{script}"
                 when 'show'
-                  "<%= @#{@_brick_model.name.underscore}.inspect %>"
+  "#{css}
+    <p style=\"color: green\"><%= notice %></p>#{"
+    <select id=\"schema\">#{schema_options}</select>" if ::Brick.db_schemas.length > 1}
+    <h1>#{model_name}: <%= (obj = @#{obj_name}.first).brick_descrip %></h1>
+    <%= link_to '(See all #{obj_name.pluralize})', #{table_name}_path %>
+  <table>
+  <% bts = { #{bts.each_with_object([]) { |v, s| s << "#{v.first.inspect} => [#{v.last.first.inspect}, #{v.last[1].name}, #{v.last[1].primary_key.inspect}]"}.join(', ')} }
+      @#{obj_name}.first.attributes.each do |k, val| %>
+    <tr>
+    <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) %>
+    <th class=\"show-field\">
+    <% if (bt = bts[k]) %>
+      BT <%= \"#\{bt.first\}-\" unless bt[1].name.underscore == bt.first.to_s %><%= bt[1].name %>
+    <% else %>
+      <%= k %>
+    <% end %>
+    </th>
+    <td>
+    <% if (bt = bts[k]) %>
+      <%= bt_obj = bt[1].find_by(bt.last => val); link_to(bt_obj.brick_descrip, send(\"#\{bt_obj_class = bt[1].name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym))) if bt_obj %>
+    <% else %>
+      <%= val %>
+    <% end %>
+    </td>
+    </tr>
+  <% end %>
+  </table>
+
+  #{hms_headers.map do |hm|
+    next unless (pk = hm.first.klass.primary_key)
+  "<table id=\"#{hm_name = hm.first.name.to_s}\">
+    <tr><th>#{hm.last}</th></tr>
+    <% if (collection = @#{obj_name}.first.#{hm_name}).empty? %>
+      <tr><td>(none)</td></tr>
+    <% else %>
+      <% collection.order(#{pk.inspect}).uniq.each do |#{hm_singular_name = hm_name.singularize}| %>
+        <tr><td><%= link_to(#{hm_singular_name}.brick_descrip, #{hm_singular_name}_path(#{hm_singular_name}.#{pk})) %></td></tr>
+      <% end %>
+    <% end %>
+  </table>" end.join}
+#{script}"
+
                 end
                 # As if it were an inline template (see #determine_template in actionview-5.2.6.2/lib/action_view/renderer/template_renderer.rb)
                 keys = options.has_key?(:locals) ? options[:locals].keys : []
