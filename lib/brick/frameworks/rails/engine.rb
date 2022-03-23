@@ -37,7 +37,7 @@ module Brick
         # ====================================
         # Dynamically create generic templates
         # ====================================
-        if Rails.development? || ::Brick.enable_views?
+        if ::Brick.enable_views? || (ENV['RAILS_ENV'] || ENV['RACK_ENV'])  == 'development'
           ActionView::LookupContext.class_exec do
             alias :_brick_template_exists? :template_exists?
             def template_exists?(*args, **options)
@@ -283,7 +283,7 @@ function changeout(href, param, value) {
           end
         end
 
-        if Rails.development? || ::Brick.enable_routes?
+        if ::Brick.enable_routes? || (ENV['RAILS_ENV'] || ENV['RACK_ENV'])  == 'development'
           ActionDispatch::Routing::RouteSet.class_exec do
             alias _brick_finalize_routeset! finalize!
             def finalize!(*args, **options)

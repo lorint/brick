@@ -180,7 +180,7 @@ class Object
       return Object._brick_const_missing(*args) if ActiveSupport::Dependencies.search_for_file(class_name.underscore)
 
       relations = ::Brick.instance_variable_get(:@relations)[ActiveRecord::Base.connection_pool.object_id] || {}
-      is_controllers_enabled = Rails.development? || ::Brick.enable_controllers?
+      is_controllers_enabled = ::Brick.enable_controllers? || (ENV['RAILS_ENV'] || ENV['RACK_ENV'])  == 'development'
       result = if is_controllers_enabled && class_name.end_with?('Controller') && (plural_class_name = class_name[0..-11]).length.positive?
         # Otherwise now it's up to us to fill in the gaps
         if (model = ActiveSupport::Inflector.singularize(plural_class_name).constantize)
