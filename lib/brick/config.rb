@@ -91,6 +91,14 @@ module Brick
       @mutex.synchronize { @model_descrips = descrips }
     end
 
+    def sti_namespace_prefixes
+      @mutex.synchronize { @sti_namespace_prefixes ||= {} }
+    end
+
+    def sti_namespace_prefixes=(prefixes)
+      @mutex.synchronize { @sti_namespace_prefixes = prefixes }
+    end
+
     def skip_database_views
       @mutex.synchronize { @skip_database_views }
     end
