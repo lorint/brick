@@ -136,38 +136,67 @@ module ActiveRecord
 
       alias _brick_find_sti_class find_sti_class
       def find_sti_class(type_name)
-        ::Brick.sti_models[type_name] = { base: self } unless type_name.blank?
-        module_prefixes = type_name.split('::')
-        module_prefixes.unshift('') unless module_prefixes.first.blank?
-        candidate_file = Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb')
-        if File.exists?(candidate_file)
-          # Find this STI class normally
+        if ::Brick.sti_models.key?(type_name)
           _brick_find_sti_class(type_name)
         else
-          # Build missing prefix modules if they don't yet exist
-          this_module = Object
-          module_prefixes[1..-2].each do |module_name|
-            mod = if this_module.const_defined?(module_name)
-                    this_module.const_get(module_name)
-                  else
-                    this_module.const_set(module_name.to_sym, Module.new)
-                  end
+          # This auto-STI is more of a brute-force approach, building modules where needed
+          # The more graceful alternative is the overload of ActiveSupport::Dependencies#autoload_module! found below
+          ::Brick.sti_models[type_name] = { base: self } unless type_name.blank?
+          module_prefixes = type_name.split('::')
+          module_prefixes.unshift('') unless module_prefixes.first.blank?
+          module_name = module_prefixes[0..-2].join('::')
+          if ::Brick.config.sti_namespace_prefixes&.key?(module_name) ||
+             ::Brick.config.sti_namespace_prefixes&.key?(module_name[2..-1]) # Take off the leading '::' and see if this matches
+            _brick_find_sti_class(type_name)
+          elsif File.exists?(candidate_file = Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb'))
+            _brick_find_sti_class(type_name) # Find this STI class normally
+          else
+            # Build missing prefix modules if they don't yet exist
+            this_module = Object
+            module_prefixes[1..-2].each do |module_name|
+              mod = if this_module.const_defined?(module_name)
+                      this_module.const_get(module_name)
+                    else
+                      this_module.const_set(module_name.to_sym, Module.new)
+                    end
+            end
+            # Build STI subclass and place it into the namespace module
+            this_module.const_set(module_prefixes.last.to_sym, klass = Class.new(self))
+            klass
           end
-          # Build missing prefix modules if they don't yet exist
-          this_module.const_set(module_prefixes.last.to_sym, klass = Class.new(self))
-          klass
         end
       end
     end
   end
 end
 
-# Object.class_exec do
+module ActiveSupport::Dependencies
+  class << self
+    # %%% Probably a little more targeted than other approaches we've taken thusfar
+    # This happens before the whole parent check
+    alias _brick_autoload_module! autoload_module!
+    def autoload_module!(*args)
+      into, const_name, qualified_name, path_suffix = args
+      if (base_class = ::Brick.config.sti_namespace_prefixes&.fetch(into.name, nil)&.constantize)
+        ::Brick.sti_models[qualified_name] = { base: base_class }
+        # Build subclass and place it into the specially STI-namespaced module
+        into.const_set(const_name.to_sym, klass = Class.new(base_class))
+        # %%% used to also have:  autoload_once_paths.include?(base_path) || 
+        autoloaded_constants << qualified_name unless autoloaded_constants.include?(qualified_name)
+        klass
+      else
+        _brick_autoload_module!(*args)
+      end
+    end
+  end
+end
+
 class Object
   class << self
     alias _brick_const_missing const_missing
     def const_missing(*args)
-      return Object.const_get(args.first) if Object.const_defined?(args.first)
+      return self.const_get(args.first) if self.const_defined?(args.first)
+      return Object.const_get(args.first) if Object.const_defined?(args.first) unless self == Object
 
       class_name = args.first.to_s
       # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
@@ -175,43 +204,57 @@ class Object
       # that is, checking #qualified_name_for with:  from_mod, const_name
       # If we want to support namespacing in the future, might have to utilise something like this:
       # path_suffix = ActiveSupport::Dependencies.qualified_name_for(Object, args.first).underscore
-      # return Object._brick_const_missing(*args) if ActiveSupport::Dependencies.search_for_file(path_suffix)
+      # return self._brick_const_missing(*args) if ActiveSupport::Dependencies.search_for_file(path_suffix)
       # If the file really exists, go and snag it:
-      return Object._brick_const_missing(*args) if ActiveSupport::Dependencies.search_for_file(class_name.underscore)
+      if !(is_found = ActiveSupport::Dependencies.search_for_file(class_name.underscore)) && (filepath = self.name&.split('::'))
+        filepath = (filepath[0..-2] + [class_name]).join('/').underscore + '.rb'
+      end
+      if is_found
+        return self._brick_const_missing(*args)
+      elsif ActiveSupport::Dependencies.search_for_file(filepath) # Last-ditch effort to pick this thing up before we fill in the gaps on our own
+        my_const = parent.const_missing(class_name) # ends up having:  MyModule::MyClass
+        return my_const
+      end
 
       relations = ::Brick.instance_variable_get(:@relations)[ActiveRecord::Base.connection_pool.object_id] || {}
       is_controllers_enabled = ::Brick.enable_controllers? || (ENV['RAILS_ENV'] || ENV['RACK_ENV'])  == 'development'
       result = if is_controllers_enabled && class_name.end_with?('Controller') && (plural_class_name = class_name[0..-11]).length.positive?
-        # Otherwise now it's up to us to fill in the gaps
-        if (model = ActiveSupport::Inflector.singularize(plural_class_name).constantize)
-          # if it's a controller and no match or a model doesn't really use the same table name, eager load all models and try to find a model class of the right name.
-          build_controller(class_name, plural_class_name, model, relations)
-        end
-      elsif ::Brick.enable_models?
-        # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
-        # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
-        plural_class_name = ActiveSupport::Inflector.pluralize(model_name = class_name)
-        singular_table_name = ActiveSupport::Inflector.underscore(model_name)
-
-        # Adjust for STI if we know of a base model for the requested model name
-        table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
-                       base_model.table_name
-                     else
-                       ActiveSupport::Inflector.pluralize(singular_table_name)
-                     end
-
-        # Maybe, just maybe there's a database table that will satisfy this need
-        if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(m) })
-          build_model(model_name, singular_table_name, table_name, relations, matching)
-        end
-      end
+                 # Otherwise now it's up to us to fill in the gaps
+                 if (model = ActiveSupport::Inflector.singularize(plural_class_name).constantize)
+                   # if it's a controller and no match or a model doesn't really use the same table name, eager load all models and try to find a model class of the right name.
+                   build_controller(class_name, plural_class_name, model, relations)
+                 end
+               elsif ::Brick.enable_models?
+                 # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
+                 # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
+                 plural_class_name = ActiveSupport::Inflector.pluralize(model_name = class_name)
+                 singular_table_name = ActiveSupport::Inflector.underscore(model_name)
+ 
+                 # Adjust for STI if we know of a base model for the requested model name
+                 table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
+                               base_model.table_name
+                             else
+                               ActiveSupport::Inflector.pluralize(singular_table_name)
+                             end
+ 
+                 # Maybe, just maybe there's a database table that will satisfy this need
+                 if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(m) })
+                   build_model(model_name, singular_table_name, table_name, relations, matching)
+                 end
+               end
       if result
         built_class, code = result
         puts "\n#{code}"
         built_class
+      elsif ::Brick.config.sti_namespace_prefixes&.key?(class_name)
+#         module_prefixes = type_name.split('::')
+#         path = self.name.split('::')[0..-2] + []
+#         module_prefixes.unshift('') unless module_prefixes.first.blank?
+#         candidate_file = Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb')
+        self._brick_const_missing(*args)
       else
         puts "MISSING! #{args.inspect} #{table_name}"
-        Object._brick_const_missing(*args)
+        self._brick_const_missing(*args)
       end
     end
 
@@ -223,7 +266,8 @@ class Object
 
       # Are they trying to use a pluralised class name such as "Employees" instead of "Employee"?
       if table_name == singular_table_name && !ActiveSupport::Inflector.inflections.uncountable.include?(table_name)
-        raise NameError.new("Class name for a model that references table \"#{matching}\" should be \"#{ActiveSupport::Inflector.singularize(model_name)}\".")
+        puts "Warning: Class name for a model that references table \"#{matching}\" should be \"#{ActiveSupport::Inflector.singularize(model_name)}\"."
+        return
       end
       if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
         is_sti = true

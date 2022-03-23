@@ -228,6 +228,13 @@ module Brick
       Brick.config.model_descrips = descrips
     end
 
+    # Module prefixes to build out and associate with specific base STI models
+    # @api public
+    def sti_namespace_prefixes=(snp)
+      Brick.config.sti_namespace_prefixes = snp
+    end
+
+
     # Returns Brick's `::Gem::Version`, convenient for comparisons. This is
     # recommended over `::Brick::VERSION::STRING`.
     #
