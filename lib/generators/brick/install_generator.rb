@@ -80,11 +80,13 @@ module Brick
 # # Settings for the Brick gem
 # # (By default this auto-creates models, controllers, views, and routes on-the-fly.)
 
-# # Normally these all start out as being enabled, but can be selectively disabled:
-# Brick.enable_routes = false
+# # Normally all are enabled in development mode, and for security reasons only models are enabled in production
+# # and test.  This allows you to either (a) turn off models entirely, or (b) enable controllers, views, and routes
+# # in production.
+# Brick.enable_routes = true # Setting this to \"false\" will disable routes in development
 # Brick.enable_models = false
-# Brick.enable_controllers = false
-# Brick.enable_views = false
+# Brick.enable_controllers = true # Setting this to \"false\" will disable controllers in development
+# Brick.enable_views = true # Setting this to \"false\" will disable views in development
 
 # # By default models are auto-created for database views, and set to be read-only.  This can be skipped.
 # Brick.skip_database_views = true

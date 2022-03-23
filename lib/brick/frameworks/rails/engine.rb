@@ -8,9 +8,9 @@ module Brick
       config.brick = ActiveSupport::OrderedOptions.new
       ActiveSupport.on_load(:before_initialize) do |app|
         ::Brick.enable_models = app.config.brick.fetch(:enable_models, true)
-        ::Brick.enable_controllers = app.config.brick.fetch(:enable_controllers, true)
-        ::Brick.enable_views = app.config.brick.fetch(:enable_views, true)
-        ::Brick.enable_routes = app.config.brick.fetch(:enable_routes, true)
+        ::Brick.enable_controllers = app.config.brick.fetch(:enable_controllers, false)
+        ::Brick.enable_views = app.config.brick.fetch(:enable_views, false)
+        ::Brick.enable_routes = app.config.brick.fetch(:enable_routes, false)
         ::Brick.skip_database_views = app.config.brick.fetch(:skip_database_views, false)
 
         # Specific database tables and views to omit when auto-creating models
@@ -37,7 +37,7 @@ module Brick
         # ====================================
         # Dynamically create generic templates
         # ====================================
-        if ::Brick.enable_views?
+        if Rails.development? || ::Brick.enable_views?
           ActionView::LookupContext.class_exec do
             alias :_brick_template_exists? :template_exists?
             def template_exists?(*args, **options)
@@ -283,7 +283,7 @@ function changeout(href, param, value) {
           end
         end
 
-        if ::Brick.enable_routes?
+        if Rails.development? || ::Brick.enable_routes?
           ActionDispatch::Routing::RouteSet.class_exec do
             alias _brick_finalize_routeset! finalize!
             def finalize!(*args, **options)
