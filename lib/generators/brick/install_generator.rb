@@ -94,6 +94,9 @@ module Brick
 # # Any tables or views you'd like to skip when auto-creating models
 # Brick.exclude_tables = ['custom_metadata', 'version_info']
 
+# # Class that auto-generated models should inherit from
+# Brick.models_inherit_from = ApplicationRecord
+
 # # When table names have specific prefixes automatically place them in their own module with a table_name_prefix.
 # Brick.table_name_prefixes = { 'nav_' => 'Navigation' }
 
