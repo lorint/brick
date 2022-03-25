@@ -272,7 +272,7 @@ class Object
       if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
         is_sti = true
       else
-        base_model = ActiveRecord::Base
+        base_model = ::Brick.config.models_inherit_from || ActiveRecord::Base
       end
       code = +"class #{model_name} < #{base_model.name}\n"
       built_model = Class.new(base_model) do |new_model_class|

@@ -175,6 +175,11 @@ module Brick
     end
 
     # @api public
+    def models_inherit_from=(value)
+      Brick.config.models_inherit_from = value
+    end
+
+    # @api public
     def table_name_prefixes=(value)
       Brick.config.table_name_prefixes = value
     end

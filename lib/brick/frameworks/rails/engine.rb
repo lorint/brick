@@ -16,6 +16,9 @@ module Brick
         # Specific database tables and views to omit when auto-creating models
         ::Brick.exclude_tables = app.config.brick.fetch(:exclude_tables, [])
 
+        # Class for auto-generated models to inherit from
+        ::Brick.models_inherit_from = app.config.brick.fetch(:models_inherit_from, ActiveRecord::Base)
+
         # When table names have specific prefixes, automatically place them in their own module with a table_name_prefix.
         ::Brick.table_name_prefixes = app.config.brick.fetch(:table_name_prefixes, [])
 

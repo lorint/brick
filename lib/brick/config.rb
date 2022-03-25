@@ -115,6 +115,14 @@ module Brick
       @mutex.synchronize { @exclude_tables = value }
     end
 
+    def models_inherit_from
+      @mutex.synchronize { @models_inherit_from }
+    end
+
+    def models_inherit_from=(value)
+      @mutex.synchronize { @models_inherit_from = value }
+    end
+
     def table_name_prefixes
       @mutex.synchronize { @table_name_prefixes }
     end
