@@ -138,10 +138,15 @@ module Brick
 # # user, then you can use model_descrips like this, putting expressions with property references in square brackets:
 # Brick.model_descrips = { 'User' => '[profile.firstname] [profile.lastname]' }
 
-# # Module prefixes to be built out and associated when new subclasses are requested for specific base STI models
-# # (If this setting exists then only these subclasses will be honoured, and other requested )
-# # The prefixed :: here on the sample module name Animals is optional.  Used here for clarity.
-# Brick.sti_namespace_prefixes = { '::Animals' => 'Animal' }
+# # Specify STI subclasses either directly by name or as a general module prefix that should always relate to a specific
+# # parent STI class.  The prefixed :: here for these examples is mandatory.  Also having a suffixed :: means instead of
+# # a class reference, this is for a general namespace reference.  So in this case requests for, say, either of the
+# # non-existant classes Animals::Cat or Animals::Goat (or anything else with the module prefix of \"Animals::\" would
+# # build a model that inherits from Animal.  And a request specifically for the class Snake would build a new model
+# # that inherits from Reptile, and no other request would do this -- only specifically for Snake.  The ending ::
+# # indicates that it's a module prefix instead of a specific class name.
+# Brick.sti_namespace_prefixes = { '::Animals::' => 'Animal',
+#                                  '::Snake' => 'Reptile' }
 
 # # If a default route is not supplied, Brick attempts to find the most \"central\" table and wires up the default
 # # route to go to the :index action for what would be a controller for that table.  You can specify any controller
