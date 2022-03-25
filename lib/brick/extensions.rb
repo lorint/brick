@@ -137,6 +137,7 @@ module ActiveRecord
       alias _brick_find_sti_class find_sti_class
       def find_sti_class(type_name)
         if ::Brick.sti_models.key?(type_name)
+          # puts ['X', self.name, type_name].inspect
           _brick_find_sti_class(type_name)
         else
           # This auto-STI is more of a brute-force approach, building modules where needed
@@ -145,8 +146,8 @@ module ActiveRecord
           module_prefixes = type_name.split('::')
           module_prefixes.unshift('') unless module_prefixes.first.blank?
           module_name = module_prefixes[0..-2].join('::')
-          if ::Brick.config.sti_namespace_prefixes&.key?(module_name) ||
-             ::Brick.config.sti_namespace_prefixes&.key?(module_name[2..-1]) # Take off the leading '::' and see if this matches
+          if ::Brick.config.sti_namespace_prefixes&.key?("::#{module_name}::") ||
+             ::Brick.config.sti_namespace_prefixes&.key?("#{module_name}::")
             _brick_find_sti_class(type_name)
           elsif File.exists?(candidate_file = Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb'))
             _brick_find_sti_class(type_name) # Find this STI class normally
@@ -154,15 +155,20 @@ module ActiveRecord
             # Build missing prefix modules if they don't yet exist
             this_module = Object
             module_prefixes[1..-2].each do |module_name|
-              mod = if this_module.const_defined?(module_name)
-                      this_module.const_get(module_name)
-                    else
-                      this_module.const_set(module_name.to_sym, Module.new)
-                    end
+              this_module = if this_module.const_defined?(module_name)
+                              this_module.const_get(module_name)
+                            else
+                              this_module.const_set(module_name.to_sym, Module.new)
+                            end
             end
-            # Build STI subclass and place it into the namespace module
-            this_module.const_set(module_prefixes.last.to_sym, klass = Class.new(self))
-            klass
+            if this_module.const_defined?(class_name = module_prefixes.last.to_sym)
+              this_module.const_get(class_name)
+            else
+              # Build STI subclass and place it into the namespace module
+              # %%% Does this ever get used???
+              puts [this_module.const_set(class_name, klass = Class.new(self)).name, class_name].inspect
+              klass
+            end
           end
         end
       end
@@ -177,13 +183,16 @@ module ActiveSupport::Dependencies
     alias _brick_autoload_module! autoload_module!
     def autoload_module!(*args)
       into, const_name, qualified_name, path_suffix = args
-      if (base_class = ::Brick.config.sti_namespace_prefixes&.fetch(into.name, nil)&.constantize)
+      if (base_class = ::Brick.config.sti_namespace_prefixes&.fetch("::#{into.name}::", nil)&.constantize)
         ::Brick.sti_models[qualified_name] = { base: base_class }
         # Build subclass and place it into the specially STI-namespaced module
         into.const_set(const_name.to_sym, klass = Class.new(base_class))
         # %%% used to also have:  autoload_once_paths.include?(base_path) || 
         autoloaded_constants << qualified_name unless autoloaded_constants.include?(qualified_name)
         klass
+      elsif (base_class = ::Brick.config.sti_namespace_prefixes&.fetch("::#{const_name}", nil)&.constantize)
+        # Build subclass and place it into Object
+        Object.const_set(const_name.to_sym, klass = Class.new(base_class))
       else
         _brick_autoload_module!(*args)
       end
@@ -246,14 +255,14 @@ class Object
         built_class, code = result
         puts "\n#{code}"
         built_class
-      elsif ::Brick.config.sti_namespace_prefixes&.key?(class_name)
+      elsif ::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}")
 #         module_prefixes = type_name.split('::')
 #         path = self.name.split('::')[0..-2] + []
 #         module_prefixes.unshift('') unless module_prefixes.first.blank?
 #         candidate_file = Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb')
         self._brick_const_missing(*args)
       else
-        puts "MISSING! #{args.inspect} #{table_name}"
+        puts "MISSING! #{self.name} #{args.inspect} #{table_name}"
         self._brick_const_missing(*args)
       end
     end
@@ -266,7 +275,9 @@ class Object
 
       # Are they trying to use a pluralised class name such as "Employees" instead of "Employee"?
       if table_name == singular_table_name && !ActiveSupport::Inflector.inflections.uncountable.include?(table_name)
-        puts "Warning: Class name for a model that references table \"#{matching}\" should be \"#{ActiveSupport::Inflector.singularize(model_name)}\"."
+        unless ::Brick.config.sti_namespace_prefixes&.key?("::#{singular_table_name.titleize}::")
+          puts "Warning: Class name for a model that references table \"#{matching}\" should be \"#{ActiveSupport::Inflector.singularize(model_name)}\"."
+        end
         return
       end
       if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
@@ -321,6 +332,12 @@ class Object
             options = {}
             singular_table_name = ActiveSupport::Inflector.singularize(assoc[:inverse_table])
             macro = if assoc[:is_bt]
+                      # Try to take care of screwy names if this is a belongs_to going to an STI subclass
+                      # binding.pry if assoc[:fk] == 'issue_severity_id'
+                      if (primary_class = assoc.fetch(:primary_class, nil)) &&
+                         (sti_inverse_assoc = primary_class.reflect_on_all_associations.find { |a| a.macro == :has_many && a.options[:class_name] == self.name && assoc[:fk] = a.foreign_key })
+                        assoc_name = sti_inverse_assoc.options[:inverse_of].to_s || assoc_name
+                      end
                       need_class_name = singular_table_name.underscore != assoc_name
                       need_fk = "#{assoc_name}_id" != assoc[:fk]
                       if (inverse = assoc[:inverse])
@@ -355,7 +372,7 @@ class Object
                     end
             # Figure out if we need to specially call out the class_name and/or foreign key
             # (and if either of those then definitely also a specific inverse_of)
-            options[:class_name] = singular_table_name.camelize if need_class_name
+            options[:class_name] = assoc[:primary_class]&.name || singular_table_name.camelize if need_class_name
             # Work around a bug in CPK where self-referencing belongs_to associations double up their foreign keys
             if need_fk # Funky foreign key?
               options[:foreign_key] = if assoc[:fk].is_a?(Array)
@@ -637,16 +654,17 @@ module Brick
       bt_assoc_name = bt_assoc_name[0..-4] if bt_assoc_name.end_with?('_id')
 
       bts = (relation = relations.fetch(fk[0], nil))&.fetch(:fks) { relation[:fks] = {} }
-      hms = (relation = relations.fetch(fk[2], nil))&.fetch(:fks) { relation[:fks] = {} }
+      primary_table = (is_class = fk[2].is_a?(Hash) && fk[2].key?(:class)) ? (primary_class = fk[2][:class].constantize).table_name : fk[2]
+      hms = (relation = relations.fetch(primary_table, nil))&.fetch(:fks) { relation[:fks] = {} } unless is_class
 
       unless (cnstr_name = fk[3])
         # For any appended references (those that come from config), arrive upon a definitely unique constraint name
-        cnstr_base = cnstr_name = "(brick) #{fk[0]}_#{fk[2]}"
+        cnstr_base = cnstr_name = "(brick) #{fk[0]}_#{is_class ? fk[2][:class].underscore : fk[2]}"
         cnstr_added_num = 1
         cnstr_name = "#{cnstr_base}_#{cnstr_added_num += 1}" while bts&.key?(cnstr_name) || hms&.key?(cnstr_name)
         missing = []
         missing << fk[0] unless relations.key?(fk[0])
-        missing << fk[2] unless relations.key?(fk[2])
+        missing << primary_table unless is_class || relations.key?(primary_table)
         unless missing.empty?
           tables = relations.reject { |k, v| v.fetch(:isView, nil) }.keys.sort
           puts "Brick: Additional reference #{fk.inspect} refers to non-existent #{'table'.pluralize(missing.length)} #{missing.join(' and ')}. (Available tables include #{tables.join(', ')}.)"
@@ -657,8 +675,12 @@ module Brick
           puts "Brick: Additional reference #{fk.inspect} refers to non-existent column #{fk[1]}. (Columns present in #{fk[0]} are #{columns.join(', ')}.)"
           return
         end
-        if (redundant = bts.find { |k, v| v[:inverse]&.fetch(:inverse_table, nil) == fk[0] && v[:fk] == fk[1] && v[:inverse_table] == fk[2] })
-          puts "Brick: Additional reference #{fk.inspect} is redundant and can be removed.  (Already established by #{redundant.first}.)"
+        if (redundant = bts.find { |k, v| v[:inverse]&.fetch(:inverse_table, nil) == fk[0] && v[:fk] == fk[1] && v[:inverse_table] == primary_table })
+          if is_class && !redundant.last.key?(:class)
+            redundant.last[:primary_class] = primary_class # Round out this BT so it can find the proper :source for a HMT association that references an STI subclass
+          else
+            puts "Brick: Additional reference #{fk.inspect} is redundant and can be removed.  (Already established by #{redundant.first}.)"
+          end
           return
         end
       end
@@ -666,10 +688,16 @@ module Brick
         assoc_bt[:fk] = assoc_bt[:fk].is_a?(String) ? [assoc_bt[:fk], fk[1]] : assoc_bt[:fk].concat(fk[1])
         assoc_bt[:assoc_name] = "#{assoc_bt[:assoc_name]}_#{fk[1]}"
       else
-        assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[1], assoc_name: bt_assoc_name, inverse_table: fk[2] }
+        assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[1], assoc_name: bt_assoc_name, inverse_table: primary_table }
+      end
+      if is_class
+        # For use in finding the proper :source for a HMT association that references an STI subclass
+        assoc_bt[:primary_class] = primary_class
+        # For use in finding the proper :inverse_of for a BT association that references an STI subclass
+        # assoc_bt[:inverse_of] = primary_class.reflect_on_all_associations.find { |a| a.foreign_key == bt[1] }
       end
 
-      unless ::Brick.config.skip_hms&.any? { |skip| fk[0] == skip[0] && fk[1] == skip[1] && fk[2] == skip[2] }
+      unless is_class || ::Brick.config.skip_hms&.any? { |skip| fk[0] == skip[0] && fk[1] == skip[1] && primary_table == skip[2] }
         cnstr_name = "hm_#{cnstr_name}"
         if (assoc_hm = hms.fetch(cnstr_name, nil))
           assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[1]] : assoc_hm[:fk].concat(fk[1])
@@ -683,16 +711,6 @@ module Brick
         assoc_bt[:inverse] = assoc_hm
       end
       # hms[cnstr_name] << { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0] }
-    end
-
-    # Rails < 4.0 doesn't have ActiveRecord::RecordNotUnique, so use the more generic ActiveRecord::ActiveRecordError instead
-    ar_not_unique_error = ActiveRecord.const_defined?('RecordNotUnique') ? ActiveRecord::RecordNotUnique : ActiveRecord::ActiveRecordError
-    class NoUniqueColumnError < ar_not_unique_error
-    end
-
-    # Rails < 4.2 doesn't have ActiveRecord::RecordInvalid, so use the more generic ActiveRecord::ActiveRecordError instead
-    ar_invalid_error = ActiveRecord.const_defined?('RecordInvalid') ? ActiveRecord::RecordInvalid : ActiveRecord::ActiveRecordError
-    class LessThanHalfAreMatchingColumnsError < ar_invalid_error
     end
   end
 end
