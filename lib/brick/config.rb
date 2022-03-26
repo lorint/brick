@@ -138,5 +138,13 @@ module Brick
     def metadata_columns=(columns)
       @mutex.synchronize { @metadata_columns = columns }
     end
+
+    def not_nullables
+      @mutex.synchronize { @not_nullables }
+    end
+
+    def not_nullables=(columns)
+      @mutex.synchronize { @not_nullables = columns }
+    end
   end
 end
