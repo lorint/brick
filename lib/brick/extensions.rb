@@ -176,25 +176,27 @@ module ActiveRecord
   end
 end
 
-module ActiveSupport::Dependencies
-  class << self
-    # %%% Probably a little more targeted than other approaches we've taken thusfar
-    # This happens before the whole parent check
-    alias _brick_autoload_module! autoload_module!
-    def autoload_module!(*args)
-      into, const_name, qualified_name, path_suffix = args
-      if (base_class = ::Brick.config.sti_namespace_prefixes&.fetch("::#{into.name}::", nil)&.constantize)
-        ::Brick.sti_models[qualified_name] = { base: base_class }
-        # Build subclass and place it into the specially STI-namespaced module
-        into.const_set(const_name.to_sym, klass = Class.new(base_class))
-        # %%% used to also have:  autoload_once_paths.include?(base_path) || 
-        autoloaded_constants << qualified_name unless autoloaded_constants.include?(qualified_name)
-        klass
-      elsif (base_class = ::Brick.config.sti_namespace_prefixes&.fetch("::#{const_name}", nil)&.constantize)
-        # Build subclass and place it into Object
-        Object.const_set(const_name.to_sym, klass = Class.new(base_class))
-      else
-        _brick_autoload_module!(*args)
+if ActiveSupport::Dependencies.respond_to?(:autoload_module!) # %%% Only works with previous non-zeitwerk auto-loading
+  module ActiveSupport::Dependencies
+    class << self
+      # %%% Probably a little more targeted than other approaches we've taken thusfar
+      # This happens before the whole parent check
+      alias _brick_autoload_module! autoload_module!
+      def autoload_module!(*args)
+        into, const_name, qualified_name, path_suffix = args
+        if (base_class = ::Brick.config.sti_namespace_prefixes&.fetch("::#{into.name}::", nil)&.constantize)
+          ::Brick.sti_models[qualified_name] = { base: base_class }
+          # Build subclass and place it into the specially STI-namespaced module
+          into.const_set(const_name.to_sym, klass = Class.new(base_class))
+          # %%% used to also have:  autoload_once_paths.include?(base_path) || 
+          autoloaded_constants << qualified_name unless autoloaded_constants.include?(qualified_name)
+          klass
+        elsif (base_class = ::Brick.config.sti_namespace_prefixes&.fetch("::#{const_name}", nil)&.constantize)
+          # Build subclass and place it into Object
+          Object.const_set(const_name.to_sym, klass = Class.new(base_class))
+        else
+          _brick_autoload_module!(*args)
+        end
       end
     end
   end
@@ -402,12 +404,13 @@ class Object
             fks.each do |fk|
               source = nil
               this_hmt_fk = if fks.length > 1
-                              singular_assoc_name = ActiveSupport::Inflector.singularize(fk.first[:inverse][:assoc_name])
+                              singular_assoc_name = fk.first[:inverse][:assoc_name].singularize
                               source = fk.last
-                              through = ActiveSupport::Inflector.pluralize(fk.first[:alternate_name])
+                              through = fk.first[:alternate_name].pluralize
                               "#{singular_assoc_name}_#{hmt_fk}"
                             else
-                              through = fk.first[:assoc_name]
+                              source = fk.last unless hmt_fk.singularize == fk.last
+                              through = fk.first[:assoc_name].pluralize
                               hmt_fk
                             end
               code << "  has_many :#{this_hmt_fk}, through: #{(assoc_name = through.to_sym).to_sym.inspect}#{", source: :#{source}" if source}\n"

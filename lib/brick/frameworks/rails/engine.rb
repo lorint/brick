@@ -90,7 +90,6 @@ module Brick
 
                 schema_options = ::Brick.db_schemas.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
                 hms_columns = +'' # Used for 'index'
-                # puts skip_hms.inspect
                 hms_headers = hms.each_with_object([]) do |hm, s|
                   next if skip_hms.key?(hm.last.name)
 
@@ -270,7 +269,7 @@ function changeout(href, param, value) {
     <% if (collection = @#{obj_name}.first.#{hm_name}).empty? %>
       <tr><td>(none)</td></tr>
     <% else %>
-      <% collection.order(#{pk.inspect}).uniq.each do |#{hm_singular_name = hm_name.singularize}| %>
+      <% collection.order(#{pk.inspect}).uniq.each do |#{hm_singular_name = hm_name.singularize.underscore}| %>
         <tr><td><%= link_to(#{hm_singular_name}.brick_descrip, #{hm_singular_name}_path(#{hm_singular_name}.#{pk})) %></td></tr>
       <% end %>
     <% end %>
