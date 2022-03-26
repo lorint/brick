@@ -25,6 +25,9 @@ module Brick
         # Columns to treat as being metadata for purposes of identifying associative tables for has_many :through
         ::Brick.metadata_columns = app.config.brick.fetch(:metadata_columns, ['created_at', 'updated_at', 'deleted_at'])
 
+        # Columns for which to add a validate presence: true even though the database doesn't have them marked as NOT NULL
+        ::Brick.not_nullables = app.config.brick.fetch(:not_nullables, [])
+
         # Additional references (virtual foreign keys)
         ::Brick.additional_references = app.config.brick.fetch(:additional_references, nil)
 

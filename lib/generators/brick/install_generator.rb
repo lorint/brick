@@ -131,6 +131,10 @@ module Brick
 # # database:
 # Brick.metadata_columns = ['last_update']
 
+# # Columns for which to add a validate presence: true even though the database doesn't have them marked as NOT NULL.
+# # Designated by <table name>.<column name>
+# Brick.not_nullables = ['users.name']
+
 # # A simple DSL is available to allow more user-friendly display of objects.  Normally a user object might be shown
 # # as its first non-metadata column, or if that is not available then something like \"User #45\" where 45 is that
 # # object's ID.  If there is no primary key then even that is not possible, so the object's .to_s method is called.

@@ -417,6 +417,14 @@ class Object
               self.send(:has_many, this_hmt_fk.to_sym, **options)
             end
           end
+          # Not NULLables
+          relation[:cols].each do |col, datatype|
+            if (datatype[3] && ar_pks.exclude?(col) && ::Brick.config.metadata_columns.exclude?(col)) ||
+               ::Brick.config.not_nullables.include?("#{matching}.#{col}")
+              code << "  validates :#{col}, presence: true\n"
+              self.send(:validates, col.to_sym, { presence: true })
+            end
+          end
         end
         code << "end # model #{model_name}\n\n"
       end # class definition
@@ -512,7 +520,8 @@ module ActiveRecord::ConnectionHandling
         "SELECT t.table_name AS relation_name, t.table_type,
           c.column_name, c.data_type,
           COALESCE(c.character_maximum_length, c.numeric_precision) AS max_length,
-          tc.constraint_type AS const, kcu.constraint_name AS \"key\"
+          tc.constraint_type AS const, kcu.constraint_name AS \"key\",
+          c.is_nullable
         FROM INFORMATION_SCHEMA.tables AS t
           LEFT OUTER JOIN INFORMATION_SCHEMA.columns AS c ON t.table_schema = c.table_schema
             AND t.table_name = c.table_name
@@ -550,7 +559,7 @@ module ActiveRecord::ConnectionHandling
                 end
           key << col_name if key
           cols = relation[:cols] # relation.fetch(:cols) { relation[:cols] = [] }
-          cols[col_name] = [r['data_type'], r['max_length'], measures&.include?(col_name)]
+          cols[col_name] = [r['data_type'], r['max_length'], measures&.include?(col_name), r['is_nullable'] == 'NO']
           # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
         end
       else # MySQL2 acts a little differently, bringing back an array for each row

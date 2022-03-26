@@ -189,6 +189,11 @@ module Brick
       Brick.config.metadata_columns = value
     end
 
+    # @api public
+    def not_nullables=(value)
+      Brick.config.not_nullables = value
+    end
+
     # Additional table associations to use (Think of these as virtual foreign keys perhaps)
     # @api public
     def additional_references=(ars)
