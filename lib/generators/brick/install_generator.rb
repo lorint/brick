@@ -114,7 +114,7 @@ module Brick
 # # Skip creating a has_many association for these
 # # (Uses the same exact three-part format as would define an additional_reference)
 # # Say for instance that we didn't care to display the favourite colours that users have:
-# Brick.skip_hms = [['users', 'favourite_colour_id', 'colours']]
+# Brick.exclude_hms = [['users', 'favourite_colour_id', 'colours']]
 
 # # By default primary tables involved in a foreign key relationship will indicate a \"has_many\" relationship pointing
 # # back to the foreign table.  In order to represent a \"has_one\" association instead, an override can be provided

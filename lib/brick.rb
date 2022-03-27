@@ -208,12 +208,12 @@ module Brick
     # Skip creating a has_many association for these
     # (Uses the same exact three-part format as would define an additional_reference)
     # @api public
-    def skip_hms=(skips)
+    def exclude_hms=(skips)
       if skips
         skips = skips.call if skips.is_a?(Proc)
         skips = skips.to_a unless skips.is_a?(Array)
         skips = [skips] unless skips.empty? || skips.first.is_a?(Array)
-        Brick.config.skip_hms = skips
+        Brick.config.exclude_hms = skips
       end
     end
 
@@ -242,6 +242,18 @@ module Brick
     # @api public
     def sti_namespace_prefixes=(snp)
       Brick.config.sti_namespace_prefixes = snp
+    end
+
+    # Load additional references (virtual foreign keys)
+    # This is attempted early if a brick initialiser file is found, and then again as a failsafe at the end of our engine's initialisation
+    # %%% Maybe look for differences the second time 'round and just add new stuff instead of entirely deferring
+    def load_additional_references
+      return if @_additional_references_loaded
+
+      if (ars = ::Brick.config.additional_references)
+        ars.each { |fk| ::Brick._add_bt_and_hm(fk[0..2]) }
+        @_additional_references_loaded = true
+      end
     end
 
 

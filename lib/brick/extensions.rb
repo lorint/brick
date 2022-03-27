@@ -629,7 +629,11 @@ module ActiveRecord::ConnectionHandling
       puts "\nClasses that can be built from views:"
       views.keys.each { |k| puts ActiveSupport::Inflector.singularize(k).camelize }
     end
-    # pp relations; nil
+    # Try to load the initializer pretty danged early
+    if File.exist?(brick_initialiser = Rails.root.join('config/initializers/brick.rb'))
+      load brick_initialiser
+      ::Brick.load_additional_references
+    end
 
     # relations.keys.each { |k| ActiveSupport::Inflector.singularize(k).camelize.constantize }
     # Layout table describes permissioned hierarchy throughout
@@ -708,7 +712,7 @@ module Brick
         # assoc_bt[:inverse_of] = primary_class.reflect_on_all_associations.find { |a| a.foreign_key == bt[1] }
       end
 
-      unless is_class || ::Brick.config.skip_hms&.any? { |skip| fk[0] == skip[0] && fk[1] == skip[1] && primary_table == skip[2] }
+      unless is_class || ::Brick.config.exclude_hms&.any? { |exclusion| fk[0] == exclusion[0] && fk[1] == exclusion[1] && primary_table == exclusion[2] }
         cnstr_name = "hm_#{cnstr_name}"
         if (assoc_hm = hms.fetch(cnstr_name, nil))
           assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[1]] : assoc_hm[:fk].concat(fk[1])

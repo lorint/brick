@@ -66,12 +66,12 @@ module Brick
     end
 
     # Skip creating a has_many association for these
-    def skip_hms
-      @mutex.synchronize { @skip_hms }
+    def exclude_hms
+      @mutex.synchronize { @exclude_hms }
     end
 
-    def skip_hms=(skips)
-      @mutex.synchronize { @skip_hms = skips }
+    def exclude_hms=(skips)
+      @mutex.synchronize { @exclude_hms = skips }
     end
 
     # Associations to treat as a has_one
