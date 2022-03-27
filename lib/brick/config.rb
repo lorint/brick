@@ -108,7 +108,7 @@ module Brick
     end
 
     def exclude_tables
-      @mutex.synchronize { @exclude_tables }
+      @mutex.synchronize { @exclude_tables || [] }
     end
 
     def exclude_tables=(value)

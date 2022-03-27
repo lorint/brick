@@ -89,7 +89,8 @@ module Brick
                 end
 
                 schema_options = ::Brick.db_schemas.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
-                table_options = ::Brick.relations.keys.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
+                table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables)
+                                .each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
                 hms_columns = +'' # Used for 'index'
                 hms_headers = hms.each_with_object([]) do |hm, s|
                   next if exclude_hms.key?((hm_assoc = hm.last).name)
@@ -163,6 +164,23 @@ a.big-arrow {
   font-size: 2.5em;
   text-decoration: none;
 }
+.wide-input {
+  display: block;
+  overflow: hidden;
+}
+.wide-input input[type=text] {
+  width: 100%;
+}
+.dimmed {
+  background-color: #C0C0C0;
+}
+input[type=submit] {
+  background-color: #004998;
+  color: #FFF;
+}
+.right {
+  text-align: right;
+}
 </style>
 <% def is_bcrypt?(val)
   val.is_a?(String) && val.length == 60 && val.start_with?('$2a$')
@@ -173,8 +191,9 @@ end %>"
 
                 script = "<script>
 var schemaSelect = document.getElementById(\"schema\");
+var brickSchema;
 if (schemaSelect) {
-  var brickSchema = changeout(location.href, \"_brick_schema\");
+  brickSchema = changeout(location.href, \"_brick_schema\");
   if (brickSchema) {
     [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
   }
@@ -184,6 +203,17 @@ if (schemaSelect) {
     location.href = changeout(location.href, \"_brick_schema\", this.value);
   });
 }
+[... document.getElementsByTagName(\"FORM\")].forEach(function (form) {
+  if (brickSchema)
+    form.action = changeout(form.action, \"_brick_schema\", brickSchema);
+  form.addEventListener('submit', function (ev) {
+    [... ev.target.getElementsByTagName(\"SELECT\")].forEach(function (select) {
+      if (select.value === \"^^^brick_NULL^^^\")
+        select.value = null;
+    });
+    return true;
+  });
+});
 
 var tblSelect = document.getElementById(\"tbl\");
 if (tblSelect) {
@@ -265,14 +295,18 @@ function changeout(href, param, value) {
 
 #{"<hr><%= link_to \"New #{obj_name}\", new_#{obj_name}_path %>" unless @_brick_model.is_view?}
 #{script}"
-                when 'show'
-  "#{css}
-    <p style=\"color: green\"><%= notice %></p>#{"
-    <select id=\"schema\">#{schema_options}</select>" if ::Brick.db_schemas.length > 1}
-    <select id=\"tbl\">#{table_options}</select>
-    <h1>#{model_name}: <%= (obj = @#{obj_name}.first).brick_descrip %></h1>
-    <%= link_to '(See all #{obj_name.pluralize})', #{table_name}_path %>
-  <%= form_for obj do |f| %>
+                when 'show', 'update'
+"#{css}
+<p style=\"color: green\"><%= notice %></p>#{"
+<select id=\"schema\">#{schema_options}</select>" if ::Brick.db_schemas.length > 1}
+<select id=\"tbl\">#{table_options}</select>
+<h1>#{model_name}: <%= (obj = @#{obj_name}&.first)&.brick_descrip || controller_name %></h1>
+<%= link_to '(See all #{obj_name.pluralize})', #{table_name}_path %>
+<% if obj %>
+  <%= # path_options = [obj.#{pk}]
+   # path_options << { '_brick_schema':  } if 
+   # url = send(:#{model_name.underscore}_path, obj.#{pk})
+   form_for(obj) do |f| %>
   <table>
   <% bts = { #{bts.each_with_object([]) { |v, s| s << "#{v.first.inspect} => [#{v.last.first.inspect}, #{v.last[1].name}, #{v.last[1].primary_key.inspect}]"}.join(', ')} }
       @#{obj_name}.first.attributes.each do |k, val| %>
@@ -281,25 +315,40 @@ function changeout(href, param, value) {
     <th class=\"show-field\">
     <% if (bt = bts[k])
       # Add a final member in this array with descriptive options to be used in <select> drop-downs
+      bt_name = bt[1].name
       # %%% Only do this if the user has permissions to edit this bt field
-      bt << bt[1].order(:#{pk}).map { |obj| [obj.brick_descrip, obj.#{pk}] } if bt.length < 4 %>
-      BT <%= \"#\{bt.first\}-\" unless bt[1].name.underscore == bt.first.to_s %><%= bt[1].name %>
+      if bt.length < 4
+        bt << (option_detail = [[\"(No #\{bt_name\} chosen)\", '^^^brick_NULL^^^']])
+        bt[1].order(:#{pk}).each { |obj| option_detail << [obj.brick_descrip, obj.#{pk}] }
+      end %>
+      BT <%= \"#\{bt.first\}-\" unless bt_name.underscore == bt.first.to_s %><%= bt_name %>
     <% else %>
       <%= k %>
     <% end %>
     </th>
     <td>
-    <% if (bt = bts[k]) # bt_obj.brick_descrip %>
-      <%= f.select k.to_sym, bt[3], {}, prompt: 'Select #{model_name}' %>
-      <%= bt_obj = bt[1].find_by(bt[2] => val); link_to('⇛', send(\"#\{bt_obj_class = bt[1].name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym)), { class: 'show-arrow' }) if bt_obj %>
-    <% elsif is_bcrypt?(val) %>
-      <%= hide_bcrypt(val) %>
-    <% else %>
-      <%= f.text_field k.to_sym %>
+    <% if (bt = bts[k]) # bt_obj.brick_descrip
+      html_options = { prompt: \"Select #\{bt_name\}\" }
+      html_options[:class] = 'dimmed' unless val %>
+      <%= f.select k.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options %>
+      <%= bt_obj = bt[1].find_by(bt[2] => val); link_to('⇛', send(\"#\{bt_obj_class = bt_name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym)), { class: 'show-arrow' }) if bt_obj %>
+    <% else case #{model_name}.column_for_attribute(k).type
+      when :string, :text %>
+        <% if is_bcrypt?(val) # || .readonly? %>
+          <%= hide_bcrypt(val) %>
+        <% else %>
+          <div class=\"wide-input\"><%= f.text_field k.to_sym %></div>
+        <% end %>
+      <% when :boolean %>
+        <%= f.check_box k.to_sym %>
+      <% when :integer, :date, :datetime, :decimal %>
+        <%= val %>
+      <% end %>
     <% end %>
     </td>
     </tr>
-  <% end %>
+    <% end %>
+    <tr><td colspan=\"2\" class=\"right\"><%= f.submit %></td></tr>
   </table>
   <% end %>
 
@@ -317,6 +366,7 @@ function changeout(href, param, value) {
       <% end %>
     <% end %>
   </table>" end.join}
+<% end %>
 #{script}"
 
                 end

@@ -454,7 +454,7 @@ class Object
 
         if model.primary_key
           code << "  def show\n"
-          code << "    @#{singular_table_name} = #{model.name}.find(params[:id].split(','))\n"
+          code << (find_by_id = "    @#{singular_table_name} = #{model.name}.find(params[:id].split(','))\n")
           code << "  end\n"
           self.define_method :show do
             ::Brick.set_db_schema(params)
@@ -463,9 +463,36 @@ class Object
         end
 
         # By default, views get marked as read-only
-        unless (relation = relations[model.table_name]).key?(:isView)
-          code << "  # (Define :new, :create, :edit, :update, and :destroy)\n"
-          # Get column names for params from relations[model.table_name][:cols].keys
+        unless false # model.readonly # (relation = relations[model.table_name]).key?(:isView)
+          code << "  # (Define :new, :create)\n"
+
+          if model.primary_key
+            is_need_params = true
+            # code << "  # (Define :edit, and :destroy)\n"
+            code << "  def update\n"
+            code << find_by_id
+            params_name = "#{singular_table_name}_params"
+            code << "    @#{singular_table_name}.update(#{params_name})\n"
+            code << "  end\n"
+            self.define_method :update do
+              ::Brick.set_db_schema(params)
+              instance_variable_set("@#{singular_table_name}".to_sym, (obj = model.find(params[:id].split(','))))
+              obj = obj.first if obj.is_a?(Array)
+              obj.send(:update, send(params_name = params_name.to_sym))
+            end
+          end
+
+          if is_need_params
+            code << "private\n"
+            code << "  def params\n"
+            code << "    params.require(:#{singular_table_name}).permit(#{model.columns_hash.keys.map { |c| c.to_sym.inspect }.join(', ')})\n"
+            code << "  end\n"
+            self.define_method(params_name) do
+              params.require(singular_table_name.to_sym).permit(model.columns_hash.keys)
+            end
+            private params_name
+            # Get column names for params from relations[model.table_name][:cols].keys
+          end
         end
         code << "end # #{class_name}\n\n"
       end # class definition
@@ -629,14 +656,12 @@ module ActiveRecord::ConnectionHandling
       puts "\nClasses that can be built from views:"
       views.keys.each { |k| puts ActiveSupport::Inflector.singularize(k).camelize }
     end
+
     # Try to load the initializer pretty danged early
     if File.exist?(brick_initialiser = Rails.root.join('config/initializers/brick.rb'))
       load brick_initialiser
       ::Brick.load_additional_references
     end
-
-    # relations.keys.each { |k| ActiveSupport::Inflector.singularize(k).camelize.constantize }
-    # Layout table describes permissioned hierarchy throughout
   end
 end
 
