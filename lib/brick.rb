@@ -102,14 +102,32 @@ module Brick
     end
 
     def get_bts_and_hms(model)
-      model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
+      bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
         case a.macro
         when :belongs_to
           s.first[a.foreign_key] = [a.name, a.klass]
-        when :has_many, :has_one
+        when :has_many, :has_one # This gets has_many as well as has_many :through
+          # %%% weed out ones that don't have an available model to reference
           s.last[a.name] = a
         end
       end
+      # Mark has_manys that go to an associative ("join") table so that they are skipped in the UI,
+      # as well as any possible polymorphic associations
+      skip_hms = {}
+      associatives = hms.each_with_object({}) do |hmt, s|
+        if (through = hmt.last.options[:through])
+          skip_hms[through] = nil
+          s[hmt.first] = hms[through] # End up with a hash of HMT names pointing to join-table associations
+        elsif hmt.last.inverse_of.nil?
+          puts "SKIPPING #{hmt.last.name.inspect}"
+          # %%% If we don't do this then below associative.name will find that associative is nil
+          skip_hms[hmt.last.name] = nil
+        end
+      end
+      skip_hms.each do |k, _v|
+        puts hms.delete(k).inspect
+      end
+      [bts, hms, associatives]
     end
 
     # Switches Brick auto-models on or off, for all threads
@@ -253,6 +271,17 @@ module Brick
       if (ars = ::Brick.config.additional_references)
         ars.each { |fk| ::Brick._add_bt_and_hm(fk[0..2]) }
         @_additional_references_loaded = true
+      end
+
+      # Find associative tables that can be set up for has_many :through
+      ::Brick.relations.each do |_key, tbl|
+        tbl_cols = tbl[:cols].keys
+        fks = tbl[:fks].each_with_object({}) { |fk, s| s[fk.last[:fk]] = [fk.last[:assoc_name], fk.last[:inverse_table]] if fk.last[:is_bt]; s }
+        # Aside from the primary key and the metadata columns created_at, updated_at, and deleted_at, if this table only has
+        # foreign keys then it can act as an associative table and thus be used with has_many :through.
+        if fks.length > 1 && (tbl_cols - fks.keys - (::Brick.config.metadata_columns || []) - (tbl[:pkey].values.first || [])).length.zero?
+          fks.each { |fk| tbl[:hmt_fks][fk.first] = fk.last }
+        end
       end
     end
 
