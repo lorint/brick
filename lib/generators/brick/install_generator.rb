@@ -18,7 +18,7 @@ module Brick
     desc 'Generates an initializer file for configuring Brick'
 
     def create_initializer_file
-      unless File.exists?(filename = 'config/initializers/brick.rb')
+      unless File.exist?(filename = 'config/initializers/brick.rb')
         # See if we can make suggestions for additional_references
         resembles_fks = []
         possible_additional_references = (relations = ::Brick.relations).each_with_object([]) do |v, s|
@@ -47,7 +47,7 @@ module Brick
               if (relations.fetch(f_table = col_down, nil) ||
                  relations.fetch(f_table = ActiveSupport::Inflector.pluralize(col_down), nil)) &&
                  # Looks pretty promising ... just make sure a model file isn't present
-                 !File.exists?("app/models/#{ActiveSupport::Inflector.singularize(v.first)}.rb")
+                 !File.exist?("app/models/#{ActiveSupport::Inflector.singularize(v.first)}.rb")
                 s << "['#{v.first}', '#{col}', '#{f_table}']"
               else
                 resembles_fks << "#{v.first}.#{col}"
@@ -58,24 +58,24 @@ module Brick
         end
 
         bar = case possible_additional_references.length
-      when 0
+              when 0
 +"# Brick.additional_references = [['orders', 'customer_id', 'customer'],
 #                                ['customer', 'region_id', 'regions']]"
-      when 1
-        +"# # Here is a possible additional reference that has been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
+              when 1
++"# # Here is a possible additional reference that has been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
 # Brick.additional_references = [[#{possible_additional_references.first}]"
-      else
-        +"# # Here are possible additional references that have been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
+              else
++"# # Here are possible additional references that have been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
 # Brick.additional_references = [
 #   #{possible_additional_references.join(",\n#   ")}
 # ]"
-      end
+              end
       if resembles_fks.length > 0
         bar << "\n# # Columns named somewhat like a foreign key which you may want to consider:
 # #   #{resembles_fks.join(', ')}"
       end
 
-        create_file filename, "# frozen_string_literal: true
+      create_file(filename, "# frozen_string_literal: true
 
 # # Settings for the Brick gem
 # # (By default this auto-creates models, controllers, views, and routes on-the-fly.)
@@ -159,7 +159,7 @@ module Brick
 # Brick.default_route_fallback = 'customers' # This defaults to \"customers/index\"
 # Brick.default_route_fallback = 'orders/outstanding' # Example of a non-RESTful route
 # Brick.default_route_fallback = '' # Omits setting a default route in the absence of any other
-"
+")
       end
     end
 

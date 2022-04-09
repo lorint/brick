@@ -106,9 +106,10 @@ module ActiveRecord
   end
 
   class Relation
-    def brick_where(params)
+    def brick_select(params)
       wheres = {}
       rel_joins = []
+      has_hm = false
       params.each do |k, v|
         case (ks = k.split('.')).length
         when 1
@@ -116,8 +117,10 @@ module ActiveRecord
         when 2
           assoc_name = ks.first.to_sym
           # Make sure it's a good association name and that the model has that column name
-          next unless klass.reflect_on_association(assoc_name)&.klass&.columns&.map(&:name)&.include?(ks.last)
+          next unless (assoc = klass.reflect_on_association(assoc_name))&.klass&.columns&.map(&:name)&.include?(ks.last)
 
+          # There is some potential for duplicates when there is an HM-based where in play.  De-duplicate if so.
+          has_hm ||= assoc.macro == :has_many
           rel_joins << assoc_name unless rel_joins.include?(assoc_name)
         end
         wheres[k] = v.split(',')
@@ -125,6 +128,7 @@ module ActiveRecord
       unless wheres.empty?
         where!(wheres)
         joins!(rel_joins) unless rel_joins.empty?
+        distinct! if has_hm
         wheres # Return the specific parameters that we did use
       end
     end
@@ -132,12 +136,11 @@ module ActiveRecord
 
   module Inheritance
     module ClassMethods
-      private
+    private
 
       alias _brick_find_sti_class find_sti_class
       def find_sti_class(type_name)
         if ::Brick.sti_models.key?(type_name)
-          # puts ['X', self.name, type_name].inspect
           _brick_find_sti_class(type_name)
         else
           # This auto-STI is more of a brute-force approach, building modules where needed
@@ -146,10 +149,8 @@ module ActiveRecord
           module_prefixes = type_name.split('::')
           module_prefixes.unshift('') unless module_prefixes.first.blank?
           module_name = module_prefixes[0..-2].join('::')
-          if ::Brick.config.sti_namespace_prefixes&.key?("::#{module_name}::") ||
-             ::Brick.config.sti_namespace_prefixes&.key?("#{module_name}::")
-            _brick_find_sti_class(type_name)
-          elsif File.exists?(candidate_file = Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb'))
+          if (snp = ::Brick.config.sti_namespace_prefixes)&.key?("::#{module_name}::") || snp&.key?("#{module_name}::") ||
+             File.exist?(candidate_file = Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb'))
             _brick_find_sti_class(type_name) # Find this STI class normally
           else
             # Build missing prefix modules if they don't yet exist
@@ -228,10 +229,9 @@ class Object
       end
 
       relations = ::Brick.instance_variable_get(:@relations)[ActiveRecord::Base.connection_pool.object_id] || {}
-      is_controllers_enabled = ::Brick.enable_controllers? || (ENV['RAILS_ENV'] || ENV['RACK_ENV'])  == 'development'
-      result = if is_controllers_enabled && class_name.end_with?('Controller') && (plural_class_name = class_name[0..-11]).length.positive?
+      result = if ::Brick.enable_controllers? && class_name.end_with?('Controller') && (plural_class_name = class_name[0..-11]).length.positive?
                  # Otherwise now it's up to us to fill in the gaps
-                 if (model = ActiveSupport::Inflector.singularize(plural_class_name).constantize)
+                 if (model = plural_class_name.singularize.constantize)
                    # if it's a controller and no match or a model doesn't really use the same table name, eager load all models and try to find a model class of the right name.
                    build_controller(class_name, plural_class_name, model, relations)
                  end
@@ -243,10 +243,10 @@ class Object
  
                  # Adjust for STI if we know of a base model for the requested model name
                  table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
-                               base_model.table_name
-                             else
-                               ActiveSupport::Inflector.pluralize(singular_table_name)
-                             end
+                                base_model.table_name
+                              else
+                                ActiveSupport::Inflector.pluralize(singular_table_name)
+                              end
  
                  # Maybe, just maybe there's a database table that will satisfy this need
                  if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(m) })
@@ -443,12 +443,12 @@ class Object
 
         code << "  def index\n"
         code << "    @#{table_name} = #{model.name}#{model.primary_key ? ".order(#{model.primary_key.inspect})" : '.all'}\n"
-        code << "    @#{table_name}.brick_where(params)\n"
+        code << "    @#{table_name}.brick_select(params)\n"
         code << "  end\n"
         self.define_method :index do
           ::Brick.set_db_schema(params)
           ar_relation = model.primary_key ? model.order(model.primary_key) : model.all
-          instance_variable_set(:@_brick_params, ar_relation.brick_where(params))
+          @_brick_params = ar_relation.brick_select(params)
           instance_variable_set("@#{table_name}".to_sym, ar_relation)
         end
 
@@ -522,9 +522,9 @@ module ActiveRecord::ConnectionHandling
   end
 
   def _brick_reflect_tables
-      if (relations = ::Brick.relations).empty?
-      # Only for Postgres?  (Doesn't work in sqlite3)
-      # puts ActiveRecord::Base.connection.execute("SELECT current_setting('SEARCH_PATH')").to_a.inspect
+    if (relations = ::Brick.relations).empty?
+    # Only for Postgres?  (Doesn't work in sqlite3)
+    # puts ActiveRecord::Base.connection.execute("SELECT current_setting('SEARCH_PATH')").to_a.inspect
 
     schema_sql = 'SELECT NULL AS table_schema;'
     case ActiveRecord::Base.connection.adapter_name
@@ -613,6 +613,25 @@ module ActiveRecord::ConnectionHandling
           # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
         end
       end
+
+      # # Add unique OIDs
+      # if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+      #   ActiveRecord::Base.execute_sql(
+      #     "SELECT c.oid, n.nspname, c.relname
+      #     FROM pg_catalog.pg_namespace AS n
+      #       INNER JOIN pg_catalog.pg_class AS c ON n.oid = c.relnamespace
+      #     WHERE c.relkind IN ('r', 'v')"
+      #   ).each do |r|
+      #     next if ['pg_catalog', 'information_schema', ''].include?(r['nspname']) ||
+      #       ['ar_internal_metadata', 'schema_migrations'].include?(r['relname'])
+      #     relation = relations.fetch(r['relname'], nil)
+      #     if relation
+      #       (relation[:oid] ||= {})[r['nspname']] = r['oid']
+      #     else
+      #       puts "Where is #{r['nspname']} #{r['relname']} ?"
+      #     end
+      #   end
+      # end
 
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'Mysql2'
@@ -706,7 +725,7 @@ module Brick
         missing << fk[0] unless relations.key?(fk[0])
         missing << primary_table unless is_class || relations.key?(primary_table)
         unless missing.empty?
-          tables = relations.reject { |k, v| v.fetch(:isView, nil) }.keys.sort
+          tables = relations.reject { |_k, v| v.fetch(:isView, nil) }.keys.sort
           puts "Brick: Additional reference #{fk.inspect} refers to non-existent #{'table'.pluralize(missing.length)} #{missing.join(' and ')}. (Available tables include #{tables.join(', ')}.)"
           return
         end
@@ -715,7 +734,7 @@ module Brick
           puts "Brick: Additional reference #{fk.inspect} refers to non-existent column #{fk[1]}. (Columns present in #{fk[0]} are #{columns.join(', ')}.)"
           return
         end
-        if (redundant = bts.find { |k, v| v[:inverse]&.fetch(:inverse_table, nil) == fk[0] && v[:fk] == fk[1] && v[:inverse_table] == primary_table })
+        if (redundant = bts.find { |_k, v| v[:inverse]&.fetch(:inverse_table, nil) == fk[0] && v[:fk] == fk[1] && v[:inverse_table] == primary_table })
           if is_class && !redundant.last.key?(:class)
             redundant.last[:primary_class] = primary_class # Round out this BT so it can find the proper :source for a HMT association that references an STI subclass
           else
@@ -737,19 +756,19 @@ module Brick
         # assoc_bt[:inverse_of] = primary_class.reflect_on_all_associations.find { |a| a.foreign_key == bt[1] }
       end
 
-      unless is_class || ::Brick.config.exclude_hms&.any? { |exclusion| fk[0] == exclusion[0] && fk[1] == exclusion[1] && primary_table == exclusion[2] }
-        cnstr_name = "hm_#{cnstr_name}"
-        if (assoc_hm = hms.fetch(cnstr_name, nil))
-          assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[1]] : assoc_hm[:fk].concat(fk[1])
-          assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
-          assoc_hm[:inverse] = assoc_bt
-        else
-          assoc_hm = hms[cnstr_name] = { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0], inverse: assoc_bt }
-          hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
-          hm_counts[fk[0]] = hm_counts.fetch(fk[0]) { 0 } + 1
-        end
-        assoc_bt[:inverse] = assoc_hm
+      return if is_class || ::Brick.config.exclude_hms&.any? { |exclusion| fk[0] == exclusion[0] && fk[1] == exclusion[1] && primary_table == exclusion[2] }
+
+      cnstr_name = "hm_#{cnstr_name}"
+      if (assoc_hm = hms.fetch(cnstr_name, nil))
+        assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[1]] : assoc_hm[:fk].concat(fk[1])
+        assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
+        assoc_hm[:inverse] = assoc_bt
+      else
+        assoc_hm = hms[cnstr_name] = { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0], inverse: assoc_bt }
+        hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
+        hm_counts[fk[0]] = hm_counts.fetch(fk[0]) { 0 } + 1
       end
+      assoc_bt[:inverse] = assoc_hm
       # hms[cnstr_name] << { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0] }
     end
   end
