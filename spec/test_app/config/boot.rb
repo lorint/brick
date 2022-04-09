@@ -8,7 +8,7 @@ require 'rubygems'
 unless ENV.key?('BUNDLE_GEMFILE')
   gemfile = File.expand_path('../../../Gemfile', __dir__)
   if File.exist?(gemfile)
-    puts "Booting DF test app: Using gemfile: #{gemfile}"
+    puts "Booting Brick test app: Using gemfile: #{gemfile}"
     ENV['BUNDLE_GEMFILE'] = gemfile
   end
 end

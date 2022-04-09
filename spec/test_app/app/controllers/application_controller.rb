@@ -9,7 +9,7 @@ class ApplicationController < ActionController::Base
     # must happen after this.
     before_action :modify_current_user
 
-    # DF used to add this callback automatically. Now people are required to add
+    # Brick used to add this callback automatically. Now people are required to add
     # it themselves, like this, allowing them to control the order of callbacks.
     # The `modify_current_user` callback above shows why this control is useful.
     before_action :set_brick_whodunnit

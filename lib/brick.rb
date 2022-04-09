@@ -254,6 +254,17 @@ module Brick
         ars.each { |fk| ::Brick._add_bt_and_hm(fk[0..2]) }
         @_additional_references_loaded = true
       end
+
+      # Find associative tables that can be set up for has_many :through
+      ::Brick.relations.each do |_key, tbl|
+        tbl_cols = tbl[:cols].keys
+        fks = tbl[:fks].each_with_object({}) { |fk, s| s[fk.last[:fk]] = [fk.last[:assoc_name], fk.last[:inverse_table]] if fk.last[:is_bt]; s }
+        # Aside from the primary key and the metadata columns created_at, updated_at, and deleted_at, if this table only has
+        # foreign keys then it can act as an associative table and thus be used with has_many :through.
+        if fks.length > 1 && (tbl_cols - fks.keys - (::Brick.config.metadata_columns || []) - (tbl[:pkey].values.first || [])).length.zero?
+          fks.each { |fk| tbl[:hmt_fks][fk.first] = fk.last }
+        end
+      end
     end
 
 

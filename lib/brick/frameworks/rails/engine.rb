@@ -51,14 +51,11 @@ module Brick
                 # Need to return true if we can fill in the blanks for a missing one
                 # args will be something like:  ["index", ["categories"]]
                 model = args[1].map(&:camelize).join('::').singularize.constantize
-                if (
-                      is_template_exists = model && (
-                        ['index', 'show'].include?(args.first) || # Everything has index and show
-                        # Only CRU stuff has create / update / destroy
-                        (!model.is_view? && ['new', 'create', 'edit', 'update', 'destroy'].include?(args.first))
-                      )
-                    )
-                  instance_variable_set(:@_brick_model, model)
+                if is_template_exists = model && (
+                    ['index', 'show'].include?(args.first) || # Everything has index and show
+                    # Only CRU stuff has create / update / destroy
+                    (!model.is_view? && ['new', 'create', 'edit', 'update', 'destroy'].include?(args.first))
+                  ) && instance_variable_set(:@_brick_model, model)
                 end
               end
               is_template_exists
@@ -88,9 +85,6 @@ module Brick
                   end
                 end
 
-                schema_options = ::Brick.db_schemas.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
-                table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables)
-                                .each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
                 hms_columns = +'' # Used for 'index'
                 hms_headers = hms.each_with_object([]) do |hm, s|
                   next if exclude_hms.key?((hm_assoc = hm.last).name)
@@ -114,7 +108,13 @@ module Brick
                   end
                   s << [hm_assoc, "H#{hm_assoc.macro == :has_one ? 'O' : 'M'}#{'T' if hm_assoc.options[:through]} #{hm.first}"]
                 end
-
+              end
+              if @_brick_model
+                schema_options = ::Brick.db_schemas.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
+                # %%% If we are not auto-creating controllers (or routes) then omit by default, and if enabled anyway, such as in a development
+                # environment or whatever, then get either the controllers or routes list instead
+                table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables)
+                                .each_with_object(+'') { |v, s| s << "<option value=\"#{v.underscore.pluralize}\">#{v}</option>" }.html_safe
                 css = "<style>
 table {
   border-collapse: collapse;
@@ -253,7 +253,7 @@ function changeout(href, param, value) {
 <h1>#{model_name.pluralize}</h1>
 <% if @_brick_params&.present? %><h3>where <%= @_brick_params.each_with_object([]) { |v, s| s << \"#\{v.first\} = #\{v.last.inspect\}\" }.join(', ') %></h3><% end %>
 <table id=\"#{table_name}\">
-  <thead><tr>#{"<th></th>" if pk }
+  <thead><tr>#{"<th></th>" if pk}
   <% bts = { #{bts.each_with_object([]) { |v, s| s << "#{v.first.inspect} => [#{v.last.first.inspect}, #{v.last[1].name}, #{v.last[1].primary_key.inspect}]"}.join(', ')} }
      @#{table_name}.columns.map(&:name).each do |col| %>
     <% next if col == '#{pk}' || ::Brick.config.metadata_columns.include?(col) %>
@@ -271,7 +271,7 @@ function changeout(href, param, value) {
   <tbody>
   <% @#{table_name}.each do |#{obj_name}| %>
   <tr>#{"
-    <td><%= link_to '⇛', #{obj_name}_path(#{obj_name}.#{pk}), { class: 'big-arrow' } %></td>" if pk }
+    <td><%= link_to '⇛', #{obj_name}_path(#{obj_name}.#{pk}), { class: 'big-arrow' } %></td>" if pk}
     <% #{obj_name}.attributes.each do |k, val| %>
       <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) %>
       <td>
@@ -341,8 +341,13 @@ function changeout(href, param, value) {
         <% end %>
       <% when :boolean %>
         <%= f.check_box k.to_sym %>
-      <% when :integer, :date, :datetime, :decimal %>
+      <% when :integer, :decimal, :float, :date, :datetime, :time, :timestamp
+          # What happens when keys are UUID?
+          # Postgres naturally uses the +uuid_generate_v4()+ function from the uuid-ossp extension
+          # If it's not yet enabled then:  enable_extension 'uuid-ossp'
+          # ActiveUUID gem created a new :uuid type %>
         <%= val %>
+      <% when :binary, :primary_key %>
       <% end %>
     <% end %>
     </td>
@@ -391,17 +396,6 @@ function changeout(href, param, value) {
         # Just in case it hadn't been done previously when we tried to load the brick initialiser,
         # go make sure we've loaded additional references (virtual foreign keys).
         ::Brick.load_additional_references
-
-        # Find associative tables that can be set up for has_many :through
-        ::Brick.relations.each do |_key, tbl|
-          tbl_cols = tbl[:cols].keys
-          fks = tbl[:fks].each_with_object({}) { |fk, s| s[fk.last[:fk]] = [fk.last[:assoc_name], fk.last[:inverse_table]] if fk.last[:is_bt]; s }
-          # Aside from the primary key and the metadata columns created_at, updated_at, and deleted_at, if this table only has
-          # foreign keys then it can act as an associative table and thus be used with has_many :through.
-          if fks.length > 1 && (tbl_cols - fks.keys - (::Brick.config.metadata_columns || []) - (tbl[:pkey].values.first || [])).length.zero?
-            fks.each { |fk| tbl[:hmt_fks][fk.first] = fk.last }
-          end
-        end
       end
     end
   end

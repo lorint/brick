@@ -18,7 +18,7 @@ module Brick
     desc 'Generates an initializer file for configuring Brick'
 
     def create_initializer_file
-      unless File.exists?(filename = 'config/initializers/brick.rb')
+      unless File.exist?(filename = 'config/initializers/brick.rb')
         # See if we can make suggestions for additional_references
         resembles_fks = []
         possible_additional_references = (relations = ::Brick.relations).each_with_object([]) do |v, s|
@@ -47,7 +47,7 @@ module Brick
               if (relations.fetch(f_table = col_down, nil) ||
                  relations.fetch(f_table = ActiveSupport::Inflector.pluralize(col_down), nil)) &&
                  # Looks pretty promising ... just make sure a model file isn't present
-                 !File.exists?("app/models/#{ActiveSupport::Inflector.singularize(v.first)}.rb")
+                 !File.exist?("app/models/#{ActiveSupport::Inflector.singularize(v.first)}.rb")
                 s << "['#{v.first}', '#{col}', '#{f_table}']"
               else
                 resembles_fks << "#{v.first}.#{col}"

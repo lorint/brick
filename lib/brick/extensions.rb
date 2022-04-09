@@ -137,7 +137,6 @@ module ActiveRecord
       alias _brick_find_sti_class find_sti_class
       def find_sti_class(type_name)
         if ::Brick.sti_models.key?(type_name)
-          # puts ['X', self.name, type_name].inspect
           _brick_find_sti_class(type_name)
         else
           # This auto-STI is more of a brute-force approach, building modules where needed
@@ -149,7 +148,7 @@ module ActiveRecord
           if ::Brick.config.sti_namespace_prefixes&.key?("::#{module_name}::") ||
              ::Brick.config.sti_namespace_prefixes&.key?("#{module_name}::")
             _brick_find_sti_class(type_name)
-          elsif File.exists?(candidate_file = Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb'))
+          elsif File.exist?(candidate_file = Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb'))
             _brick_find_sti_class(type_name) # Find this STI class normally
           else
             # Build missing prefix modules if they don't yet exist
@@ -243,10 +242,10 @@ class Object
  
                  # Adjust for STI if we know of a base model for the requested model name
                  table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
-                               base_model.table_name
-                             else
-                               ActiveSupport::Inflector.pluralize(singular_table_name)
-                             end
+                                base_model.table_name
+                              else
+                                ActiveSupport::Inflector.pluralize(singular_table_name)
+                              end
  
                  # Maybe, just maybe there's a database table that will satisfy this need
                  if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(m) })
@@ -522,9 +521,9 @@ module ActiveRecord::ConnectionHandling
   end
 
   def _brick_reflect_tables
-      if (relations = ::Brick.relations).empty?
-      # Only for Postgres?  (Doesn't work in sqlite3)
-      # puts ActiveRecord::Base.connection.execute("SELECT current_setting('SEARCH_PATH')").to_a.inspect
+    if (relations = ::Brick.relations).empty?
+    # Only for Postgres?  (Doesn't work in sqlite3)
+    # puts ActiveRecord::Base.connection.execute("SELECT current_setting('SEARCH_PATH')").to_a.inspect
 
     schema_sql = 'SELECT NULL AS table_schema;'
     case ActiveRecord::Base.connection.adapter_name
@@ -613,6 +612,25 @@ module ActiveRecord::ConnectionHandling
           # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
         end
       end
+
+      # # Add unique OIDs
+      # if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+      #   ActiveRecord::Base.execute_sql(
+      #     "SELECT c.oid, n.nspname, c.relname
+      #     FROM pg_catalog.pg_namespace AS n
+      #       INNER JOIN pg_catalog.pg_class AS c ON n.oid = c.relnamespace
+      #     WHERE c.relkind IN ('r', 'v')"
+      #   ).each do |r|
+      #     next if ['pg_catalog', 'information_schema', ''].include?(r['nspname']) ||
+      #       ['ar_internal_metadata', 'schema_migrations'].include?(r['relname'])
+      #     relation = relations.fetch(r['relname'], nil)
+      #     if relation
+      #       (relation[:oid] ||= {})[r['nspname']] = r['oid']
+      #     else
+      #       puts "Where is #{r['nspname']} #{r['relname']} ?"
+      #     end
+      #   end
+      # end
 
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'Mysql2'
@@ -706,7 +724,7 @@ module Brick
         missing << fk[0] unless relations.key?(fk[0])
         missing << primary_table unless is_class || relations.key?(primary_table)
         unless missing.empty?
-          tables = relations.reject { |k, v| v.fetch(:isView, nil) }.keys.sort
+          tables = relations.reject { |_k, v| v.fetch(:isView, nil) }.keys.sort
           puts "Brick: Additional reference #{fk.inspect} refers to non-existent #{'table'.pluralize(missing.length)} #{missing.join(' and ')}. (Available tables include #{tables.join(', ')}.)"
           return
         end
@@ -715,7 +733,7 @@ module Brick
           puts "Brick: Additional reference #{fk.inspect} refers to non-existent column #{fk[1]}. (Columns present in #{fk[0]} are #{columns.join(', ')}.)"
           return
         end
-        if (redundant = bts.find { |k, v| v[:inverse]&.fetch(:inverse_table, nil) == fk[0] && v[:fk] == fk[1] && v[:inverse_table] == primary_table })
+        if (redundant = bts.find { |_k, v| v[:inverse]&.fetch(:inverse_table, nil) == fk[0] && v[:fk] == fk[1] && v[:inverse_table] == primary_table })
           if is_class && !redundant.last.key?(:class)
             redundant.last[:primary_class] = primary_class # Round out this BT so it can find the proper :source for a HMT association that references an STI subclass
           else
@@ -737,19 +755,19 @@ module Brick
         # assoc_bt[:inverse_of] = primary_class.reflect_on_all_associations.find { |a| a.foreign_key == bt[1] }
       end
 
-      unless is_class || ::Brick.config.exclude_hms&.any? { |exclusion| fk[0] == exclusion[0] && fk[1] == exclusion[1] && primary_table == exclusion[2] }
-        cnstr_name = "hm_#{cnstr_name}"
-        if (assoc_hm = hms.fetch(cnstr_name, nil))
-          assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[1]] : assoc_hm[:fk].concat(fk[1])
-          assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
-          assoc_hm[:inverse] = assoc_bt
-        else
-          assoc_hm = hms[cnstr_name] = { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0], inverse: assoc_bt }
-          hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
-          hm_counts[fk[0]] = hm_counts.fetch(fk[0]) { 0 } + 1
-        end
-        assoc_bt[:inverse] = assoc_hm
+      return if is_class || ::Brick.config.exclude_hms&.any? { |exclusion| fk[0] == exclusion[0] && fk[1] == exclusion[1] && primary_table == exclusion[2] }
+
+      cnstr_name = "hm_#{cnstr_name}"
+      if (assoc_hm = hms.fetch(cnstr_name, nil))
+        assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[1]] : assoc_hm[:fk].concat(fk[1])
+        assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
+        assoc_hm[:inverse] = assoc_bt
+      else
+        assoc_hm = hms[cnstr_name] = { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0], inverse: assoc_bt }
+        hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
+        hm_counts[fk[0]] = hm_counts.fetch(fk[0]) { 0 } + 1
       end
+      assoc_bt[:inverse] = assoc_hm
       # hms[cnstr_name] << { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0] }
     end
   end
