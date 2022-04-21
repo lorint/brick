@@ -103,6 +103,9 @@ module Brick
 
     def get_bts_and_hms(model)
       bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
+        # So that we can map an association name to any special alias name used in an AREL query
+        ans = (model._assoc_names[a.name] ||= [])
+        ans << a.klass unless ans.include?(a.klass)
         case a.macro
         when :belongs_to
           s.first[a.foreign_key] = [a.name, a.klass]
