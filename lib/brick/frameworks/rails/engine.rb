@@ -85,7 +85,8 @@ module Brick
                                end
                   hms_columns << if hm_assoc.macro == :has_many
 "<td>
-  <%= link_to \"#\{#{obj_name}.#{hm.first}.count\} #{hm.first}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: #{obj_name}.#{pk} }) unless #{obj_name}.#{hm.first}.count.zero? %>
+  <%= ct = #{obj_name}._br_#{hm.first}_ct
+      link_to \"#\{ct\} #{hm.first}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: #{obj_name}.#{pk} }) unless ct.zero? %>
 </td>\n"
                                  else # has_one
 "<td>
@@ -261,7 +262,7 @@ function changeout(href, param, value) {
   <tr>#{"
     <td><%= link_to '⇛', #{obj_name}_path(#{obj_name}.#{pk}), { class: 'big-arrow' } %></td>" if pk}
     <% #{obj_name}.attributes.each do |k, val| %>
-      <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) %>
+      <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) || (k.start_with?('_br_') && k.end_with?('_ct')) %>
       <td>
       <% if (bt = bts[k]) %>
         <%# Instead of just 'bt_obj we have to put in all of this junk:

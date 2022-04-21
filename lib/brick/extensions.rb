@@ -37,27 +37,81 @@
 # ==========================================================
 
 # By default all models indicate that they are not views
+module Arel
+  class Table
+    def _arel_table_type
+      # AR < 4.2 doesn't have type_caster at all, so rely on an instance variable getting set
+      # AR 4.2 - 5.1 have buggy type_caster entries for the root node
+      instance_variable_get(:@_arel_table_type) ||
+      # 5.2-7.0 does type_caster just fine, no bugs there, but the property with the type differs:
+      # 5.2 has "types" as public, 6.0 "types" as private, and >= 6.1 "klass" as private.
+      ((tc = send(:type_caster)) && tc.instance_variable_get(:@types)) ||
+      tc.send(:klass)
+    end
+  end
+end
+
 module ActiveRecord
   class Base
+    def self._assoc_names
+      @_assoc_names ||= {}
+    end
+
     def self.is_view?
       false
     end
 
     # Used to show a little prettier name for an object
-    def brick_descrip
-      klass = self.class
-      # If available, parse simple DSL attached to a model in order to provide a friendlier name.
-      # Object property names can be referenced in square brackets like this:
-      # { 'User' => '[profile.firstname] [profile.lastname]' }
-
+    def self.brick_get_dsl
       # If there's no DSL yet specified, just try to find the first usable column on this model
-      unless ::Brick.config.model_descrips[klass.name]
-        descrip_col = (klass.columns.map(&:name) - klass._brick_get_fks -
+      unless (dsl = ::Brick.config.model_descrips[name])
+        descrip_col = (columns.map(&:name) - _brick_get_fks -
                       (::Brick.config.metadata_columns || []) -
-                      [klass.primary_key]).first
-        ::Brick.config.model_descrips[klass.name] = "[#{descrip_col}]" if descrip_col
+                      [primary_key]).first
+        dsl = ::Brick.config.model_descrips[name] = "[#{descrip_col}]" if descrip_col
       end
-      if (dsl ||= ::Brick.config.model_descrips[klass.name])
+      dsl
+    end
+
+    # Pass in true or a JoinArray
+    def self.brick_parse_dsl(build_array = nil, prefix = [])
+      build_array = ::Brick::JoinArray.new.tap { |ary| ary.replace([build_array]) } if build_array.is_a?(::Brick::JoinHash)
+      build_array = ::Brick::JoinArray.new unless build_array.nil? || build_array.is_a?(Array)
+      members = []
+      bracket_name = nil
+      prefix = [prefix] unless prefix.is_a?(Array)
+      if (dsl = ::Brick.config.model_descrips[(klass = self.class).name] || brick_get_dsl)
+        dsl.each_char do |ch|
+          if bracket_name
+            if ch == ']' # Time to process a bracketed thing?
+              parts = bracket_name.split('.')
+              parts = prefix + parts[0..-2].map(&:to_sym) + [parts[-1]]
+              if parts.length > 1
+                x = parts[0..-3].each_with_object(build_array) { |v, s| s[v.to_sym] }
+                x[parts[-2]] = nil unless parts[-2].empty? # Using []= will "hydrate" any missing part(s) in our whole series
+              end
+              members << parts
+              bracket_name = nil
+            else
+              bracket_name << ch
+            end
+          elsif ch == '['
+            bracket_name = +''
+          end
+        end
+      else # With no DSL available, still put this prefix into the JoinArray so we can get primary key (ID) info from this table
+        x = prefix.each_with_object(build_array) { |v, s| s[v.to_sym] }
+        x[prefix[-1]] = nil unless prefix.empty? # Using []= will "hydrate" any missing part(s) in our whole series
+      end
+      members
+    end
+
+    # If available, parse simple DSL attached to a model in order to provide a friendlier name.
+    # Object property names can be referenced in square brackets like this:
+    # { 'User' => '[profile.firstname] [profile.lastname]' }
+    def brick_descrip(data = nil)
+      if (dsl = ::Brick.config.model_descrips[(klass = self.class).name] || klass.brick_get_dsl)
+        idx = -1
         caches = {}
         output = +''
         is_brackets_have_content = false
@@ -65,18 +119,23 @@ module ActiveRecord
         dsl.each_char do |ch|
           if bracket_name
             if ch == ']' # Time to process a bracketed thing?
-              obj_name = +''
-              obj = self
-              bracket_name.split('.').each do |part|
-                obj_name += ".#{part}"
-                obj = if caches.key?(obj_name)
-                        caches[obj_name]
+              datum = if data
+                        data[idx += 1]
                       else
-                        (caches[obj_name] = obj&.send(part.to_sym))
+                        obj_name = +''
+                        obj = self
+                        bracket_name.split('.').each do |part|
+                          obj_name += ".#{part}"
+                          obj = if caches.key?(obj_name)
+                                  caches[obj_name]
+                                else
+                                  (caches[obj_name] = obj&.send(part.to_sym))
+                                end
+                        end
+                        (obj&.to_s || '')
                       end
-              end
-              is_brackets_have_content = true unless (obj&.to_s).blank?
-              output << (obj&.to_s || '')
+              is_brackets_have_content = true unless (datum).blank?
+              output << datum
               bracket_name = nil
             else
               bracket_name << ch
@@ -106,9 +165,90 @@ module ActiveRecord
   end
 
   class Relation
-    def brick_select(params)
+    attr_reader :_brick_chains
+
+    # CLASS STUFF
+    def _recurse_arel(piece, prefix = '')
+      names = []
+      # Our JOINs mashup of nested arrays and hashes
+      # binding.pry
+      case piece
+      when Array
+        names += piece.inject([]) { |s, v| s + _recurse_arel(v, prefix) }
+      when Hash
+        names += piece.inject([]) do |s, v|
+          new_prefix = "#{prefix}#{v.first}_"
+          s << [v.last.shift, new_prefix]
+          s + _recurse_arel(v.last, new_prefix)
+        end
+
+      # ActiveRecord AREL objects
+      when Arel::Nodes::Join # INNER or OUTER JOIN
+        # rubocop:disable Style/IdenticalConditionalBranches
+        if piece.right.is_a?(Arel::Table) # Came in from AR < 3.2?
+          # Arel 2.x and older is a little curious because these JOINs work "back to front".
+          # The left side here is either another earlier JOIN, or at the end of the whole tree, it is
+          # the first table.
+          names += _recurse_arel(piece.left)
+          # The right side here at the top is the very last table, and anywhere else down the tree it is
+          # the later "JOIN" table of this pair.  (The table that comes after all the rest of the JOINs
+          # from the left side.)
+          names << [piece.right._arel_table_type, (piece.right.table_alias || piece.right.name)]
+        else # "Normal" setup, fed from a JoinSource which has an array of JOINs
+          # The left side is the "JOIN" table
+          names += _recurse_arel(piece.left)
+          # The expression on the right side is the "ON" clause
+          # on = piece.right.expr
+          # # Find the table which is not ourselves, and thus must be the "path" that led us here
+          # parent = piece.left == on.left.relation ? on.right.relation : on.left.relation
+          # binding.pry if piece.left.is_a?(Arel::Nodes::TableAlias)
+          table = piece.left
+          if table.is_a?(Arel::Nodes::TableAlias)
+            alias_name = table.right
+            table = table.left
+          end
+          (_brick_chains[table._arel_table_type] ||= []) << (alias_name || table.table_alias || table.name)
+          # puts "YES! #{self.object_id}"
+        end
+        # rubocop:enable Style/IdenticalConditionalBranches
+      when Arel::Table # Table
+        names << [piece._arel_table_type, (piece.table_alias || piece.name)]
+      when Arel::Nodes::TableAlias # Alias
+        # Can get the real table name from:  self._recurse_arel(piece.left)
+        names << [piece.left._arel_table_type, piece.right.to_s] # This is simply a string; the alias name itself
+      when Arel::Nodes::JoinSource # Leaving this until the end because AR < 3.2 doesn't know at all about JoinSource!
+        # Spin up an empty set of Brick alias name chains at the start
+        @_brick_chains = {}
+        # The left side is the "FROM" table
+        # names += _recurse_arel(piece.left)
+        names << [piece.left._arel_table_type, (piece.left.table_alias || piece.left.name)]
+        # The right side is an array of all JOINs
+        piece.right.each { |join| names << _recurse_arel(join) }
+      end
+      names
+    end
+
+    # INSTANCE STUFF
+    def _arel_alias_names
+      # %%% If with Rails 3.1 and older you get "NoMethodError: undefined method `eq' for nil:NilClass"
+      # when trying to call relation.arel, then somewhere along the line while navigating a has_many
+      # relationship it can't find the proper foreign key.
+      core = arel.ast.cores.first
+      # Accommodate AR < 3.2
+      if core.froms.is_a?(Arel::Table)
+        # All recent versions of AR have #source which brings up an Arel::Nodes::JoinSource
+        _recurse_arel(core.source)
+      else
+        # With AR < 3.2, "froms" brings up the top node, an Arel::Nodes::InnerJoin
+        _recurse_arel(core.froms)
+      end
+    end
+
+    def brick_select(params, selects = nil, hm_counts = {}, join_array = ::Brick::JoinArray.new
+      # , is_add_bts, is_add_hms
+    )
+      is_add_bts = is_add_hms = true
       wheres = {}
-      rel_joins = []
       has_hm = false
       params.each do |k, v|
         case (ks = k.split('.')).length
@@ -119,18 +259,54 @@ module ActiveRecord
           # Make sure it's a good association name and that the model has that column name
           next unless (assoc = klass.reflect_on_association(assoc_name))&.klass&.columns&.map(&:name)&.include?(ks.last)
 
+          ans = (assoc.klass._assoc_names[assoc_name] ||= [])
+          ans << assoc.klass unless ans.include?(assoc.klass) # So that we can map an association name to any special alias name used in an AREL query
           # There is some potential for duplicates when there is an HM-based where in play.  De-duplicate if so.
           has_hm ||= assoc.macro == :has_many
-          rel_joins << assoc_name unless rel_joins.include?(assoc_name)
+          join_array[assoc_name] = nil # Store this relation name in our special collection for .joins()
+          # %%% Find table name of each thing
         end
         wheres[k] = v.split(',')
       end
-      unless wheres.empty?
-        where!(wheres)
-        joins!(rel_joins) unless rel_joins.empty?
-        distinct! if has_hm
-        wheres # Return the specific parameters that we did use
+      # distinct! if has_hm
+
+      # %%% Skip the metadata columns
+      if selects&.empty? # Default to all columns
+        columns.each do |col|
+          selects << "#{table.name}.#{col.name}"
+        end
       end
+
+      # Search for BT, HM, and HMT DSL stuff
+      if is_add_hms
+        bts, hms, associatives = ::Brick.get_bts_and_hms(klass)
+        # bts.each do |_k, bt|
+        #   # join_array[bt.first] = nil # Store this relation name in our special collection for .joins()
+        #   bt_descrip[bt.first] = bt.last.brick_parse_dsl(join_array, bt.first)
+        # end
+        # binding.pry
+        hms.each do |k, hm|
+          join_array[k] = nil # Store this relation name in our special collection for .joins()
+          hm_counts[k] = nil # Placeholder that will be filled in once we know the proper table alias
+        end
+      end
+      where!(wheres) unless wheres.empty?
+      if join_array.present?
+        left_outer_joins!(join_array) # joins!(join_array)
+        chains = _brick_chains
+        group!(selects) if has_hm
+        x = _arel_alias_names
+        join_array.each do |assoc_name|
+          klass = reflect_on_association(assoc_name)&.klass
+          table_alias = chains[klass].length > 1 ? chains[klass].shift : chains[klass].first
+          _assoc_names[assoc_name] = [table_alias, klass]
+        end
+        # Copy entries over
+        hm_counts.keys.each do |k|
+          hm_counts[k] = _assoc_names[k]
+        end
+      end
+      wheres unless wheres.empty? # Return the specific parameters that we did use
     end
   end
 
@@ -282,6 +458,7 @@ class Object
         end
         return
       end
+
       if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
         is_sti = true
       else
@@ -447,9 +624,17 @@ class Object
         code << "  end\n"
         self.define_method :index do
           ::Brick.set_db_schema(params)
-          ar_relation = model.primary_key ? model.order(model.primary_key) : model.all
-          @_brick_params = ar_relation.brick_select(params)
-          instance_variable_set("@#{table_name}".to_sym, ar_relation)
+          ar_relation = model.all # model.primary_key ? model.order(model.primary_key) : model.all
+          @_brick_params = ar_relation.brick_select(params, (selects = []), (hm_counts = {}), (join_array = ::Brick::JoinArray.new))
+          # %%% Add custom HM count columns
+          # %%% What happens when the PK is composite?
+          counts = hm_counts.each_with_object([]) { |v, s| s << "COUNT(DISTINCT #{v.last.first}.#{v.last.last.primary_key}) AS _br_#{v.first}_ct" }
+          puts counts.inspect
+          # *selects, 
+          instance_variable_set("@#{table_name}".to_sym, ar_relation.dup._select!(*selects, *counts))
+          # binding.pry
+          @_brick_hm_counts = hm_counts
+          @_brick_join_array = join_array
         end
 
         if model.primary_key
