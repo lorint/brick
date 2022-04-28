@@ -177,6 +177,7 @@ def hide_bcrypt(val)
 end %>"
 
               if ['index', 'show', 'update'].include?(args.first)
+                # Example:  <% bts = { "site_id" => [:site, Site, "id"], "study_id" => [:study, Study, "id"], "study_country_id" => [:study_country, StudyCountry, "id"], "user_id" => [:user, User, "id"], "role_id" => [:role, Role, "id"] } %>
                 css << "<% bts = { #{bts.each_with_object([]) { |v, s| s << "#{v.first.inspect} => [#{v.last.first.inspect}, #{v.last[1].name}, #{v.last[1].primary_key.inspect}]"}.join(', ')} } %>"
               end
 
@@ -262,14 +263,14 @@ function changeout(href, param, value) {
   <tr>#{"
     <td><%= link_to '⇛', #{obj_name}_path(#{obj_name}.#{pk}), { class: 'big-arrow' } %></td>" if pk}
     <% #{obj_name}.attributes.each do |k, val| %>
-      <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) || (k.start_with?('_br_') && k.end_with?('_ct')) %>
+      <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) || k.start_with?('_brfk_') || (k.start_with?('_br_') && k.end_with?('_ct')) %>
       <td>
       <% if (bt = bts[k]) %>
-        <%# Instead of just 'bt_obj we have to put in all of this junk:
-        # send(\"#\{bt_obj_class = bt[1].name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym))
-        # Otherwise we get stuff like:
-        # ActionView::Template::Error (undefined method `vehicle_path' for #<ActionView::Base:0x0000000033a888>) %>
-        <%= bt_obj = bt[1].find_by(bt[2] => val); link_to(bt_obj.brick_descrip, send(\"#\{bt_obj_class = bt[1].name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym))) if bt_obj %>
+        <%# binding.pry if bt.first == :user %>
+        <% bt_txt = bt[1].brick_descrip(#{obj_name}, @_brick_bt_descrip[bt.first][1].map { |z| #{obj_name}.send(z.last) }, @_brick_bt_descrip[bt.first][2]) %>
+        <% bt_id_col = @_brick_bt_descrip[bt.first][2]; bt_id = #{obj_name}.send(bt_id_col) if bt_id_col %>
+        <%= bt_id ? link_to(bt_txt, send(\"#\{bt_obj_path_base = bt[1].name.underscore\}_path\".to_sym, bt_id)) : bt_txt %>
+        <%#= Previously was:  bt_obj = bt[1].find_by(bt[2] => val); link_to(bt_obj.brick_descrip, send(\"#\{bt_obj_path_base = bt[1].name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym))) if bt_obj %>
       <% else %>
         <%= hide_bcrypt(val) %>
       <% end %>
@@ -319,7 +320,7 @@ function changeout(href, param, value) {
       html_options = { prompt: \"Select #\{bt_name\}\" }
       html_options[:class] = 'dimmed' unless val %>
       <%= f.select k.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options %>
-      <%= bt_obj = bt[1].find_by(bt[2] => val); link_to('⇛', send(\"#\{bt_obj_class = bt_name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym)), { class: 'show-arrow' }) if bt_obj %>
+      <%= bt_obj = bt[1].find_by(bt[2] => val); link_to('⇛', send(\"#\{bt_obj_path_base = bt_name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym)), { class: 'show-arrow' }) if bt_obj %>
     <% else case #{model_name}.column_for_attribute(k).type
       when :string, :text %>
         <% if is_bcrypt?(val) # || .readonly? %>
