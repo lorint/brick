@@ -103,6 +103,8 @@ module Brick
 
     def get_bts_and_hms(model)
       bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
+        next if !const_defined?(a.name.to_s.singularize.camelize) && ::Brick.config.exclude_tables.include?(a.plural_name)
+
         # So that we can map an association name to any special alias name used in an AREL query
         ans = (model._assoc_names[a.name] ||= [])
         ans << a.klass unless ans.include?(a.klass)
