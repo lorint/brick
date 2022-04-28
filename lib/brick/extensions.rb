@@ -32,6 +32,12 @@
 
 # Currently quadrupling up routes
 
+
+# From the North app:
+# undefined method `built_in_role_path' when referencing show on a subclassed STI:
+#  http://localhost:3000/roles/3?_brick_schema=cust1
+
+
 # ==========================================================
 # Dynamically create model or controller classes when needed
 # ==========================================================
@@ -74,21 +80,25 @@ module ActiveRecord
     end
 
     # Pass in true or a JoinArray
-    def self.brick_parse_dsl(build_array = nil, prefix = [])
+    def self.brick_parse_dsl(build_array = nil, prefix = [], translations = {})
       build_array = ::Brick::JoinArray.new.tap { |ary| ary.replace([build_array]) } if build_array.is_a?(::Brick::JoinHash)
       build_array = ::Brick::JoinArray.new unless build_array.nil? || build_array.is_a?(Array)
       members = []
       bracket_name = nil
       prefix = [prefix] unless prefix.is_a?(Array)
-      if (dsl = ::Brick.config.model_descrips[(klass = self.class).name] || brick_get_dsl)
+      if (dsl = ::Brick.config.model_descrips[name] || brick_get_dsl)
+        klass = nil
         dsl.each_char do |ch|
           if bracket_name
             if ch == ']' # Time to process a bracketed thing?
               parts = bracket_name.split('.')
-              parts = prefix + parts[0..-2].map(&:to_sym) + [parts[-1]]
+              first_parts = parts[0..-2].map { |part| klass = klass.reflect_on_association(part_sym = part.to_sym).klass; part_sym }
+              parts = prefix + first_parts + [parts[-1]]
               if parts.length > 1
-                x = parts[0..-3].each_with_object(build_array) { |v, s| s[v.to_sym] }
-                x[parts[-2]] = nil unless parts[-2].empty? # Using []= will "hydrate" any missing part(s) in our whole series
+                s = build_array
+                parts[0..-3].each { |v| s = s[v.to_sym] }
+                s[parts[-2]] = nil # unless parts[-2].empty? # Using []= will "hydrate" any missing part(s) in our whole series
+                translations[parts[0..-2].join('.')] = klass
               end
               members << parts
               bracket_name = nil
@@ -97,6 +107,7 @@ module ActiveRecord
             end
           elsif ch == '['
             bracket_name = +''
+            klass = self
           end
         end
       else # With no DSL available, still put this prefix into the JoinArray so we can get primary key (ID) info from this table
@@ -109,8 +120,12 @@ module ActiveRecord
     # If available, parse simple DSL attached to a model in order to provide a friendlier name.
     # Object property names can be referenced in square brackets like this:
     # { 'User' => '[profile.firstname] [profile.lastname]' }
-    def brick_descrip(data = nil)
-      if (dsl = ::Brick.config.model_descrips[(klass = self.class).name] || klass.brick_get_dsl)
+    def brick_descrip
+      self.class.brick_descrip(self)
+    end
+
+    def self.brick_descrip(obj, data = nil, pk_alias = nil)
+      if (dsl = ::Brick.config.model_descrips[(klass = self).name] || klass.brick_get_dsl)
         idx = -1
         caches = {}
         output = +''
@@ -120,22 +135,22 @@ module ActiveRecord
           if bracket_name
             if ch == ']' # Time to process a bracketed thing?
               datum = if data
-                        data[idx += 1]
+                        data[idx += 1].to_s
                       else
                         obj_name = +''
-                        obj = self
+                        this_obj = obj
                         bracket_name.split('.').each do |part|
                           obj_name += ".#{part}"
-                          obj = if caches.key?(obj_name)
-                                  caches[obj_name]
-                                else
-                                  (caches[obj_name] = obj&.send(part.to_sym))
-                                end
+                          this_obj = if caches.key?(obj_name)
+                                       caches[obj_name]
+                                     else
+                                       (caches[obj_name] = this_obj&.send(part.to_sym))
+                                     end
                         end
-                        (obj&.to_s || '')
+                        this_obj&.to_s || ''
                       end
               is_brackets_have_content = true unless (datum).blank?
-              output << datum
+              output << (datum || '')
               bracket_name = nil
             else
               bracket_name << ch
@@ -150,10 +165,14 @@ module ActiveRecord
       end
       if is_brackets_have_content
         output
-      elsif klass.primary_key
-        "#{klass.name} ##{send(klass.primary_key)}"
+      elsif pk_alias
+        if (id = obj.send(pk_alias))
+          "#{klass.name} ##{id}"
+        end
+      # elsif klass.primary_key
+      #   "#{klass.name} ##{obj.send(klass.primary_key)}"
       else
-        to_s
+        obj.to_s
       end
     end
 
@@ -171,7 +190,7 @@ module ActiveRecord
     def _recurse_arel(piece, prefix = '')
       names = []
       # Our JOINs mashup of nested arrays and hashes
-      # binding.pry
+      # binding.pry if defined?(@arel)
       case piece
       when Array
         names += piece.inject([]) { |s, v| s + _recurse_arel(v, prefix) }
@@ -244,7 +263,7 @@ module ActiveRecord
       end
     end
 
-    def brick_select(params, selects = nil, hm_counts = {}, join_array = ::Brick::JoinArray.new
+    def brick_select(params, selects = nil, bt_descrip = {}, hm_counts = {}, join_array = ::Brick::JoinArray.new
       # , is_add_bts, is_add_hms
     )
       is_add_bts = is_add_hms = true
@@ -259,12 +278,12 @@ module ActiveRecord
           # Make sure it's a good association name and that the model has that column name
           next unless (assoc = klass.reflect_on_association(assoc_name))&.klass&.columns&.map(&:name)&.include?(ks.last)
 
+          # So that we can map an association name to any special alias name used in an AREL query
           ans = (assoc.klass._assoc_names[assoc_name] ||= [])
-          ans << assoc.klass unless ans.include?(assoc.klass) # So that we can map an association name to any special alias name used in an AREL query
+          ans << assoc.klass unless ans.include?(assoc.klass)
           # There is some potential for duplicates when there is an HM-based where in play.  De-duplicate if so.
           has_hm ||= assoc.macro == :has_many
           join_array[assoc_name] = nil # Store this relation name in our special collection for .joins()
-          # %%% Find table name of each thing
         end
         wheres[k] = v.split(',')
       end
@@ -278,13 +297,13 @@ module ActiveRecord
       end
 
       # Search for BT, HM, and HMT DSL stuff
-      if is_add_hms
+      translations = {}
+      if is_add_bts || is_add_hms
         bts, hms, associatives = ::Brick.get_bts_and_hms(klass)
-        # bts.each do |_k, bt|
-        #   # join_array[bt.first] = nil # Store this relation name in our special collection for .joins()
-        #   bt_descrip[bt.first] = bt.last.brick_parse_dsl(join_array, bt.first)
-        # end
-        # binding.pry
+        bts.each do |_k, bt|
+          # join_array[bt.first] = nil # Store this relation name in our special collection for .joins()
+          bt_descrip[bt.first] = [bt.last, bt.last.brick_parse_dsl(join_array, bt.first, translations)]
+        end
         hms.each do |k, hm|
           join_array[k] = nil # Store this relation name in our special collection for .joins()
           hm_counts[k] = nil # Placeholder that will be filled in once we know the proper table alias
@@ -293,10 +312,34 @@ module ActiveRecord
       where!(wheres) unless wheres.empty?
       if join_array.present?
         left_outer_joins!(join_array) # joins!(join_array)
-        chains = _brick_chains
-        group!(selects) if has_hm
-        x = _arel_alias_names
+        # Without working from a duplicate, touching the AREL ast tree sets the @arel instance variable, which causes the relation to be immutable.
+        (rel_dupe = dup)._arel_alias_names
+        core_selects = selects.dup
+        groups = []
+        chains = rel_dupe._brick_chains
+        id_for_tables = {}
+        bt_columns = bt_descrip.each_with_object([]) do |v, s|
+          tbl_name = chains[v.last.first].first
+          if (id_col = v.last.first.primary_key) && !id_for_tables.key?(tbl_name)
+            groups << (unaliased = "#{tbl_name}.#{id_col}")
+            selects << "#{unaliased} AS \"#{(id_alias = id_for_tables[tbl_name] = "_brfk_#{v.first}__#{id_col}")}\""
+            v.last << id_alias
+          end
+          if (col_name = v.last[1].last&.last)
+            v.last[1].map { |x| [translations[x[0..-2].map(&:to_s).join('.')], x.last] }.each_with_index do |sel_col, idx|
+              groups << (unaliased = "#{tbl_name = chains[sel_col.first].first}.#{sel_col.last}")
+              # col_name is weak when there are multiple, using sel_col.last instead
+              tbl_name2 = tbl_name.start_with?('public.') ? tbl_name[7..-1] : tbl_name
+              selects << "#{unaliased} AS \"#{(col_alias = "_brfk_#{tbl_name2}__#{sel_col.last}")}\""
+              v.last[1][idx] << col_alias
+            end
+          end
+        end
+        group!(core_selects + groups) if hm_counts.any? #  + bt_columns
         join_array.each do |assoc_name|
+          # %%% Need to support {user: :profile}
+          next unless assoc_name.is_a?(Symbol)
+
           klass = reflect_on_association(assoc_name)&.klass
           table_alias = chains[klass].length > 1 ? chains[klass].shift : chains[klass].first
           _assoc_names[assoc_name] = [table_alias, klass]
@@ -625,7 +668,7 @@ class Object
         self.define_method :index do
           ::Brick.set_db_schema(params)
           ar_relation = model.all # model.primary_key ? model.order(model.primary_key) : model.all
-          @_brick_params = ar_relation.brick_select(params, (selects = []), (hm_counts = {}), (join_array = ::Brick::JoinArray.new))
+          @_brick_params = ar_relation.brick_select(params, (selects = []), (bt_descrip = {}), (hm_counts = {}), (join_array = ::Brick::JoinArray.new))
           # %%% Add custom HM count columns
           # %%% What happens when the PK is composite?
           counts = hm_counts.each_with_object([]) { |v, s| s << "COUNT(DISTINCT #{v.last.first}.#{v.last.last.primary_key}) AS _br_#{v.first}_ct" }
@@ -633,6 +676,7 @@ class Object
           # *selects, 
           instance_variable_set("@#{table_name}".to_sym, ar_relation.dup._select!(*selects, *counts))
           # binding.pry
+          @_brick_bt_descrip = bt_descrip
           @_brick_hm_counts = hm_counts
           @_brick_join_array = join_array
         end
