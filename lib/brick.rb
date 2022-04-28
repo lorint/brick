@@ -103,6 +103,8 @@ module Brick
 
     def get_bts_and_hms(model)
       bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
+        next if !const_defined?(a.name.to_s.singularize.camelize) && ::Brick.config.exclude_tables.include?(a.plural_name)
+
         case a.macro
         when :belongs_to
           s.first[a.foreign_key] = [a.name, a.klass]
