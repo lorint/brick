@@ -74,6 +74,20 @@ module Brick
       @mutex.synchronize { @exclude_hms = skips }
     end
 
+    # Skip showing counts for these specific has_many associations when building auto-generated #index views
+    def skip_index_hms
+      @mutex.synchronize { @skip_index_hms || {} }
+    end
+
+    def skip_index_hms=(skips)
+      @mutex.synchronize do
+        @skip_index_hms ||= skips.each_with_object({}) do |v, s|
+                              class_name, assoc_name = v.split('.')
+                              (s[class_name] ||= {})[assoc_name.to_sym] = nil
+                            end
+      end
+    end
+
     # Associations to treat as a has_one
     def has_ones
       @mutex.synchronize { @has_ones }
