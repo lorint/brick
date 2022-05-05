@@ -74,6 +74,7 @@ module Brick
               table_name = model_name.pluralize.underscore
               bts, hms, associatives = ::Brick.get_bts_and_hms(@_brick_model) # This gets BT and HM and also has_many :through (HMT)
               hms_columns = +'' # Used for 'index'
+              skip_klass_hms = ::Brick.config.skip_index_hms[model_name] || {}
               hms_headers = hms.each_with_object([]) do |hm, s|
                 hm_assoc = hm.last
                 if args.first == 'index'
@@ -84,9 +85,15 @@ module Brick
                                  hm_assoc.foreign_key
                                end
                   hms_columns << if hm_assoc.macro == :has_many
+                    set_ct = if skip_klass_hms.key?((assoc_name = hm.first).to_sym)
+                               'nil'
+                             else
+                               "#{obj_name}._br_#{assoc_name}_ct"
+                             end
+
 "<td>
-  <%= ct = #{obj_name}._br_#{hm.first}_ct
-      link_to \"#\{ct\} #{hm.first}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: #{obj_name}.#{pk} }) unless ct.zero? %>
+  <%= ct = #{set_ct}
+      link_to \"#\{ct || 'View'\} #{assoc_name}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: #{obj_name}.#{pk} }) unless ct&.zero? %>
 </td>\n"
                                  else # has_one
 "<td>
@@ -180,6 +187,7 @@ end %>"
                 css << "<% bts = { #{bts.each_with_object([]) { |v, s| s << "#{v.first.inspect} => [#{v.last.first.inspect}, #{v.last[1].name}, #{v.last[1].primary_key.inspect}]"}.join(', ')} } %>"
               end
 
+              # %%% When doing schema select, if there's an ID then remove it, or if we're on a new page go to index
               script = "<script>
 var schemaSelect = document.getElementById(\"schema\");
 var brickSchema;

@@ -301,7 +301,10 @@ module ActiveRecord
           # join_array[bt.first] = nil # Store this relation name in our special collection for .joins()
           bt_descrip[bt.first] = [bt.last, bt.last.brick_parse_dsl(join_array, bt.first, translations)]
         end
+        skip_klass_hms = ::Brick.config.skip_index_hms[klass.name] || {}
         hms.each do |k, hm|
+          next if skip_klass_hms.key?(k)
+
           join_array[k] = nil # Store this relation name in our special collection for .joins()
           hm_counts[k] = nil # Placeholder that will be filled in once we know the proper table alias
         end
@@ -669,7 +672,6 @@ class Object
           # %%% Add custom HM count columns
           # %%% What happens when the PK is composite?
           counts = hm_counts.each_with_object([]) { |v, s| s << "COUNT(DISTINCT #{v.last.first}.#{v.last.last.primary_key}) AS _br_#{v.first}_ct" }
-          puts counts.inspect
           # *selects, 
           instance_variable_set("@#{table_name}".to_sym, ar_relation.dup._select!(*selects, *counts))
           # binding.pry

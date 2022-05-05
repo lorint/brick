@@ -111,10 +111,15 @@ module Brick
 # # to be the primary key.)
 #{bar}
 
-# # Skip creating a has_many association for these
+# # Skip creating a has_many association for these (only retain the belongs_to built from this additional_reference).
 # # (Uses the same exact three-part format as would define an additional_reference)
 # # Say for instance that we didn't care to display the favourite colours that users have:
 # Brick.exclude_hms = [['users', 'favourite_colour_id', 'colours']]
+
+# # Skip showing counts for these specific has_many associations when building auto-generated #index views.
+# # When there are related tables with a significant number of records, this can lessen the load on the database
+# # considerably, sometimes fixing what might appear to be an index page that just \"hangs\" for no apparent reason.
+Brick.skip_index_hms = ['User.litany_of_woes']
 
 # # By default primary tables involved in a foreign key relationship will indicate a \"has_many\" relationship pointing
 # # back to the foreign table.  In order to represent a \"has_one\" association instead, an override can be provided
