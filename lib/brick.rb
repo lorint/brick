@@ -240,6 +240,12 @@ module Brick
       end
     end
 
+    # Skip showing counts for these specific has_many associations when building auto-generated #index views
+    # @api public
+    def skip_index_hms=(value)
+      Brick.config.skip_index_hms = value
+    end
+
     # Associations to treat as a has_one
     # @api public
     def has_ones=(hos)
