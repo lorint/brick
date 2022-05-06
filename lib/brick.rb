@@ -105,9 +105,6 @@ module Brick
       bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
         next if !const_defined?(a.name.to_s.singularize.camelize) && ::Brick.config.exclude_tables.include?(a.plural_name)
 
-        # So that we can map an association name to any special alias name used in an AREL query
-        ans = (model._assoc_names[a.name] ||= [])
-        ans << a.klass unless ans.include?(a.klass)
         case a.macro
         when :belongs_to
           s.first[a.foreign_key] = [a.name, a.klass]
@@ -427,9 +424,7 @@ ActiveSupport.on_load(:active_record) do
               end
 
               result = result.map do |attributes|
-                values = klass.initialize_attributes(attributes).values
-
-                columns.zip(values).map do |column, value|
+                columns.zip(klass.initialize_attributes(attributes).values).map do |column, value|
                   column.type_cast(value)
                 end
               end
