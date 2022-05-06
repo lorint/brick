@@ -424,9 +424,7 @@ ActiveSupport.on_load(:active_record) do
               end
 
               result = result.map do |attributes|
-                values = klass.initialize_attributes(attributes).values
-
-                columns.zip(values).map do |column, value|
+                columns.zip(klass.initialize_attributes(attributes).values).map do |column, value|
                   column.type_cast(value)
                 end
               end
