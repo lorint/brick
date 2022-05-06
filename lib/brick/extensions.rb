@@ -176,6 +176,14 @@ module ActiveRecord
       end
     end
 
+    def self.bt_link(assoc_name)
+      model_underscore = name.underscore
+      assoc_name = CGI.escapeHTML(assoc_name.to_s)
+      model_path = Rails.application.routes.url_helpers.send("#{model_underscore.pluralize}_path".to_sym)
+      link = Class.new.extend(ActionView::Helpers::UrlHelper).link_to(name, model_path)
+      model_underscore == assoc_name ? link : "#{assoc_name}-#{link}".html_safe
+    end
+
   private
 
     def self._brick_get_fks
@@ -284,7 +292,6 @@ module ActiveRecord
         end
         wheres[k] = v.split(',')
       end
-      # distinct! if has_hm
 
       # %%% Skip the metadata columns
       if selects&.empty? # Default to all columns
@@ -298,52 +305,61 @@ module ActiveRecord
       if is_add_bts || is_add_hms
         bts, hms, associatives = ::Brick.get_bts_and_hms(klass)
         bts.each do |_k, bt|
-          # join_array[bt.first] = nil # Store this relation name in our special collection for .joins()
+          # join_array will receive this relation name when calling #brick_parse_dsl
           bt_descrip[bt.first] = [bt.last, bt.last.brick_parse_dsl(join_array, bt.first, translations)]
         end
         skip_klass_hms = ::Brick.config.skip_index_hms[klass.name] || {}
-        count_joins = []
         hms.each do |k, hm|
           next if skip_klass_hms.key?(k)
 
-          # join_array[k] = nil # Store this relation name in our special collection for .joins()
-          hm_counts[k] = hm # Placeholder that will be filled in once we know the proper table alias
+          hm_counts[k] = hm
         end
       end
-      where!(wheres) unless wheres.empty?
+
+      wheres = {}
+      params.each do |k, v|
+        case (ks = k.split('.')).length
+        when 1
+          next unless klass._brick_get_fks.include?(k)
+        when 2
+          assoc_name = ks.first.to_sym
+          # Make sure it's a good association name and that the model has that column name
+          next unless klass.reflect_on_association(assoc_name)&.klass&.columns&.any? { |col| col.name == ks.last }
+
+          join_array[assoc_name] = nil # Store this relation name in our special collection for .joins()
+        end
+        wheres[k] = v.split(',')
+      end
+
       if join_array.present?
         left_outer_joins!(join_array) # joins!(join_array)
         # Without working from a duplicate, touching the AREL ast tree sets the @arel instance variable, which causes the relation to be immutable.
         (rel_dupe = dup)._arel_alias_names
         core_selects = selects.dup
-        # groups = []
         chains = rel_dupe._brick_chains
         id_for_tables = {}
+        field_tbl_names = Hash.new { |h, k| h[k] = {} }
         bt_columns = bt_descrip.each_with_object([]) do |v, s|
-          tbl_name = chains[v.last.first].first
-          if (id_col = v.last.first.primary_key) && !id_for_tables.key?(tbl_name)
-            unaliased = "#{tbl_name}.#{id_col}"
-            # groups << (unaliased)
-            selects << "#{unaliased} AS \"#{(id_alias = id_for_tables[tbl_name] = "_brfk_#{v.first}__#{id_col}")}\""
+          tbl_name = field_tbl_names[v.first][v.last.first] ||= shift_or_first(chains[v.last.first])
+          if (id_col = v.last.first.primary_key) && !id_for_tables.key?(v.first) # was tbl_name
+            selects << "#{"#{tbl_name}.#{id_col}"} AS \"#{(id_alias = id_for_tables[v.first] = "_brfk_#{v.first}__#{id_col}")}\""
             v.last << id_alias
           end
           if (col_name = v.last[1].last&.last)
+            field_tbl_name = nil
             v.last[1].map { |x| [translations[x[0..-2].map(&:to_s).join('.')], x.last] }.each_with_index do |sel_col, idx|
-              # groups << (unaliased = "#{tbl_name = chains[sel_col.first].first}.#{sel_col.last}")
+              field_tbl_name ||= field_tbl_names[v.first][sel_col.first] ||= shift_or_first(chains[sel_col.first])
               # col_name is weak when there are multiple, using sel_col.last instead
-              tbl_name2 = tbl_name.start_with?('public.') ? tbl_name[7..-1] : tbl_name
-              selects << "#{unaliased} AS \"#{(col_alias = "_brfk_#{tbl_name2}__#{sel_col.last}")}\""
+              selects << "#{"#{field_tbl_name}.#{sel_col.last}"} AS \"#{(col_alias = "_brfk_#{v.first}__#{sel_col.last}")}\""
               v.last[1][idx] << col_alias
             end
           end
         end
-        # group!(core_selects + groups) if hm_counts.any? #  + bt_columns
         join_array.each do |assoc_name|
           # %%% Need to support {user: :profile}
           next unless assoc_name.is_a?(Symbol)
 
-          klass = reflect_on_association(assoc_name)&.klass
-          table_alias = chains[klass].length > 1 ? chains[klass].shift : chains[klass].first
+          table_alias = shift_or_first(chains[klass = reflect_on_association(assoc_name)&.klass])
           _assoc_names[assoc_name] = [table_alias, klass]
         end
       end
@@ -361,7 +377,14 @@ module ActiveRecord
 JOIN (SELECT #{fk_col}, COUNT(#{count_column}) AS _ct_ FROM #{associative&.name || hm.klass.table_name} GROUP BY 1) AS #{tbl_alias = "_br_#{hm.name}"}
   ON #{tbl_alias}.#{fk_col} = #{(pri_tbl = hm.active_record).table_name}.#{pri_tbl.primary_key}")
       end
+      where!(wheres) unless wheres.empty?
       wheres unless wheres.empty? # Return the specific parameters that we did use
+    end
+
+  private
+
+    def shift_or_first(ary)
+      ary.length > 1 ? ary.shift : ary.first
     end
   end
 
@@ -561,27 +584,30 @@ class Object
           # Do the bulk of the has_many / belongs_to processing, and store details about HMT so they can be done at the very last
           hmts = fks.each_with_object(Hash.new { |h, k| h[k] = [] }) do |fk, hmts|
             # The key in each hash entry (fk.first) is the constraint name
-            assoc_name = (assoc = fk.last)[:assoc_name]
-            inverse_assoc_name = assoc[:inverse]&.fetch(:assoc_name, nil)
+            inverse_assoc_name = (assoc = fk.last)[:inverse]&.fetch(:assoc_name, nil)
             options = {}
             singular_table_name = ActiveSupport::Inflector.singularize(assoc[:inverse_table])
             macro = if assoc[:is_bt]
                       # Try to take care of screwy names if this is a belongs_to going to an STI subclass
-                      if (primary_class = assoc.fetch(:primary_class, nil)) &&
-                         (sti_inverse_assoc = primary_class.reflect_on_all_associations.find { |a| a.macro == :has_many && a.options[:class_name] == self.name && assoc[:fk] = a.foreign_key })
-                        assoc_name = sti_inverse_assoc.options[:inverse_of].to_s || assoc_name
-                      end
+                      assoc_name = if (primary_class = assoc.fetch(:primary_class, nil)) &&
+                                      sti_inverse_assoc = primary_class.reflect_on_all_associations.find do |a|
+                                        a.macro == :has_many && a.options[:class_name] == self.name && assoc[:fk] = a.foreign_key
+                                      end
+                                     sti_inverse_assoc.options[:inverse_of]&.to_s || assoc_name
+                                   else
+                                     assoc[:assoc_name]
+                                   end
                       need_class_name = singular_table_name.underscore != assoc_name
                       need_fk = "#{assoc_name}_id" != assoc[:fk]
                       if (inverse = assoc[:inverse])
                         inverse_assoc_name, _x = _brick_get_hm_assoc_name(relations[assoc[:inverse_table]], inverse)
                         if (has_ones = ::Brick.config.has_ones&.fetch(inverse[:alternate_name].camelize, nil))&.key?(singular_inv_assoc_name = ActiveSupport::Inflector.singularize(inverse_assoc_name))
                           inverse_assoc_name = if has_ones[singular_inv_assoc_name]
-                                                need_inverse_of = true
-                                                has_ones[singular_inv_assoc_name]
-                                              else
-                                                singular_inv_assoc_name
-                                              end
+                                                 need_inverse_of = true
+                                                 has_ones[singular_inv_assoc_name]
+                                               else
+                                                 singular_inv_assoc_name
+                                               end
                         end
                       end
                       :belongs_to
@@ -592,12 +618,12 @@ class Object
                       need_fk = "#{ActiveSupport::Inflector.singularize(assoc[:inverse][:inverse_table])}_id" != assoc[:fk]
                       # fks[table_name].find { |other_assoc| other_assoc.object_id != assoc.object_id && other_assoc[:assoc_name] == assoc[assoc_name] }
                       if (has_ones = ::Brick.config.has_ones&.fetch(model_name, nil))&.key?(singular_assoc_name = ActiveSupport::Inflector.singularize(assoc_name))
-                        assoc_name = if has_ones[singular_assoc_name]
-                                      need_class_name = true
-                                      has_ones[singular_assoc_name]
-                                    else
-                                      singular_assoc_name
-                                    end
+                        assoc_name = if (custom_assoc_name = has_ones[singular_assoc_name])
+                                       need_class_name = custom_assoc_name != singular_assoc_name
+                                       custom_assoc_name
+                                     else
+                                       singular_assoc_name
+                                     end
                         :has_one
                       else
                         :has_many
@@ -741,7 +767,8 @@ class Object
 
     def _brick_get_hm_assoc_name(relation, hm_assoc)
       if relation[:hm_counts][hm_assoc[:assoc_name]]&.> 1
-        [ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name]), true]
+        plural = ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name])
+        [hm_assoc[:alternate_name] == name.underscore ? "#{hm_assoc[:assoc_name].singularize}_#{plural}" : plural, true]
       else
         [ActiveSupport::Inflector.pluralize(hm_assoc[:inverse_table]), nil]
       end
@@ -998,18 +1025,16 @@ module Brick
 
       return if is_class || ::Brick.config.exclude_hms&.any? { |exclusion| fk[0] == exclusion[0] && fk[1] == exclusion[1] && primary_table == exclusion[2] }
 
-      cnstr_name = "hm_#{cnstr_name}"
-      if (assoc_hm = hms.fetch(cnstr_name, nil))
+      if (assoc_hm = hms.fetch((hm_cnstr_name = "hm_#{cnstr_name}"), nil))
         assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[1]] : assoc_hm[:fk].concat(fk[1])
         assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
         assoc_hm[:inverse] = assoc_bt
       else
-        assoc_hm = hms[cnstr_name] = { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0], inverse: assoc_bt }
+        assoc_hm = hms[hm_cnstr_name] = { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0], inverse: assoc_bt }
         hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
         hm_counts[fk[0]] = hm_counts.fetch(fk[0]) { 0 } + 1
       end
       assoc_bt[:inverse] = assoc_hm
-      # hms[cnstr_name] << { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0] }
     end
   end
 end

@@ -73,34 +73,32 @@ module Brick
               obj_name = model_name.underscore
               table_name = model_name.pluralize.underscore
               bts, hms, associatives = ::Brick.get_bts_and_hms(@_brick_model) # This gets BT and HM and also has_many :through (HMT)
-              hms_columns = +'' # Used for 'index'
+              hms_columns = [] # Used for 'index'
               skip_klass_hms = ::Brick.config.skip_index_hms[model_name] || {}
               hms_headers = hms.each_with_object([]) do |hm, s|
-                hm_assoc = hm.last
+                hm_stuff = [(hm_assoc = hm.last), "H#{hm_assoc.macro == :has_one ? 'O' : 'M'}#{'T' if hm_assoc.options[:through]}", (assoc_name = hm.first)]
+                hm_fk_name = if hm_assoc.options[:through]
+                               associative = associatives[hm_assoc.name]
+                               "'#{associative.name}.#{associative.foreign_key}'"
+                             else
+                               hm_assoc.foreign_key
+                             end
                 if args.first == 'index'
-                  hm_fk_name = if hm_assoc.options[:through]
-                                 associative = associatives[hm_assoc.name]
-                                 "'#{associative.name}.#{associative.foreign_key}'"
-                               else
-                                 hm_assoc.foreign_key
-                               end
                   hms_columns << if hm_assoc.macro == :has_many
                                    set_ct = if skip_klass_hms.key?(assoc_name.to_sym)
                                               'nil'
                                             else
                                               "#{obj_name}._br_#{assoc_name}_ct || 0"
                                             end
-"<td>
-  <%= ct = #{set_ct}
-      link_to \"#\{ct || 'View'\} #{assoc_name}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: #{obj_name}.#{pk} }) unless ct&.zero? %>
-</td>\n"
+"<%= ct = #{set_ct}
+     link_to \"#\{ct || 'View'\} #{assoc_name}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: #{obj_name}.#{pk} }) unless ct&.zero? %>\n"
                                  else # has_one
-"<td>
-  <%= obj = #{obj_name}.#{hm.first}; link_to(obj.brick_descrip, obj) if obj %>
-</td>\n"
+"<%= obj = #{obj_name}.#{hm.first}; link_to(obj.brick_descrip, obj) if obj %>\n"
                                  end
+                elsif args.first == 'show'
+                  hm_stuff << "<%= link_to '#{assoc_name}', #{hm_assoc.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: @#{obj_name}&.first&.#{pk} }) %>\n"
                 end
-                s << [hm_assoc, "H#{hm_assoc.macro == :has_one ? 'O' : 'M'}#{'T' if hm_assoc.options[:through]} #{hm.first}"]
+                s << hm_stuff
               end
 
               schema_options = ::Brick.db_schemas.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
@@ -120,8 +118,11 @@ table {
 
 table thead tr th, table tr th {
   background-color: #009879;
-  color: #ffffff;
+  color: #fff;
   text-align: left;
+}
+table thead tr th a, table tr th a {
+  color: #80FFB8;
 }
 
 table th, table td {
@@ -130,6 +131,9 @@ table th, table td {
 
 .show-field {
   background-color: #004998;
+}
+.show-field a {
+  color: #80B8D2;
 }
 
 table tbody tr {
@@ -255,13 +259,14 @@ function changeout(href, param, value) {
     <% next if col == '#{pk}' || ::Brick.config.metadata_columns.include?(col) %>
     <th>
     <% if (bt = bts[col]) %>
-      BT <%= \"#\{bt.first\}-\" unless bt[1].name.underscore == bt.first.to_s %><%= bt[1].name %>
+      BT <%= bt[1].bt_link(bt.first) %>
     <% else %>
       <%= col %>
     <% end %>
     </th>
   <% end %>
-  #{hms_headers.map { |h| "<th>#{h.last}</th>\n" }.join}
+  <%# Consider getting the name from the association -- h.first.name -- if a more \"friendly\" alias should be used for a screwy table name %>
+  #{hms_headers.map { |h| "<th>#{h[1]} <%= link_to('#{h[2]}', #{h.first.klass.name.underscore.pluralize}_path) %></th>\n" }.join}
   </tr></thead>
 
   <tbody>
@@ -272,8 +277,8 @@ function changeout(href, param, value) {
       <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) || k.start_with?('_brfk_') || (k.start_with?('_br_') && k.end_with?('_ct')) %>
       <td>
       <% if (bt = bts[k]) %>
-        <%# binding.pry if bt.first == :user %>
-        <% bt_txt = bt[1].brick_descrip(#{obj_name}, @_brick_bt_descrip[bt.first][1].map { |z| #{obj_name}.send(z.last) }, @_brick_bt_descrip[bt.first][2]) %>
+        <%# binding.pry # Postgres column names are limited to 63 characters!!! %>
+        <% bt_txt = bt[1].brick_descrip(#{obj_name}, @_brick_bt_descrip[bt.first][1].map { |z| #{obj_name}.send(z.last[0..62]) }, @_brick_bt_descrip[bt.first][2]) %>
         <% bt_id_col = @_brick_bt_descrip[bt.first][2]; bt_id = #{obj_name}.send(bt_id_col) if bt_id_col %>
         <%= bt_id ? link_to(bt_txt, send(\"#\{bt_obj_path_base = bt[1].name.underscore\}_path\".to_sym, bt_id)) : bt_txt %>
         <%#= Previously was:  bt_obj = bt[1].find_by(bt[2] => val); link_to(bt_obj.brick_descrip, send(\"#\{bt_obj_path_base = bt[1].name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym))) if bt_obj %>
@@ -282,8 +287,7 @@ function changeout(href, param, value) {
       <% end %>
       </td>
     <% end %>
-#{hms_columns}
-    <!-- td>X</td -->
+    #{hms_columns.each_with_object(+'') { |hm_col, s| s << "<td>#{hm_col}</td>" }}
   </tr>
   </tbody>
   <% end %>
@@ -300,9 +304,9 @@ function changeout(href, param, value) {
 <%= link_to '(See all #{obj_name.pluralize})', #{table_name}_path %>
 <% if obj %>
   <%= # path_options = [obj.#{pk}]
-   # path_options << { '_brick_schema':  } if 
+   # path_options << { '_brick_schema':  } if
    # url = send(:#{model_name.underscore}_path, obj.#{pk})
-   form_for(obj) do |f| %>
+   form_for(obj.becomes(#{model_name})) do |f| %>
   <table>
   <% @#{obj_name}.first.attributes.each do |k, val| %>
     <tr>
@@ -316,7 +320,7 @@ function changeout(href, param, value) {
         bt << (option_detail = [[\"(No #\{bt_name\} chosen)\", '^^^brick_NULL^^^']])
         bt[1].order(:#{pk}).each { |obj| option_detail << [obj.brick_descrip, obj.#{pk}] }
       end %>
-      BT <%= \"#\{bt.first\}-\" unless bt_name.underscore == bt.first.to_s %><%= bt_name %>
+      BT <%= bt[1].bt_link(bt.first) %>
     <% else %>
       <%= k %>
     <% end %>
@@ -353,10 +357,10 @@ function changeout(href, param, value) {
   <% end %>
 
   #{hms_headers.map do |hm|
-    next unless (pk = hm.first.klass.primary_key)
+  next unless (pk = hm.first.klass.primary_key) # %%% Should this be an each_with_object instead?
 
   "<table id=\"#{hm_name = hm.first.name.to_s}\">
-    <tr><th>#{hm.last}</th></tr>
+    <tr><th>#{hm[3]}</th></tr>
     <% collection = @#{obj_name}.first.#{hm_name}
     collection = collection.is_a?(ActiveRecord::Associations::CollectionProxy) ? collection.order(#{pk.inspect}) : [collection]
     if collection.empty? %>
