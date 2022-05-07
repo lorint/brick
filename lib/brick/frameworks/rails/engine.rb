@@ -85,12 +85,11 @@ module Brick
                                  hm_assoc.foreign_key
                                end
                   hms_columns << if hm_assoc.macro == :has_many
-                    set_ct = if skip_klass_hms.key?((assoc_name = hm.first).to_sym)
-                               'nil'
-                             else
-                               "#{obj_name}._br_#{assoc_name}_ct"
-                             end
-
+                                   set_ct = if skip_klass_hms.key?(assoc_name.to_sym)
+                                              'nil'
+                                            else
+                                              "#{obj_name}._br_#{assoc_name}_ct || 0"
+                                            end
 "<td>
   <%= ct = #{set_ct}
       link_to \"#\{ct || 'View'\} #{assoc_name}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: #{obj_name}.#{pk} }) unless ct&.zero? %>
