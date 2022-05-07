@@ -302,11 +302,12 @@ module ActiveRecord
           bt_descrip[bt.first] = [bt.last, bt.last.brick_parse_dsl(join_array, bt.first, translations)]
         end
         skip_klass_hms = ::Brick.config.skip_index_hms[klass.name] || {}
+        count_joins = []
         hms.each do |k, hm|
           next if skip_klass_hms.key?(k)
 
-          join_array[k] = nil # Store this relation name in our special collection for .joins()
-          hm_counts[k] = nil # Placeholder that will be filled in once we know the proper table alias
+          # join_array[k] = nil # Store this relation name in our special collection for .joins()
+          hm_counts[k] = hm # Placeholder that will be filled in once we know the proper table alias
         end
       end
       where!(wheres) unless wheres.empty?
@@ -315,19 +316,20 @@ module ActiveRecord
         # Without working from a duplicate, touching the AREL ast tree sets the @arel instance variable, which causes the relation to be immutable.
         (rel_dupe = dup)._arel_alias_names
         core_selects = selects.dup
-        groups = []
+        # groups = []
         chains = rel_dupe._brick_chains
         id_for_tables = {}
         bt_columns = bt_descrip.each_with_object([]) do |v, s|
           tbl_name = chains[v.last.first].first
           if (id_col = v.last.first.primary_key) && !id_for_tables.key?(tbl_name)
-            groups << (unaliased = "#{tbl_name}.#{id_col}")
+            unaliased = "#{tbl_name}.#{id_col}"
+            # groups << (unaliased)
             selects << "#{unaliased} AS \"#{(id_alias = id_for_tables[tbl_name] = "_brfk_#{v.first}__#{id_col}")}\""
             v.last << id_alias
           end
           if (col_name = v.last[1].last&.last)
             v.last[1].map { |x| [translations[x[0..-2].map(&:to_s).join('.')], x.last] }.each_with_index do |sel_col, idx|
-              groups << (unaliased = "#{tbl_name = chains[sel_col.first].first}.#{sel_col.last}")
+              # groups << (unaliased = "#{tbl_name = chains[sel_col.first].first}.#{sel_col.last}")
               # col_name is weak when there are multiple, using sel_col.last instead
               tbl_name2 = tbl_name.start_with?('public.') ? tbl_name[7..-1] : tbl_name
               selects << "#{unaliased} AS \"#{(col_alias = "_brfk_#{tbl_name2}__#{sel_col.last}")}\""
@@ -335,7 +337,7 @@ module ActiveRecord
             end
           end
         end
-        group!(core_selects + groups) if hm_counts.any? #  + bt_columns
+        # group!(core_selects + groups) if hm_counts.any? #  + bt_columns
         join_array.each do |assoc_name|
           # %%% Need to support {user: :profile}
           next unless assoc_name.is_a?(Symbol)
@@ -344,10 +346,20 @@ module ActiveRecord
           table_alias = chains[klass].length > 1 ? chains[klass].shift : chains[klass].first
           _assoc_names[assoc_name] = [table_alias, klass]
         end
-        # Copy entries over
-        hm_counts.keys.each do |k|
-          hm_counts[k] = _assoc_names[k]
-        end
+      end
+      # Add derived table JOIN for the has_many counts
+      hm_counts.each do |k, hm|
+        associative = nil
+        count_column = if hm.options[:through]
+                          fk_col = (associative = associatives[hm.name]).foreign_key
+                          hm.foreign_key
+                        else
+                          fk_col = hm.foreign_key
+                          hm.klass.primary_key || '*'
+                        end
+        joins!("LEFT OUTER
+JOIN (SELECT #{fk_col}, COUNT(#{count_column}) AS _ct_ FROM #{associative&.name || hm.klass.table_name} GROUP BY 1) AS #{tbl_alias = "_br_#{hm.name}"}
+  ON #{tbl_alias}.#{fk_col} = #{(pri_tbl = hm.active_record).table_name}.#{pri_tbl.primary_key}")
       end
       wheres unless wheres.empty? # Return the specific parameters that we did use
     end
@@ -671,7 +683,7 @@ class Object
           @_brick_params = ar_relation.brick_select(params, (selects = []), (bt_descrip = {}), (hm_counts = {}), (join_array = ::Brick::JoinArray.new))
           # %%% Add custom HM count columns
           # %%% What happens when the PK is composite?
-          counts = hm_counts.each_with_object([]) { |v, s| s << "COUNT(DISTINCT #{v.last.first}.#{v.last.last.primary_key}) AS _br_#{v.first}_ct" }
+          counts = hm_counts.each_with_object([]) { |v, s| s << "_br_#{v.first}._ct_ AS _br_#{v.first}_ct" }
           # *selects, 
           instance_variable_set("@#{table_name}".to_sym, ar_relation.dup._select!(*selects, *counts))
           # binding.pry
