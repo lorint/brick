@@ -26,16 +26,11 @@
 
 # colour coded origins
 
-# Drag something like TmfModel#name onto the rows and have it automatically add five columns -- where type=zone / where type = section / etc
+# Drag something like HierModel#name onto the rows and have it automatically add five columns -- where type=zone / where type = section / etc
 
 # Support for Postgres / MySQL enums (add enum to model, use model enums to make a drop-down in the UI)
 
 # Currently quadrupling up routes
-
-
-# From the North app:
-# undefined method `built_in_role_path' when referencing show on a subclassed STI:
-#  http://localhost:3000/roles/3?_brick_schema=cust1
 
 
 # ==========================================================
@@ -120,8 +115,8 @@ module ActiveRecord
     # If available, parse simple DSL attached to a model in order to provide a friendlier name.
     # Object property names can be referenced in square brackets like this:
     # { 'User' => '[profile.firstname] [profile.lastname]' }
-    def brick_descrip
-      self.class.brick_descrip(self)
+    def brick_descrip(data = nil, pk_alias = nil)
+      self.class.brick_descrip(self, data, pk_alias)
     end
 
     def self.brick_descrip(obj, data = nil, pk_alias = nil)
@@ -165,12 +160,17 @@ module ActiveRecord
       end
       if is_brackets_have_content
         output
-      elsif pk_alias
-        if (id = obj.send(pk_alias))
-          "#{klass.name} ##{id}"
+      elsif (pk_alias ||= primary_key)
+        pk_alias = [pk_alias] unless pk_alias.is_a?(Array)
+        id = []
+        pk_alias.each do |pk_alias_part|
+          if (pk_part = obj.send(pk_alias_part))
+            id << pk_part
+          end
         end
-      # elsif klass.primary_key
-      #   "#{klass.name} ##{obj.send(klass.primary_key)}"
+        if id.present?
+          "#{klass.name} ##{id.join(', ')}"
+        end
       else
         obj.to_s
       end
@@ -320,13 +320,17 @@ module ActiveRecord
         (rel_dupe = dup)._arel_alias_names
         core_selects = selects.dup
         chains = rel_dupe._brick_chains
-        id_for_tables = {}
+        id_for_tables = Hash.new { |h, k| h[k] = [] }
         field_tbl_names = Hash.new { |h, k| h[k] = {} }
         bt_columns = bt_descrip.each_with_object([]) do |v, s|
           tbl_name = field_tbl_names[v.first][v.last.first] ||= shift_or_first(chains[v.last.first])
           if (id_col = v.last.first.primary_key) && !id_for_tables.key?(v.first) # was tbl_name
-            selects << "#{"#{tbl_name}.#{id_col}"} AS \"#{(id_alias = id_for_tables[v.first] = "_brfk_#{v.first}__#{id_col}")}\""
-            v.last << id_alias
+            # Accommodate composite primary key by allowing id_col to come in as an array
+            (id_col.is_a?(Array) ? id_col : [id_col]).each do |id_part|
+              selects << "#{"#{tbl_name}.#{id_part}"} AS \"#{(id_alias = "_brfk_#{v.first}__#{id_part}")}\""
+              id_for_tables[v.first] << id_alias
+            end
+            v.last << id_for_tables[v.first]
           end
           if (col_name = v.last[1].last&.last)
             field_tbl_name = nil
@@ -350,15 +354,26 @@ module ActiveRecord
       hm_counts.each do |k, hm|
         associative = nil
         count_column = if hm.options[:through]
-                          fk_col = (associative = associatives[hm.name]).foreign_key
-                          hm.foreign_key
-                        else
-                          fk_col = hm.foreign_key
-                          hm.klass.primary_key || '*'
-                        end
-        joins!("LEFT OUTER
-JOIN (SELECT #{fk_col}, COUNT(#{count_column}) AS _ct_ FROM #{associative&.name || hm.klass.table_name} GROUP BY 1) AS #{tbl_alias = "_br_#{hm.name}"}
-  ON #{tbl_alias}.#{fk_col} = #{(pri_tbl = hm.active_record).table_name}.#{pri_tbl.primary_key}")
+                         fk_col = (associative = associatives[hm.name]).foreign_key
+                         hm.foreign_key
+                       else
+                         fk_col = hm.foreign_key
+                         pk = hm.klass.primary_key
+                         (pk.is_a?(Array) ? pk.first : pk) || '*'
+                       end
+        tbl_alias = "_br_#{hm.name}"
+        pri_tbl = hm.active_record
+        if fk_col.is_a?(Array) # Composite key?
+          on_clause = []
+          fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl.table_name}.#{pri_tbl.primary_key[idx]}" }
+          joins!("LEFT OUTER
+JOIN (SELECT #{fk_col.join(', ')}, COUNT(#{count_column}) AS _ct_ FROM #{associative&.name || hm.klass.table_name} GROUP BY #{(1..fk_col.length).to_a.join(', ')}) AS #{tbl_alias}
+  ON #{on_clause.join(' AND ')}")
+        else
+          joins!("LEFT OUTER
+JOIN (SELECT #{fk_col}, COUNT(#{count_column}) AS _ct_ FROM #{associative&.name || hm.klass.table_name} GROUP BY 1) AS #{tbl_alias}
+  ON #{tbl_alias}.#{fk_col} = #{pri_tbl.table_name}.#{pri_tbl.primary_key}")
+        end
       end
       where!(wheres) unless wheres.empty?
       wheres unless wheres.empty? # Return the specific parameters that we did use
@@ -688,7 +703,7 @@ class Object
         code << "  end\n"
         self.define_method :index do
           ::Brick.set_db_schema(params)
-          ar_relation = model.all # model.primary_key ? model.order(model.primary_key) : model.all
+          ar_relation = model.primary_key ? model.order("#{model.table_name}.#{model.primary_key}") : model.all
           @_brick_params = ar_relation.brick_select(params, (selects = []), (bt_descrip = {}), (hm_counts = {}), (join_array = ::Brick::JoinArray.new))
           # %%% Add custom HM count columns
           # %%% What happens when the PK is composite?
@@ -703,11 +718,15 @@ class Object
 
         if model.primary_key
           code << "  def show\n"
-          code << (find_by_id = "    @#{singular_table_name} = #{model.name}.find(params[:id].split(','))\n")
+          code << (find_by_id = "    id = params[:id]&.split(/[\\/,_]/)
+    id = id.first if id.is_a?(Array) && id.length == 1
+    @#{singular_table_name} = #{model.name}.find(id)\n")
           code << "  end\n"
           self.define_method :show do
             ::Brick.set_db_schema(params)
-            instance_variable_set("@#{singular_table_name}".to_sym, model.find(params[:id].split(',')))
+            id = params[:id]&.split(/[\/,_]/)
+            id = id.first if id.is_a?(Array) && id.length == 1
+            instance_variable_set("@#{singular_table_name}".to_sym, model.find(id))
           end
         end
 

@@ -64,6 +64,14 @@ module Brick
               is_template_exists
             end
 
+            def path_keys(fk_name, obj_name, pk)
+              if fk_name.is_a?(Array) && pk.is_a?(Array) # Composite keys?
+                fk_name.zip(pk.map { |pk_part| "#{obj_name}.#{pk_part}" })
+              else
+                [[fk_name, "#{obj_name}.#{pk}"]]
+              end.map { |x| "#{x.first}: #{x.last}"}.join(', ')
+            end
+
             alias :_brick_find_template :find_template
             def find_template(*args, **options)
               return  _brick_find_template(*args, **options) unless @_brick_model
@@ -91,12 +99,12 @@ module Brick
                                               "#{obj_name}._br_#{assoc_name}_ct || 0"
                                             end
 "<%= ct = #{set_ct}
-     link_to \"#\{ct || 'View'\} #{assoc_name}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: #{obj_name}.#{pk} }) unless ct&.zero? %>\n"
+     link_to \"#\{ct || 'View'\} #{assoc_name}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{path_keys(hm_fk_name, obj_name, pk)} }) unless ct&.zero? %>\n"
                                  else # has_one
 "<%= obj = #{obj_name}.#{hm.first}; link_to(obj.brick_descrip, obj) if obj %>\n"
                                  end
                 elsif args.first == 'show'
-                  hm_stuff << "<%= link_to '#{assoc_name}', #{hm_assoc.klass.name.underscore.pluralize}_path({ #{hm_fk_name}: @#{obj_name}&.first&.#{pk} }) %>\n"
+                  hm_stuff << "<%= link_to '#{assoc_name}', #{hm_assoc.klass.name.underscore.pluralize}_path({ #{path_keys(hm_fk_name, "@#{obj_name}", pk)} }) %>\n"
                 end
                 s << hm_stuff
               end
@@ -107,6 +115,13 @@ module Brick
               table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables)
                               .each_with_object(+'') { |v, s| s << "<option value=\"#{v.underscore.pluralize}\">#{v}</option>" }.html_safe
               css = +"<style>
+#dropper {
+  background-color: #eee;
+}
+#btnImport {
+  display: none;
+}
+
 table {
   border-collapse: collapse;
   margin: 25px 0;
@@ -247,6 +262,11 @@ function changeout(href, param, value) {
 </script>"
               inline = case args.first
                        when 'index'
+                         obj_pk = if pk&.is_a?(Array) # Composite primary key?
+                                    "[#{pk.map { |pk_part| "#{obj_name}.#{pk_part}" }.join(', ')}]"
+                                  elsif pk
+                                    "#{obj_name}.#{pk}"
+                                  end
 "#{css}
 <p style=\"color: green\"><%= notice %></p>#{"
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.db_schemas.length > 1}
@@ -272,14 +292,14 @@ function changeout(href, param, value) {
   <tbody>
   <% @#{table_name}.each do |#{obj_name}| %>
   <tr>#{"
-    <td><%= link_to '⇛', #{obj_name}_path(#{obj_name}.#{pk}), { class: 'big-arrow' } %></td>" if pk}
+    <td><%= link_to '⇛', #{obj_name}_path(#{obj_pk}), { class: 'big-arrow' } %></td>" if obj_pk}
     <% #{obj_name}.attributes.each do |k, val| %>
       <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) || k.start_with?('_brfk_') || (k.start_with?('_br_') && k.end_with?('_ct')) %>
       <td>
       <% if (bt = bts[k]) %>
         <%# binding.pry # Postgres column names are limited to 63 characters %>
         <% bt_txt = bt[1].brick_descrip(#{obj_name}, @_brick_bt_descrip[bt.first][1].map { |z| #{obj_name}.send(z.last[0..62]) }, @_brick_bt_descrip[bt.first][2]) %>
-        <% bt_id_col = @_brick_bt_descrip[bt.first][2]; bt_id = #{obj_name}.send(bt_id_col) if bt_id_col %>
+        <% bt_id_col = @_brick_bt_descrip[bt.first][2]; bt_id = #{obj_name}.send(*bt_id_col) if bt_id_col&.present? %>
         <%= bt_id ? link_to(bt_txt, send(\"#\{bt_obj_path_base = bt[1].name.underscore\}_path\".to_sym, bt_id)) : bt_txt %>
         <%#= Previously was:  bt_obj = bt[1].find_by(bt[2] => val); link_to(bt_obj.brick_descrip, send(\"#\{bt_obj_path_base = bt[1].name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym))) if bt_obj %>
       <% else %>
@@ -300,7 +320,7 @@ function changeout(href, param, value) {
 <p style=\"color: green\"><%= notice %></p>#{"
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
-<h1>#{model_name}: <%= (obj = @#{obj_name}&.first)&.brick_descrip || controller_name %></h1>
+<h1>#{model_name}: <%= (obj = @#{obj_name})&.brick_descrip || controller_name %></h1>
 <%= link_to '(See all #{obj_name.pluralize})', #{table_name}_path %>
 <% if obj %>
   <%= # path_options = [obj.#{pk}]
@@ -308,8 +328,9 @@ function changeout(href, param, value) {
    # url = send(:#{model_name.underscore}_path, obj.#{pk})
    form_for(obj.becomes(#{model_name})) do |f| %>
   <table>
-  <% @#{obj_name}.first.attributes.each do |k, val| %>
+  <% @#{obj_name}.attributes.each do |k, val| %>
     <tr>
+    <%# %%% Accommodate composite keys %>
     <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) %>
     <th class=\"show-field\">
     <% if (bt = bts[k])
@@ -318,7 +339,8 @@ function changeout(href, param, value) {
       # %%% Only do this if the user has permissions to edit this bt field
       if bt.length < 4
         bt << (option_detail = [[\"(No #\{bt_name\} chosen)\", '^^^brick_NULL^^^']])
-        bt[1].order(:#{pk}).each { |obj| option_detail << [obj.brick_descrip, obj.#{pk}] }
+        # %%% Accommodate composite keys for obj.pk at the end here
+        bt[1].order(obj_pk = bt[1].primary_key).each { |obj| option_detail << [obj.brick_descrip(nil, obj_pk), obj.send(obj_pk)] }
       end %>
       BT <%= bt[1].bt_link(bt.first) %>
     <% else %>
@@ -356,21 +378,26 @@ function changeout(href, param, value) {
   </table>
   <% end %>
 
-  #{hms_headers.map do |hm|
-  next unless (pk = hm.first.klass.primary_key) # %%% Should this be an each_with_object instead?
-
-  "<table id=\"#{hm_name = hm.first.name.to_s}\">
-    <tr><th>#{hm[3]}</th></tr>
-    <% collection = @#{obj_name}.first.#{hm_name}
-    collection = collection.is_a?(ActiveRecord::Associations::CollectionProxy) ? collection.order(#{pk.inspect}) : [collection]
-    if collection.empty? %>
-      <tr><td>(none)</td></tr>
-    <% else %>
-      <% collection.uniq.each do |#{hm_singular_name = hm_name.singularize.underscore}| %>
-        <tr><td><%= link_to(#{hm_singular_name}.brick_descrip, #{hm.first.klass.name.underscore}_path(#{hm_singular_name}.#{pk})) %></td></tr>
-      <% end %>
-    <% end %>
-  </table>" end.join}
+  #{hms_headers.each_with_object(+'') do |hm, s|
+    if (pk = hm.first.klass.primary_key)
+      hm_singular_name = (hm_name = hm.first.name.to_s).singularize.underscore
+      obj_pk = (pk.is_a?(Array) ? pk : [pk]).each_with_object([]) { |pk_part, s| s << "#{hm_singular_name}.#{pk_part}" }.join(', ')
+      s << "<table id=\"#{hm_name}\">
+        <tr><th>#{hm[3]}</th></tr>
+        <% collection = @#{obj_name}.#{hm_name}
+        collection = collection.is_a?(ActiveRecord::Associations::CollectionProxy) ? collection.order(#{pk.inspect}) : [collection]
+        if collection.empty? %>
+          <tr><td>(none)</td></tr>
+        <% else %>
+          <% collection.uniq.each do |#{hm_singular_name}| %>
+            <tr><td><%= link_to(#{hm_singular_name}.brick_descrip, #{hm.first.klass.name.underscore}_path([#{obj_pk}])) %></td></tr>
+          <% end %>
+        <% end %>
+      </table>"
+    else
+      s
+    end
+  end}
 <% end %>
 #{script}"
 
