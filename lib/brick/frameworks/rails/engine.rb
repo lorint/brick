@@ -80,6 +80,7 @@ module Brick
               pk = @_brick_model.primary_key
               obj_name = model_name.underscore
               table_name = model_name.pluralize.underscore
+              template_link = nil
               bts, hms, associatives = ::Brick.get_bts_and_hms(@_brick_model) # This gets BT and HM and also has_many :through (HMT)
               hms_columns = [] # Used for 'index'
               skip_klass_hms = ::Brick.config.skip_index_hms[model_name] || {}
@@ -269,11 +270,102 @@ function changeout(href, param, value) {
                                   elsif pk
                                     "#{obj_name}.#{pk}"
                                   end
+                         if Object.const_defined?('DutyFree')
+                           template_link = "
+  <%= link_to 'CSV', #{table_name}_path(format: :csv) %> &nbsp; <a href=\"#\" id=\"sheetsLink\">Sheets</a>
+  <div id=\"dropper\" contenteditable=\"true\"></div>
+  <input type=\"button\" id=\"btnImport\" value=\"Import\">
+
+<script>
+  var dropperDiv = document.getElementById(\"dropper\");
+  var btnImport = document.getElementById(\"btnImport\");
+  var droppedTSV;
+  if (dropperDiv) { // Other interesting events: blur keyup input
+    dropperDiv.addEventListener(\"paste\", function (evt) {
+      droppedTSV = evt.clipboardData.getData('text/plain');
+      var html = evt.clipboardData.getData('text/html');
+      var tbl = html.substring(html.indexOf(\"<tbody>\") + 7, html.lastIndexOf(\"</tbody>\"));
+      console.log(tbl);
+      btnImport.style.display = droppedTSV.length > 0 ? \"block\" : \"none\";
+    });
+    btnImport.addEventListener(\"click\", function () {
+      fetch(changeout(<%= #{obj_name}_path(-1, format: :csv).inspect.html_safe %>, \"_brick_schema\", brickSchema), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'text/tab-separated-values' },
+        body: droppedTSV
+      }).then(function (tsvResponse) {
+        btnImport.style.display = \"none\";
+        console.log(\"toaster\", tsvResponse);
+      });
+    });
+  }
+  var sheetUrl;
+  var spreadsheetId;
+  var sheetsLink = document.getElementById(\"sheetsLink\");
+  function gapiLoaded() {
+    // Have a click on the sheets link to bring up the sign-in window.  (Must happen from some kind of user click.)
+    sheetsLink.addEventListener(\"click\", async function (evt) {
+      evt.preventDefault();
+      await gapi.load(\"client\", function () {
+        gapi.client.init({ // Load the discovery doc to initialize the API
+          clientId: \"487319557829-fgj4u660igrpptdji7ev0r5hb6kh05dh.apps.googleusercontent.com\",
+          scope: \"https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file\",
+          discoveryDocs: [\"https://sheets.googleapis.com/$discovery/rest?version=v4\"]
+        }).then(function () {
+          gapi.auth2.getAuthInstance().isSignedIn.listen(updateSignInStatus);
+          updateSignInStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
+        });
+      });
+    });
+  }
+
+  async function updateSignInStatus(isSignedIn) {
+    if (isSignedIn) {
+      console.log(\"turds!\");
+      await gapi.client.sheets.spreadsheets.create({
+        properties: {
+          title: #{table_name.inspect},
+        },
+        sheets: [
+          // sheet1, sheet2, sheet3
+        ]
+      }).then(function (response) {
+        sheetUrl = response.result.spreadsheetUrl;
+        spreadsheetId = response.result.spreadsheetId;
+        sheetsLink.setAttribute(\"href\", sheetUrl); // response.result.spreadsheetUrl
+        console.log(\"x1\", sheetUrl);
+
+        // Get JSON data
+        fetch(changeout(<%= #{table_name}_path(format: :js).inspect.html_safe %>, \"_brick_schema\", brickSchema)).then(function (response) {
+          response.json().then(function (data) {
+            gapi.client.sheets.spreadsheets.values.append({
+              spreadsheetId: spreadsheetId,
+              range: \"Sheet1\",
+              valueInputOption: \"RAW\",
+              insertDataOption: \"INSERT_ROWS\"
+            }, {
+              range: \"Sheet1\",
+              majorDimension: \"ROWS\",
+              values: data,
+            }).then(function (response2) {
+  //            console.log(\"beefcake\", response2);
+            });
+          });
+        });
+      });
+      window.open(sheetUrl, '_blank');
+    }
+  }
+</script>
+<script async defer src=\"https://apis.google.com/js/api.js\" onload=\"gapiLoaded()\"></script>
+"
+                         end
 "#{css}
 <p style=\"color: green\"><%= notice %></p>#{"
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
-<h1>#{model_name.pluralize}</h1>
+<h1>#{model_name.pluralize}</h1>#{template_link}
+
 <% if @_brick_params&.present? %><h3>where <%= @_brick_params.each_with_object([]) { |v, s| s << \"#\{v.first\} = #\{v.last.inspect\}\" }.join(', ') %></h3><% end %>
 <table id=\"#{table_name}\">
   <thead><tr>#{'<th></th>' if pk}
