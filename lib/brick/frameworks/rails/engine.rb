@@ -270,6 +270,12 @@ function changeout(href, param, value) {
                                   elsif pk
                                     "#{obj_name}.#{pk}"
                                   end
+                         if Object.const_defined?('DutyFree')
+                           template_link = "
+  <%= link_to 'CSV', #{table_name}_path(format: :csv) %> &nbsp; <a href=\"#\" id=\"sheetsLink\">Sheets</a>
+  <div id=\"dropper\" contenteditable=\"true\"></div>
+  <input type=\"button\" id=\"btnImport\" value=\"Import\">"
+                         end
 "#{css}
 <p style=\"color: green\"><%= notice %></p>#{"
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.db_schemas.length > 1}

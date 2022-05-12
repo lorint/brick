@@ -183,6 +183,14 @@ module ActiveRecord
       model_underscore == assoc_name ? link : "#{assoc_name}-#{link}".html_safe
     end
 
+    def self.brick_import_template
+      template = constants.include?(:IMPORT_TEMPLATE) ? self::IMPORT_TEMPLATE : suggest_template(false, false, 0)
+      # Add the primary key to the template as being unique (unless it's already there)
+      template[:uniques] = [pk = primary_key.to_sym]
+      template[:all].unshift(pk) unless template[:all].include?(pk)
+      template
+    end
+
   private
 
     def self._brick_get_fks
@@ -680,8 +688,8 @@ class Object
           # relation[:cols].each do |col, datatype|
           #   if (datatype[3] && ar_pks.exclude?(col) && ::Brick.config.metadata_columns.exclude?(col)) ||
           #      ::Brick.config.not_nullables.include?("#{matching}.#{col}")
-          #     code << "  validates :#{col}, presence: true\n"
-          #     self.send(:validates, col.to_sym, { presence: true })
+          #     code << "  validates :#{col}, not_null: true\n"
+          #     self.send(:validates, col.to_sym, { not_null: true })
           #   end
           # end
         end
@@ -702,8 +710,21 @@ class Object
         code << "    @#{table_name} = #{model.name}#{model.primary_key ? ".order(#{model.primary_key.inspect})" : '.all'}\n"
         code << "    @#{table_name}.brick_select(params)\n"
         code << "  end\n"
+        self.protect_from_forgery unless: -> { self.request.format.js? }
         self.define_method :index do
           ::Brick.set_db_schema(params)
+          if request.format == :csv # Asking for a template?
+            require 'csv'
+            exported_csv = CSV.generate(force_quotes: false) do |csv_out|
+              model.df_export(model.brick_import_template).each { |row| csv_out << row }
+            end
+            render inline: exported_csv, content_type: request.format
+            return
+          elsif request.format == :js # Asking for JSON?
+            render inline: model.df_export(model.brick_import_template).to_json, content_type: request.format
+            return
+          end
+
           ar_relation = model.primary_key ? model.order("#{model.table_name}.#{model.primary_key}") : model.all
           @_brick_params = ar_relation.brick_select(params, (selects = []), (bt_descrip = {}), (hm_counts = {}), (join_array = ::Brick::JoinArray.new))
           # %%% Add custom HM count columns
@@ -741,6 +762,22 @@ class Object
             code << "  end\n"
             self.define_method :update do
               ::Brick.set_db_schema(params)
+
+              if request.format == :csv # Importing CSV?
+                require 'csv'
+                # See if internally it's likely a TSV file (tab-separated)
+                tab_counts = []
+                5.times { tab_counts << request.body.readline.count("\t") unless request.body.eof? }
+                request.body.rewind
+                separator = "\t" if tab_counts.length > 0 && tab_counts.uniq.length == 1 && tab_counts.first > 0
+                result = model.df_import(CSV.parse(request.body, { col_sep: separator || :auto }), model.brick_import_template)
+                # render inline: exported_csv, content_type: request.format
+                return
+              # elsif request.format == :js # Asking for JSON?
+              #   render inline: model.df_export(true).to_json, content_type: request.format
+              #   return
+              end
+
               instance_variable_set("@#{singular_table_name}".to_sym, (obj = model.find(params[:id].split(','))))
               obj = obj.first if obj.is_a?(Array)
               obj.send(:update, send(params_name = params_name.to_sym))
