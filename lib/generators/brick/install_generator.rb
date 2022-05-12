@@ -22,8 +22,10 @@ module Brick
         # See if we can make suggestions for additional_references
         resembles_fks = []
         possible_additional_references = (relations = ::Brick.relations).each_with_object([]) do |v, s|
+          model_filename = "app/models/#{ActiveSupport::Inflector.singularize(v.first)}.rb"
           v.last[:cols].each do |col, _type|
             col_down = col.downcase
+
             is_possible = true
             if col_down.end_with?('_id')
               col_down = col_down[0..-4]
@@ -40,6 +42,9 @@ module Brick
             if col_down.start_with?('fk_')
               is_possible = true
               col_down = col_down[3..-1]
+            elsif col_down.start_with?('fk')
+              is_possible = true
+              col_down = col_down[2..-1]
             end
             # This possible key not really a primary key and not yet used as a foreign key?
             if is_possible && !(relation = relations.fetch(v.first, {}))[:pkey].first&.last&.include?(col) &&
@@ -47,7 +52,7 @@ module Brick
               if (relations.fetch(f_table = col_down, nil) ||
                  relations.fetch(f_table = ActiveSupport::Inflector.pluralize(col_down), nil)) &&
                  # Looks pretty promising ... just make sure a model file isn't present
-                 !File.exist?("app/models/#{ActiveSupport::Inflector.singularize(v.first)}.rb")
+                 !File.exist?(model_filename)
                 s << "['#{v.first}', '#{col}', '#{f_table}']"
               else
                 resembles_fks << "#{v.first}.#{col}"
@@ -63,7 +68,7 @@ module Brick
 #                                ['customer', 'region_id', 'regions']]"
               when 1
 +"# # Here is a possible additional reference that has been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
-# Brick.additional_references = [[#{possible_additional_references.first}]"
+# Brick.additional_references = [#{possible_additional_references.first}]"
               else
 +"# # Here are possible additional references that have been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
 # Brick.additional_references = [
@@ -119,7 +124,7 @@ module Brick
 # # Skip showing counts for these specific has_many associations when building auto-generated #index views.
 # # When there are related tables with a significant number of records, this can lessen the load on the database
 # # considerably, sometimes fixing what might appear to be an index page that just \"hangs\" for no apparent reason.
-Brick.skip_index_hms = ['User.litany_of_woes']
+# Brick.skip_index_hms = ['User.litany_of_woes']
 
 # # By default primary tables involved in a foreign key relationship will indicate a \"has_many\" relationship pointing
 # # back to the foreign table.  In order to represent a \"has_one\" association instead, an override can be provided
