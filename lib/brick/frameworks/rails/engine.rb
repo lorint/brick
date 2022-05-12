@@ -96,7 +96,9 @@ module Brick
                                    set_ct = if skip_klass_hms.key?(assoc_name.to_sym)
                                               'nil'
                                             else
-                                              "#{obj_name}._br_#{assoc_name}_ct || 0"
+                                              # Postgres column names are limited to 63 characters
+                                              attrib_name = "_br_#{assoc_name}_ct"[0..62]
+                                              "#{obj_name}.#{attrib_name} || 0"
                                             end
 "<%= ct = #{set_ct}
      link_to \"#\{ct || 'View'\} #{assoc_name}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{path_keys(hm_fk_name, obj_name, pk)} }) unless ct&.zero? %>\n"
@@ -297,7 +299,7 @@ function changeout(href, param, value) {
       <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) || k.start_with?('_brfk_') || (k.start_with?('_br_') && k.end_with?('_ct')) %>
       <td>
       <% if (bt = bts[k]) %>
-        <%# binding.pry # Postgres column names are limited to 63 characters!!! %>
+        <%# binding.pry # Postgres column names are limited to 63 characters %>
         <% bt_txt = bt[1].brick_descrip(#{obj_name}, @_brick_bt_descrip[bt.first][1].map { |z| #{obj_name}.send(z.last[0..62]) }, @_brick_bt_descrip[bt.first][2]) %>
         <% bt_id_col = @_brick_bt_descrip[bt.first][2]; bt_id = #{obj_name}.send(*bt_id_col) if bt_id_col&.present? %>
         <%= bt_id ? link_to(bt_txt, send(\"#\{bt_obj_path_base = bt[1].name.underscore\}_path\".to_sym, bt_id)) : bt_txt %>

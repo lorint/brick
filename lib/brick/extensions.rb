@@ -136,11 +136,7 @@ module ActiveRecord
                         this_obj = obj
                         bracket_name.split('.').each do |part|
                           obj_name += ".#{part}"
-                          this_obj = if caches.key?(obj_name)
-                                       caches[obj_name]
-                                     else
-                                       (caches[obj_name] = this_obj&.send(part.to_sym))
-                                     end
+                          this_obj = caches.fetch(obj_name) { caches[obj_name] = this_obj&.send(part.to_sym) }
                         end
                         this_obj&.to_s || ''
                       end
@@ -371,23 +367,23 @@ module ActiveRecord
       hm_counts.each do |k, hm|
         associative = nil
         count_column = if hm.options[:through]
-                          fk_col = (associative = associatives[hm.name]).foreign_key
-                          hm.foreign_key
-                        else
-                          fk_col = hm.foreign_key
-                          hm.klass.primary_key || '*'
-                        end
+                         fk_col = (associative = associatives[hm.name]).foreign_key
+                         hm.foreign_key
+                       else
+                         fk_col = hm.foreign_key
+                         hm.klass.primary_key || '*'
+                       end
         tbl_alias = "_br_#{hm.name}"
         pri_tbl = hm.active_record
         if fk_col.is_a?(Array) # Composite key?
           on_clause = []
           fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl.table_name}.#{pri_tbl.primary_key[idx]}" }
           joins!("LEFT OUTER
-JOIN (SELECT #{fk_col.join(', ')}, COUNT(#{count_column}) AS _ct_ FROM #{associative&.name || hm.klass.table_name} GROUP BY #{(1..fk_col.length).to_a.join(', ')}) AS #{tbl_alias}
+JOIN (SELECT #{fk_col.join(', ')}, COUNT(#{count_column}) AS _ct_ FROM #{associative&.table_name || hm.klass.table_name} GROUP BY #{(1..fk_col.length).to_a.join(', ')}) AS #{tbl_alias}
   ON #{on_clause.join(' AND ')}")
         else
           joins!("LEFT OUTER
-JOIN (SELECT #{fk_col}, COUNT(#{count_column}) AS _ct_ FROM #{associative&.name || hm.klass.table_name} GROUP BY 1) AS #{tbl_alias}
+JOIN (SELECT #{fk_col}, COUNT(#{count_column}) AS _ct_ FROM #{associative&.table_name || hm.klass.table_name} GROUP BY 1) AS #{tbl_alias}
   ON #{tbl_alias}.#{fk_col} = #{pri_tbl.table_name}.#{pri_tbl.primary_key}")
         end
       end
@@ -674,31 +670,34 @@ class Object
           end
           hmts.each do |hmt_fk, fks|
             fks.each do |fk|
-              source = nil
-              this_hmt_fk = if fks.length > 1
-                              singular_assoc_name = fk.first[:inverse][:assoc_name].singularize
-                              source = fk.last
-                              through = fk.first[:alternate_name].pluralize
-                              "#{singular_assoc_name}_#{hmt_fk}"
-                            else
-                              source = fk.last unless hmt_fk.singularize == fk.last
-                              through = fk.first[:assoc_name].pluralize
-                              hmt_fk
-                            end
-              code << "  has_many :#{this_hmt_fk}, through: #{(assoc_name = through.to_sym).to_sym.inspect}#{", source: :#{source}" if source}\n"
+              through = fk.first[:assoc_name]
+              hmt_name = if fks.length > 1
+                           if fks[0].first[:inverse][:assoc_name] == fks[1].first[:inverse][:assoc_name] # Same BT names pointing back to us? (Most common scenario)
+                             "#{hmt_fk}_through_#{fk.first[:assoc_name]}"
+                           else # Use BT names to provide uniqueness
+                             through = fk.first[:alternate_name].pluralize
+                             singular_assoc_name = fk.first[:inverse][:assoc_name].singularize
+                             "#{singular_assoc_name}_#{hmt_fk}"
+                           end
+                         else
+                           hmt_fk
+                         end
+              source = fk.last unless hmt_name.singularize == fk.last
+              code << "  has_many :#{hmt_name}, through: #{(assoc_name = through.to_sym).to_sym.inspect}#{", source: :#{source}" if source}\n"
               options = { through: assoc_name }
               options[:source] = source.to_sym if source
-              self.send(:has_many, this_hmt_fk.to_sym, **options)
+              self.send(:has_many, hmt_name.to_sym, **options)
             end
           end
-          # Not NULLables
-          relation[:cols].each do |col, datatype|
-            if (datatype[3] && ar_pks.exclude?(col) && ::Brick.config.metadata_columns.exclude?(col)) ||
-               ::Brick.config.not_nullables.include?("#{matching}.#{col}")
-              code << "  validates :#{col}, presence: true\n"
-              self.send(:validates, col.to_sym, { presence: true })
-            end
-          end
+          # # Not NULLables
+          # # %%% For the minute we've had to pull this out because it's been troublesome implementing the NotNull validator
+          # relation[:cols].each do |col, datatype|
+          #   if (datatype[3] && ar_pks.exclude?(col) && ::Brick.config.metadata_columns.exclude?(col)) ||
+          #      ::Brick.config.not_nullables.include?("#{matching}.#{col}")
+          #     code << "  validates :#{col}, presence: true\n"
+          #     self.send(:validates, col.to_sym, { presence: true })
+          #   end
+          # end
         end
         code << "end # model #{model_name}\n\n"
       end # class definition
