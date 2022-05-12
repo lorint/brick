@@ -96,7 +96,9 @@ module Brick
                                    set_ct = if skip_klass_hms.key?(assoc_name.to_sym)
                                               'nil'
                                             else
-                                              "#{obj_name}._br_#{assoc_name}_ct || 0"
+                                              # Postgres column names are limited to 63 characters
+                                              attrib_name = "_br_#{assoc_name}_ct"[0..62]
+                                              "#{obj_name}.#{attrib_name} || 0"
                                             end
 "<%= ct = #{set_ct}
      link_to \"#\{ct || 'View'\} #{assoc_name}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{path_keys(hm_fk_name, obj_name, pk)} }) unless ct&.zero? %>\n"
@@ -324,9 +326,9 @@ function changeout(href, param, value) {
 <%= link_to '(See all #{obj_name.pluralize})', #{table_name}_path %>
 <% if obj %>
   <%= # path_options = [obj.#{pk}]
-   # path_options << { '_brick_schema':  } if
-   # url = send(:#{model_name.underscore}_path, obj.#{pk})
-   form_for(obj.becomes(#{model_name})) do |f| %>
+    # path_options << { '_brick_schema':  } if
+    # url = send(:#{model_name.underscore}_path, obj.#{pk})
+    form_for(obj.becomes(#{model_name})) do |f| %>
   <table>
   <% @#{obj_name}.first.attributes.each do |k, val| %>
     <tr>
