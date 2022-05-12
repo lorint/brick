@@ -96,7 +96,9 @@ module Brick
                                    set_ct = if skip_klass_hms.key?(assoc_name.to_sym)
                                               'nil'
                                             else
-                                              "#{obj_name}._br_#{assoc_name}_ct || 0"
+                                              # Postgres column names are limited to 63 characters
+                                              attrib_name = "_br_#{assoc_name}_ct"[0..62]
+                                              "#{obj_name}.#{attrib_name} || 0"
                                             end
 "<%= ct = #{set_ct}
      link_to \"#\{ct || 'View'\} #{assoc_name}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{path_keys(hm_fk_name, obj_name, pk)} }) unless ct&.zero? %>\n"

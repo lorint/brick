@@ -126,9 +126,7 @@ module Brick
           skip_hms[hmt.last.name] = nil
         end
       end
-      skip_hms.each do |k, _v|
-        puts hms.delete(k).inspect
-      end
+      skip_hms.each { |k, _v| hms.delete(k) }
       [bts, hms, associatives]
     end
 
