@@ -213,7 +213,7 @@ module Brick
           puts "X3"
           super(key, ::Brick::JoinArray.new.replace([current, value]))
         when ::Brick::JoinArray # Concatenate new stuff onto any existing JoinArray
-          current.set_matching(value, nil)
+          current.set_matching(value, nil) if value
         when ::Brick::JoinHash # Graduate an existing hash into being in an array if things are dissimilar
           super(key, ::Brick::JoinArray.new.replace([current, value]))
           value

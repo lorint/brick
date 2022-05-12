@@ -126,9 +126,7 @@ module Brick
           skip_hms[hmt.last.name] = nil
         end
       end
-      skip_hms.each do |k, _v|
-        puts hms.delete(k).inspect
-      end
+      skip_hms.each { |k, _v| hms.delete(k) }
       [bts, hms, associatives]
     end
 
@@ -396,7 +394,7 @@ ActiveSupport.on_load(:active_record) do
             relation = clone # spawn
             relation.select_values = column_names
             result = if klass.connection.class.name.end_with?('::PostgreSQLAdapter')
-                       rslt = klass.connection.execute(relation.arel.to_sql)
+                       rslt = klass.execute_sql(relation.arel.to_sql)
                        rslt.type_map =
                          @type_map ||= proc do
                            # This aliasing avoids the warning:

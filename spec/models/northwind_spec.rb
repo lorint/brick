@@ -60,8 +60,8 @@ RSpec.describe 'Employee', type: :model do
     model.destroy_all
     return unless model.count == 0 && ActiveRecord::Base.connection.class.name.end_with?('::PostgreSQLAdapter')
 
-    ActiveRecord::Base.connection.execute("SELECT setval('#{model.table_name}_#{model.primary_key}_seq', #{starting_id}, false);")
-    # x = ActiveRecord::Base.connection.execute "SELECT c.relname FROM pg_class c WHERE c.relkind = 'S';"
+    ActiveRecord::Base.execute_sql("SELECT setval('#{model.table_name}_#{model.primary_key}_seq', ?, false);", starting_id)
+    # x = ActiveRecord::Base.execute_sql "SELECT c.relname FROM pg_class c WHERE c.relkind = 'S';"
   end
 
   before(:each) do
