@@ -422,12 +422,14 @@ function changeout(href, param, value) {
    # url = send(:#{model_name.underscore}_path, obj.#{pk})
    form_for(obj.becomes(#{model_name})) do |f| %>
   <table>
-  <% @#{obj_name}.first.attributes.each do |k, val| %>
+  <% has_fields = false
+    @#{obj_name}.first.attributes.each do |k, val| %>
     <tr>
     <%# %%% Accommodate composite keys %>
     <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) %>
     <th class=\"show-field\">
-    <% if (bt = bts[k])
+    <% has_fields = true
+      if (bt = bts[k])
       # Add a final member in this array with descriptive options to be used in <select> drop-downs
       bt_name = bt[1].name
       # %%% Only do this if the user has permissions to edit this bt field
@@ -467,8 +469,12 @@ function changeout(href, param, value) {
     <% end %>
     </td>
     </tr>
+    <% end
+    if has_fields %>
+      <tr><td colspan=\"2\" class=\"right\"><%= f.submit %></td></tr>
+    <% else %>
+      <tr><td colspan=\"2\">(No displayable fields)</td></tr>
     <% end %>
-    <tr><td colspan=\"2\" class=\"right\"><%= f.submit %></td></tr>
   </table>
   <% end %>
 
