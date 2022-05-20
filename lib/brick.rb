@@ -103,11 +103,17 @@ module Brick
 
     def get_bts_and_hms(model)
       bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
-        next if !const_defined?(a.name.to_s.singularize.camelize) && ::Brick.config.exclude_tables.include?(a.plural_name)
+        next if (!const_defined?(a.name.to_s.singularize.camelize) && ::Brick.config.exclude_tables.include?(a.plural_name))
 
         case a.macro
         when :belongs_to
-          s.first[a.foreign_key] = [a.name, a.klass]
+          s.first[a.foreign_key] = if a.polymorphic?
+                                     primary_tables = relations[model.table_name][:fks].find { |_k, fk| fk[:assoc_name] == a.name.to_s }&.last&.fetch(:inverse_table, [])
+                                     models = primary_tables&.map { |table| table.singularize.camelize.constantize }
+                                     [a.name, models]
+                                   else
+                                     [a.name, a.klass]
+                                   end
         when :has_many, :has_one # This gets has_many as well as has_many :through
           # %%% weed out ones that don't have an available model to reference
           s.last[a.name] = a
@@ -256,6 +262,11 @@ module Brick
       end
     end
 
+    # Polymorphic associations
+    def polymorphics=(polys)
+      Brick.config.polymorphics = polys || {}
+    end
+
     # DSL templates for individual models to provide prettier descriptions of objects
     # @api public
     def model_descrips=(descrips)
@@ -274,8 +285,18 @@ module Brick
     def load_additional_references
       return if @_additional_references_loaded
 
-      if (ars = ::Brick.config.additional_references)
-        ars.each { |fk| ::Brick._add_bt_and_hm(fk[0..2]) }
+      relations = ::Brick.relations
+      if (ars = ::Brick.config.additional_references) || ::Brick.config.polymorphics
+        ars.each { |fk| ::Brick._add_bt_and_hm(fk[0..2], relations) } if ars
+        if (polys = ::Brick.config.polymorphics)
+          polys.each do |k, v|
+            table_name, poly = k.split('.')
+            v ||= ActiveRecord::Base.execute_sql("SELECT DISTINCT #{poly}_type AS typ FROM #{table_name}").map { |result| result['typ'] }
+            v.each do |type|
+              ::Brick._add_bt_and_hm([table_name, poly, type.underscore.pluralize, "(brick) #{table_name}_#{poly}"], relations, true)
+            end
+          end
+        end
         @_additional_references_loaded = true
       end
 

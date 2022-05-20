@@ -157,6 +157,10 @@ Brick.skip_index_hms = ['User.litany_of_woes']
 # Brick.sti_namespace_prefixes = { '::Animals::' => 'Animal',
 #                                  '::Snake' => 'Reptile' }
 
+# # Polymorphic associations must be explicitly specified, which is as easy as providing a model name and polymorphic
+# # association name like this:
+# Brick.polymorphics = ['Comment.commentable', 'Image.imageable']
+
 # # If a default route is not supplied, Brick attempts to find the most \"central\" table and wires up the default
 # # route to go to the :index action for what would be a controller for that table.  You can specify any controller
 # # name and action you wish in order to override this and have that be the default route when none other has been
