@@ -19,12 +19,30 @@ module Brick
 
     def create_initializer_file
       unless File.exist?(filename = 'config/initializers/brick.rb')
-        # See if we can make suggestions for additional_references
-        resembles_fks = []
-        possible_additional_references = (relations = ::Brick.relations).each_with_object([]) do |v, s|
+        # See if we can make suggestions for additional_references and polymorphic associations
+        resembles_fks = Hash.new { |h, k| h[k] = [] }
+        possible_polymorphics = {}
+        possible_additional_references = (relations = ::Brick.relations).each_with_object(Hash.new { |h, k| h[k] = [] }) do |v, s|
           model_filename = "app/models/#{ActiveSupport::Inflector.singularize(v.first)}.rb"
-          v.last[:cols].each do |col, _type|
+          v.last[:cols].each do |col, type|
             col_down = col.downcase
+
+            if (is_possible_poly = ['character varying', 'text'].include?(type.first))
+              if col_down.end_with?('_type') &&
+                poly_type_cut_length = -6
+                col_down = col_down[0..-6]
+              elsif col_down.end_with?('type')
+                poly_type_cut_length = -5
+                col_down = col_down[0..-5]
+              else
+                is_possible_poly = false
+              end
+              is_possible_poly = false if col_down.length < 6 # Was it simply called "type" or something else really short?
+              if is_possible_poly && !File.exist?(model_filename) # Make sure a model file isn't present
+                possible_polymorphics["#{v.first}.#{col_down}"] = "#{v.first.camelize.singularize}.#{col[0..poly_type_cut_length]}"
+                next
+              end
+            end
 
             is_possible = true
             if col_down.end_with?('_id')
@@ -49,20 +67,35 @@ module Brick
             # This possible key not really a primary key and not yet used as a foreign key?
             if is_possible && !(relation = relations.fetch(v.first, {}))[:pkey].first&.last&.include?(col) &&
                !relations.fetch(v.first, {})[:fks]&.any? { |_k, v| v[:is_bt] && v[:fk] == col }
-              if (relations.fetch(f_table = col_down, nil) ||
-                 relations.fetch(f_table = ActiveSupport::Inflector.pluralize(col_down), nil)) &&
-                 # Looks pretty promising ... just make sure a model file isn't present
-                 !File.exist?(model_filename)
-                s << "['#{v.first}', '#{col}', '#{f_table}']"
-              else
-                resembles_fks << "#{v.first}.#{col}"
+              # Starting to look promising ... make sure a model file isn't present
+              if !File.exist?(model_filename)
+                if (relations.fetch(f_table = col_down, nil) ||
+                  relations.fetch(f_table = ActiveSupport::Inflector.pluralize(col_down), nil)) &&
+                  s["#{v.first}.#{col_down}"] << "['#{v.first}', '#{col}', '#{f_table}']"
+                else
+                  resembles_fks["#{v.first}.#{col_down}"] << "#{v.first}.#{col}"
+                end
               end
             end
           end
-          s
         end
 
-        bar = case possible_additional_references.length
+        possible_polymorphics.each_key do |k|
+          # Also matching one of the FK suggestions means it could be polymorphic,
+          # so delete any suggestions for a FK of the same name and only recommend
+          # the polymorphic association.
+          if resembles_fks.key?(k)
+            resembles_fks.delete(k)
+          elsif possible_additional_references.key?(k)
+            possible_additional_references.delete(k)
+          else
+            # While this one has a type, it's missing a corresponding ID column so it isn't polymorphic
+            possible_polymorphics.delete(k)
+          end
+        end
+        resembles_fks = resembles_fks.values.flatten
+
+        bar = case (possible_additional_references = possible_additional_references.values.flatten).length
               when 0
 +"# Brick.additional_references = [['orders', 'customer_id', 'customer'],
 #                                ['customer', 'region_id', 'regions']]"
@@ -78,6 +111,26 @@ module Brick
       if resembles_fks.length > 0
         bar << "\n# # Columns named somewhat like a foreign key which you may want to consider:
 # #   #{resembles_fks.join(', ')}"
+      end
+
+      poly = case (possible_polymorphics = possible_polymorphics.values.flatten).length
+      when 0
+" like this:
+# Brick.polymorphics = [
+#                        'comments.commentable',
+#                        'images.imageable'
+#                      ]"
+      when 1
+".
+# # Here is a possible polymorphic association that has been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
+# Brick.polymorphics = [#{possible_additional_references.first}]"
+
+      else
+".
+# # Here are possible polymorphic associations that have been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
+# Brick.polymorphics = [
+#   #{possible_polymorphics.join(",\n#   ")}
+# ]"
       end
 
       create_file(filename, "# frozen_string_literal: true
@@ -161,6 +214,8 @@ module Brick
 # # indicates that it's a module prefix instead of a specific class name.
 # Brick.sti_namespace_prefixes = { '::Animals::' => 'Animal',
 #                                  '::Snake' => 'Reptile' }
+
+# # Polymorphic associations are set up by providing a model name and polymorphic association name#{poly}
 
 # # If a default route is not supplied, Brick attempts to find the most \"central\" table and wires up the default
 # # route to go to the :index action for what would be a controller for that table.  You can specify any controller

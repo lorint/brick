@@ -38,6 +38,9 @@ module Brick
 
         # Has one relationships
         ::Brick.has_ones = app.config.brick.fetch(:has_ones, nil)
+
+        # Polymorphic associations
+        ::Brick.polymorphics = app.config.brick.fetch(:polymorphics, nil)
       end
 
       # After we're initialized and before running the rest of stuff, put our configuration in place
@@ -64,12 +67,14 @@ module Brick
               is_template_exists
             end
 
-            def path_keys(fk_name, obj_name, pk)
-              if fk_name.is_a?(Array) && pk.is_a?(Array) # Composite keys?
-                fk_name.zip(pk.map { |pk_part| "#{obj_name}.#{pk_part}" })
-              else
-                [[fk_name, "#{obj_name}.#{pk}"]]
-              end.map { |x| "#{x.first}: #{x.last}"}.join(', ')
+            def path_keys(hm_assoc, fk_name, obj_name, pk)
+              keys = if fk_name.is_a?(Array) && pk.is_a?(Array) # Composite keys?
+                       fk_name.zip(pk.map { |pk_part| "#{obj_name}.#{pk_part}" })
+                     else
+                       [[fk_name, "#{obj_name}.#{pk}"]]
+                     end
+              keys << [hm_assoc.inverse_of.foreign_type, "#{hm_assoc.active_record.name}"] if hm_assoc.options.key?(:as)
+              keys.map { |x| "#{x.first}: #{x.last}"}.join(', ')
             end
 
             alias :_brick_find_template :find_template
@@ -102,12 +107,12 @@ module Brick
                                               "#{obj_name}.#{attrib_name} || 0"
                                             end
 "<%= ct = #{set_ct}
-     link_to \"#\{ct || 'View'\} #{assoc_name}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{path_keys(hm_fk_name, obj_name, pk)} }) unless ct&.zero? %>\n"
+     link_to \"#\{ct || 'View'\} #{assoc_name}\", #{hm_assoc.klass.name.underscore.pluralize}_path({ #{path_keys(hm_assoc, hm_fk_name, obj_name, pk)} }) unless ct&.zero? %>\n"
                                  else # has_one
 "<%= obj = #{obj_name}.#{hm.first}; link_to(obj.brick_descrip, obj) if obj %>\n"
                                  end
                 elsif args.first == 'show'
-                  hm_stuff << "<%= link_to '#{assoc_name}', #{hm_assoc.klass.name.underscore.pluralize}_path({ #{path_keys(hm_fk_name, "@#{obj_name}&.first&", pk)} }) %>\n"
+                  hm_stuff << "<%= link_to '#{assoc_name}', #{hm_assoc.klass.name.underscore.pluralize}_path({ #{path_keys(hm_assoc, hm_fk_name, "@#{obj_name}&.first&", pk)} }) %>\n"
                 end
                 s << hm_stuff
               end
@@ -205,7 +210,19 @@ def hide_bcrypt(val)
 end %>"
 
               if ['index', 'show', 'update'].include?(args.first)
-                css << "<% bts = { #{bts.each_with_object([]) { |v, s| s << "#{v.first.inspect} => [#{v.last.first.inspect}, #{v.last[1].name}, #{v.last[1].primary_key.inspect}]"}.join(', ')} } %>"
+                poly_cols = []
+                css << "<% bts = { #{
+                  bts.each_with_object([]) do |v, s|
+                    foreign_models = if v.last[1].is_a?(Array)
+                                       poly_cols << @_brick_model.reflect_on_association(v[1].first).foreign_type
+                                       v.last[1].each_with_object([]) { |x, s| s << "[#{x.name}, #{x.primary_key.inspect}]" }.join(', ')
+                                     else
+                                       "[#{v.last[1].name}, #{v.last[1].primary_key.inspect}]"
+                                     end
+                    s << "#{v.first.inspect} => [#{v.last.first.inspect}, [#{foreign_models}]]"
+                  end.join(', ')
+                } }
+                poly_cols = #{poly_cols.inspect} %>"
               end
 
               # %%% When doing schema select, if there's an ID then remove it, or if we're on a new page go to index
@@ -370,13 +387,16 @@ function changeout(href, param, value) {
 <table id=\"#{table_name}\">
   <thead><tr>#{'<th></th>' if pk}
   <% @#{table_name}.columns.map(&:name).each do |col| %>
-    <% next if col == '#{pk}' || ::Brick.config.metadata_columns.include?(col) %>
+    <% next if col == '#{pk}' || ::Brick.config.metadata_columns.include?(col) || poly_cols.include?(col) %>
     <th>
     <% if (bt = bts[col]) %>
-      BT <%= bt[1].bt_link(bt.first) %>
-    <% else %>
-      <%= col %>
-    <% end %>
+         BT <%
+         bt[1].each do |bt_pair| %><%=
+           bt_pair.first.bt_link(bt.first) %> <%
+         end %><%
+       else %><%=
+         col %><%
+       end %>
     </th>
   <% end %>
   <%# Consider getting the name from the association -- h.first.name -- if a more \"friendly\" alias should be used for a screwy table name %>
@@ -388,14 +408,24 @@ function changeout(href, param, value) {
   <tr>#{"
     <td><%= link_to '⇛', #{obj_name}_path(#{obj_pk}), { class: 'big-arrow' } %></td>" if obj_pk}
     <% #{obj_name}.attributes.each do |k, val| %>
-      <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) || k.start_with?('_brfk_') || (k.start_with?('_br_') && k.end_with?('_ct')) %>
+      <% next if k == '#{pk}' || ::Brick.config.metadata_columns.include?(k) || poly_cols.include?(k) || k.start_with?('_brfk_') || (k.start_with?('_br_') && (k.length == 63 || k.end_with?('_ct'))) %>
       <td>
       <% if (bt = bts[k]) %>
         <%# binding.pry # Postgres column names are limited to 63 characters %>
-        <% bt_txt = bt[1].brick_descrip(#{obj_name}, @_brick_bt_descrip[bt.first][1].map { |z| #{obj_name}.send(z.last[0..62]) }, @_brick_bt_descrip[bt.first][2]) %>
-        <% bt_id_col = @_brick_bt_descrip[bt.first][2]; bt_id = #{obj_name}.send(*bt_id_col) if bt_id_col&.present? %>
-        <%= bt_id ? link_to(bt_txt, send(\"#\{bt_obj_path_base = bt[1].name.underscore\}_path\".to_sym, bt_id)) : bt_txt %>
-        <%#= Previously was:  bt_obj = bt[1].find_by(bt[2] => val); link_to(bt_obj.brick_descrip, send(\"#\{bt_obj_path_base = bt[1].name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym))) if bt_obj %>
+        <% if (pairs = bt[1].length > 1)
+             bt_class = #{obj_name}.send(\"#\{bt.first\}_type\")
+             # descrips = @_brick_bt_descrip[bt.first][bt_class]
+             poly_id = #{obj_name}.send(\"#\{bt.first\}_id\")
+             %><%= link_to(\"#\{bt_class\} ##\{poly_id\}\",
+                           send(\"#\{bt_class.underscore\}_path\".to_sym, poly_id)) if poly_id %><%
+           else # We should do something other than [0..-2] for when there is no primary key (or maybe have an empty final array there in that case?)
+              bt_txt = (bt_class = bt[1].first.first).brick_descrip(
+                #{obj_name}, (descrips = @_brick_bt_descrip[bt.first][bt_class])[0..-2].map { |z| #{obj_name}.send(z.last[0..62]) }, (bt_id_col = descrips.last)
+              )
+              bt_id = #{obj_name}.send(*bt_id_col) if bt_id_col&.present? %>
+          <%= bt_id ? link_to(bt_txt, send(\"#\{bt_class.name.underscore\}_path\".to_sym, bt_id)) : bt_txt %>
+          <%#= Previously was:  bt_obj = bt[1].first.first.find_by(bt[2] => val); link_to(bt_obj.brick_descrip, send(\"#\{bt[1].first.first.name.underscore\}_path\".to_sym, bt_obj.send(bt[1].first.first.primary_key.to_sym))) if bt_obj %>
+        <% end %>
       <% else %>
         <%= hide_bcrypt(val) %>
       <% end %>
@@ -430,25 +460,35 @@ function changeout(href, param, value) {
     <th class=\"show-field\">
     <% has_fields = true
       if (bt = bts[k])
-      # Add a final member in this array with descriptive options to be used in <select> drop-downs
-      bt_name = bt[1].name
-      # %%% Only do this if the user has permissions to edit this bt field
-      if bt.length < 4
-        bt << (option_detail = [[\"(No #\{bt_name\} chosen)\", '^^^brick_NULL^^^']])
-        # %%% Accommodate composite keys for obj.pk at the end here
-        bt[1].order(obj_pk = bt[1].primary_key).each { |obj| option_detail << [obj.brick_descrip(nil, obj_pk), obj.send(obj_pk)] }
-      end %>
-      BT <%= bt[1].bt_link(bt.first) %>
+        # Add a final member in this array with descriptive options to be used in <select> drop-downs
+        bt_name = bt[1].map { |x| x.first.name }.join('/')
+        # %%% Only do this if the user has permissions to edit this bt field
+        if (pairs = bt[1]).length > 1
+          poly_class_name = @#{obj_name}.first.send(\"#\{bt.first\}_type\")
+          bt_pair = pairs.find { |pair| pair.first.name == poly_class_name }
+          # descrips = @_brick_bt_descrip[bt.first][bt_class]
+          poly_id = @#{obj_name}.first.send(\"#\{bt.first\}_id\")
+          # bt_class.order(obj_pk = bt_class.primary_key).each { |obj| option_detail << [obj.brick_descrip(nil, obj_pk), obj.send(obj_pk)] }
+        else # No polymorphism, so just get the first one
+          bt_pair = bt[1].first
+        end
+        bt_class = bt_pair.first
+        if bt.length < 3
+          bt << (option_detail = [[\"(No #\{bt_name\} chosen)\", '^^^brick_NULL^^^']])
+          # %%% Accommodate composite keys for obj.pk at the end here
+          bt_class.order(obj_pk = bt_class.primary_key).each { |obj| option_detail << [obj.brick_descrip(nil, obj_pk), obj.send(obj_pk)] }
+        end %>
+        BT <%= bt_class.bt_link(bt.first) %>
     <% else %>
       <%= k %>
     <% end %>
     </th>
     <td>
-    <% if (bt = bts[k]) # bt_obj.brick_descrip
+    <% if bt
       html_options = { prompt: \"Select #\{bt_name\}\" }
       html_options[:class] = 'dimmed' unless val %>
-      <%= f.select k.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options %>
-      <%= bt_obj = bt[1].find_by(bt[2] => val); link_to('⇛', send(\"#\{bt_obj_path_base = bt_name.underscore\}_path\".to_sym, bt_obj.send(bt[1].primary_key.to_sym)), { class: 'show-arrow' }) if bt_obj %>
+      <%= f.select k.to_sym, bt[2], { value: val || '^^^brick_NULL^^^' }, html_options %>
+      <%= bt_obj = bt_class.find_by(bt_pair[1] => val); link_to('⇛', send(\"#\{bt_class.name.underscore\}_path\".to_sym, bt_obj.send(bt_class.primary_key.to_sym)), { class: 'show-arrow' }) if bt_obj %>
     <% else case #{model_name}.column_for_attribute(k).type
       when :string, :text %>
         <% if is_bcrypt?(val) # || .readonly? %>
@@ -517,7 +557,7 @@ function changeout(href, param, value) {
         end
 
         # Just in case it hadn't been done previously when we tried to load the brick initialiser,
-        # go make sure we've loaded additional references (virtual foreign keys).
+        # go make sure we've loaded additional references (virtual foreign keys and polymorphic associations).
         ::Brick.load_additional_references
       end
     end
