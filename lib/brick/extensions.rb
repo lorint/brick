@@ -76,7 +76,7 @@ module ActiveRecord
       dsl
     end
 
-    def self.brick_parse_dsl(build_array = nil, prefix = [], translations = {})
+    def self.brick_parse_dsl(build_array = nil, prefix = [], translations = {}, is_polymorphic = false)
       build_array = ::Brick::JoinArray.new.tap { |ary| ary.replace([build_array]) } if build_array.is_a?(::Brick::JoinHash)
       build_array = ::Brick::JoinArray.new unless build_array.nil? || build_array.is_a?(Array)
       members = []
@@ -88,12 +88,17 @@ module ActiveRecord
           if bracket_name
             if ch == ']' # Time to process a bracketed thing?
               parts = bracket_name.split('.')
-              first_parts = parts[0..-2].map { |part| klass = klass.reflect_on_association(part_sym = part.to_sym).klass; part_sym }
+              first_parts = parts[0..-2].map do |part|
+                klass = klass.reflect_on_association(part_sym = part.to_sym).klass
+                part_sym
+              end
               parts = prefix + first_parts + [parts[-1]]
               if parts.length > 1
-                s = build_array
-                parts[0..-3].each { |v| s = s[v.to_sym] }
-                s[parts[-2]] = nil # unless parts[-2].empty? # Using []= will "hydrate" any missing part(s) in our whole series
+                unless is_polymorphic
+                  s = build_array
+                  parts[0..-3].each { |v| s = s[v.to_sym] }
+                  s[parts[-2]] = nil # unless parts[-2].empty? # Using []= will "hydrate" any missing part(s) in our whole series
+                end
                 translations[parts[0..-2].join('.')] = klass
               end
               members << parts
@@ -192,7 +197,10 @@ module ActiveRecord
   private
 
     def self._brick_get_fks
-      @_brick_get_fks ||= reflect_on_all_associations.select { |a2| a2.macro == :belongs_to }.map(&:foreign_key)
+      @_brick_get_fks ||= reflect_on_all_associations.select { |a2| a2.macro == :belongs_to }.each_with_object([]) do |bt, s|
+        s << bt.foreign_key
+        s << bt.foreign_type if bt.polymorphic?
+      end
     end
   end
 
@@ -294,7 +302,11 @@ module ActiveRecord
         bts, hms, associatives = ::Brick.get_bts_and_hms(klass)
         bts.each do |_k, bt|
           # join_array will receive this relation name when calling #brick_parse_dsl
-          bt_descrip[bt.first] = [bt.last, bt.last.brick_parse_dsl(join_array, bt.first, translations)]
+          bt_descrip[bt.first] = if bt[1].is_a?(Array)
+                                   bt[1].each_with_object({}) { |bt_class, s| s[bt_class] = bt_class.brick_parse_dsl(join_array, bt.first, translations, true) }
+                                 else
+                                   { bt.last => bt[1].brick_parse_dsl(join_array, bt.first, translations) }
+                                 end
         end
         skip_klass_hms = ::Brick.config.skip_index_hms[klass.name] || {}
         hms.each do |k, hm|
@@ -328,23 +340,27 @@ module ActiveRecord
         id_for_tables = Hash.new { |h, k| h[k] = [] }
         field_tbl_names = Hash.new { |h, k| h[k] = {} }
         bt_columns = bt_descrip.each_with_object([]) do |v, s|
-          tbl_name = field_tbl_names[v.first][v.last.first] ||= shift_or_first(chains[v.last.first])
-          if (id_col = v.last.first.primary_key) && !id_for_tables.key?(v.first) # was tbl_name
-            # Accommodate composite primary key by allowing id_col to come in as an array
-            (id_col.is_a?(Array) ? id_col : [id_col]).each do |id_part|
-              selects << "#{"#{tbl_name}.#{id_part}"} AS \"#{(id_alias = "_brfk_#{v.first}__#{id_part}")}\""
-              id_for_tables[v.first] << id_alias
-            end
-            v.last << id_for_tables[v.first]
-          end
-          if (col_name = v.last[1].last&.last)
+          v.last.each do |k1, v1| # k1 is class, v1 is array of columns to snag
+            next if chains[k1].nil?
+
+            tbl_name = field_tbl_names[v.first][k1] ||= shift_or_first(chains[k1])
             field_tbl_name = nil
-            v.last[1].map { |x| [translations[x[0..-2].map(&:to_s).join('.')], x.last] }.each_with_index do |sel_col, idx|
+            v1.map { |x| [translations[x[0..-2].map(&:to_s).join('.')], x.last] }.each_with_index do |sel_col, idx|
               field_tbl_name = field_tbl_names[v.first][sel_col.first] ||= shift_or_first(chains[sel_col.first])
-              # col_name is weak when there are multiple, using sel_col.last instead
+
               selects << "#{"#{field_tbl_name}.#{sel_col.last}"} AS \"#{(col_alias = "_brfk_#{v.first}__#{sel_col.last}")}\""
-              v.last[1][idx] << col_alias
+              v1[idx] << col_alias
             end
+
+            if (id_col = k1.primary_key) && !id_for_tables.key?(v.first) # was tbl_name
+              # Accommodate composite primary key by allowing id_col to come in as an array
+              (id_col.is_a?(Array) ? id_col : [id_col]).each do |id_part|
+                selects << "#{"#{tbl_name}.#{id_part}"} AS \"#{(id_alias = "_brfk_#{v.first}__#{id_part}")}\""
+                id_for_tables[v.first] << id_alias
+              end
+              v1 << id_for_tables[v.first]
+            end
+
           end
         end
         join_array.each do |assoc_name|
@@ -363,22 +379,27 @@ module ActiveRecord
                          hm.foreign_key
                        else
                          fk_col = hm.foreign_key
+                         poly_type = hm.inverse_of.foreign_type if hm.options.key?(:as)
                          pk = hm.klass.primary_key
                          (pk.is_a?(Array) ? pk.first : pk) || '*'
                        end
         tbl_alias = "_br_#{hm.name}"
         pri_tbl = hm.active_record
+        on_clause = []
         if fk_col.is_a?(Array) # Composite key?
-          on_clause = []
           fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl.table_name}.#{pri_tbl.primary_key[idx]}" }
-          joins!("LEFT OUTER
-JOIN (SELECT #{fk_col.join(', ')}, COUNT(#{count_column}) AS _ct_ FROM #{associative&.table_name || hm.klass.table_name} GROUP BY #{(1..fk_col.length).to_a.join(', ')}) AS #{tbl_alias}
-  ON #{on_clause.join(' AND ')}")
+          selects = fk_col.dup
         else
-          joins!("LEFT OUTER
-JOIN (SELECT #{fk_col}, COUNT(#{count_column}) AS _ct_ FROM #{associative&.table_name || hm.klass.table_name} GROUP BY 1) AS #{tbl_alias}
-  ON #{tbl_alias}.#{fk_col} = #{pri_tbl.table_name}.#{pri_tbl.primary_key}")
+          selects = [fk_col]
+          on_clause << "#{tbl_alias}.#{fk_col} = #{pri_tbl.table_name}.#{pri_tbl.primary_key}"
         end
+        if poly_type
+          selects << poly_type
+          on_clause << "#{tbl_alias}.#{poly_type} = '#{name}'"
+        end
+        join_clause = "LEFT OUTER
+JOIN (SELECT #{selects.join(', ')}, COUNT(#{count_column}) AS _ct_ FROM #{associative&.table_name || hm.klass.table_name} GROUP BY #{(1..selects.length).to_a.join(', ')}) AS #{tbl_alias}"
+        joins!("#{join_clause} ON #{on_clause.join(' AND ')}")
       end
       where!(wheres) unless wheres.empty?
       wheres unless wheres.empty? # Return the specific parameters that we did use
@@ -588,7 +609,14 @@ class Object
           hmts = fks.each_with_object(Hash.new { |h, k| h[k] = [] }) do |fk, hmts|
             # The key in each hash entry (fk.first) is the constraint name
             inverse_assoc_name = (assoc = fk.last)[:inverse]&.fetch(:assoc_name, nil)
-            build_bt_or_hm(relations, model_name, relation, hmts, assoc, inverse_assoc_name, invs, code)
+            if (invs = assoc[:inverse_table]).is_a?(Array)
+              if assoc[:is_bt]
+                invs = invs.first # Just do the first one of what would be multiple identical polymorphic belongs_to
+              else
+                invs.each { |inv| build_bt_or_hm(relations, model_name, relation, hmts, assoc, inverse_assoc_name, inv, code) }
+              end
+            end
+            build_bt_or_hm(relations, model_name, relation, hmts, assoc, inverse_assoc_name, invs, code) unless invs.is_a?(Array)
             hmts
           end
           hmts.each do |hmt_fk, fks|
@@ -640,8 +668,12 @@ class Object
                              else
                                assoc[:assoc_name]
                              end
-                need_class_name = singular_table_name.underscore != assoc_name
-                need_fk = "#{assoc_name}_id" != assoc[:fk]
+                if assoc.key?(:polymorphic)
+                  options[:polymorphic] = true
+                else
+                  need_class_name = singular_table_name.underscore != assoc_name
+                  need_fk = "#{assoc_name}_id" != assoc[:fk]
+                end
                 if (inverse = assoc[:inverse])
                   inverse_assoc_name, _x = _brick_get_hm_assoc_name(relations[inverse_table], inverse)
                   has_ones = ::Brick.config.has_ones&.fetch(inverse[:alternate_name].camelize, nil)
@@ -659,7 +691,11 @@ class Object
                 # need_class_name = ActiveSupport::Inflector.singularize(assoc_name) == ActiveSupport::Inflector.singularize(table_name.underscore)
                 # Are there multiple foreign keys out to the same table?
                 assoc_name, need_class_name = _brick_get_hm_assoc_name(relation, assoc)
-                need_fk = "#{ActiveSupport::Inflector.singularize(assoc[:inverse][:inverse_table])}_id" != assoc[:fk]
+                if assoc.key?(:polymorphic)
+                  options[:as] = assoc[:fk].to_sym
+                else
+                  need_fk = "#{ActiveSupport::Inflector.singularize(assoc[:inverse][:inverse_table])}_id" != assoc[:fk]
+                end
                 # fks[table_name].find { |other_assoc| other_assoc.object_id != assoc.object_id && other_assoc[:assoc_name] == assoc[assoc_name] }
                 if (has_ones = ::Brick.config.has_ones&.fetch(model_name, nil))&.key?(singular_assoc_name = ActiveSupport::Inflector.singularize(assoc_name))
                   assoc_name = if (custom_assoc_name = has_ones[singular_assoc_name])
@@ -839,7 +875,7 @@ module ActiveRecord::ConnectionHandling
     schema_sql = 'SELECT NULL AS table_schema;'
     case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL'
-        schema = 'public'
+        schema = 'public' # Too early at this point to be able to pick up:  Brick.config.schema_to_analyse
         schema_sql = 'SELECT DISTINCT table_schema FROM INFORMATION_SCHEMA.tables;'
       when 'Mysql2'
         schema = ActiveRecord::Base.connection.current_database
@@ -1017,12 +1053,13 @@ module Brick
   # rubocop:enable Style/CommentedKeyword
 
   class << self
-    def _add_bt_and_hm(fk, relations = nil)
-      relations ||= ::Brick.relations
+    def _add_bt_and_hm(fk, relations, is_polymorphic = false)
       bt_assoc_name = fk[1].underscore
       bt_assoc_name = bt_assoc_name[0..-4] if bt_assoc_name.end_with?('_id')
 
       bts = (relation = relations.fetch(fk[0], nil))&.fetch(:fks) { relation[:fks] = {} }
+      # %%% Do we miss out on has_many :through or even HM based on constantizing this model early?
+      # Maybe it's already gotten this info because we got as far as to say there was a unique class
       primary_table = (is_class = fk[2].is_a?(Hash) && fk[2].key?(:class)) ? (primary_class = fk[2][:class].constantize).table_name : fk[2]
       hms = (relation = relations.fetch(primary_table, nil))&.fetch(:fks) { relation[:fks] = {} } unless is_class
 
@@ -1039,7 +1076,7 @@ module Brick
           puts "Brick: Additional reference #{fk.inspect} refers to non-existent #{'table'.pluralize(missing.length)} #{missing.join(' and ')}. (Available tables include #{tables.join(', ')}.)"
           return
         end
-        unless (cols = relations[fk[0]][:cols]).key?(fk[1])
+        unless (cols = relations[fk[0]][:cols]).key?(fk[1]) || (is_polymorphic && cols.key?("#{fk[1]}_id") && cols.key?("#{fk[1]}_type"))
           columns = cols.map { |k, v| "#{k} (#{v.first.split(' ').first})" }
           puts "Brick: Additional reference #{fk.inspect} refers to non-existent column #{fk[1]}. (Columns present in #{fk[0]} are #{columns.join(', ')}.)"
           return
@@ -1054,10 +1091,17 @@ module Brick
         end
       end
       if (assoc_bt = bts[cnstr_name])
-        assoc_bt[:fk] = assoc_bt[:fk].is_a?(String) ? [assoc_bt[:fk], fk[1]] : assoc_bt[:fk].concat(fk[1])
-        assoc_bt[:assoc_name] = "#{assoc_bt[:assoc_name]}_#{fk[1]}"
+        if is_polymorphic
+          # Assuming same fk (don't yet support composite keys for polymorphics)
+          assoc_bt[:inverse_table] << fk[2]
+        else # Expect we've got a composite key going
+          assoc_bt[:fk] = assoc_bt[:fk].is_a?(String) ? [assoc_bt[:fk], fk[1]] : assoc_bt[:fk].concat(fk[1])
+          assoc_bt[:assoc_name] = "#{assoc_bt[:assoc_name]}_#{fk[1]}"
+        end
       else
-        assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[1], assoc_name: bt_assoc_name, inverse_table: primary_table }
+        inverse_table = [primary_table] if is_polymorphic
+        assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[1], assoc_name: bt_assoc_name, inverse_table: inverse_table || primary_table }
+        assoc_bt[:polymorphic] = true if is_polymorphic
       end
       if is_class
         # For use in finding the proper :source for a HMT association that references an STI subclass
@@ -1074,6 +1118,7 @@ module Brick
         assoc_hm[:inverse] = assoc_bt
       else
         assoc_hm = hms[hm_cnstr_name] = { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0], inverse: assoc_bt }
+        assoc_hm[:polymorphic] = true if is_polymorphic
         hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
         hm_counts[fk[0]] = hm_counts.fetch(fk[0]) { 0 } + 1
       end

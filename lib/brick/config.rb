@@ -97,6 +97,15 @@ module Brick
       @mutex.synchronize { @has_ones = hos }
     end
 
+    # Polymorphic associations
+    def polymorphics
+      @mutex.synchronize { @polymorphics }
+    end
+
+    def polymorphics=(polys)
+      @mutex.synchronize { @polymorphics = polys }
+    end
+
     def model_descrips
       @mutex.synchronize { @model_descrips ||= {} }
     end
