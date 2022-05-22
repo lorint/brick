@@ -39,7 +39,7 @@ module Brick
               end
               is_possible_poly = false if col_down.length < 6 # Was it simply called "type" or something else really short?
               if is_possible_poly && !File.exist?(model_filename) # Make sure a model file isn't present
-                possible_polymorphics["#{v.first}.#{col_down}"] = "#{v.first.camelize.singularize}.#{col[0..poly_type_cut_length]}"
+                possible_polymorphics["#{v.first}.#{col_down}"] = "'#{v.first}.#{col[0..poly_type_cut_length]}'"
                 next
               end
             end
@@ -214,6 +214,10 @@ module Brick
 # # indicates that it's a module prefix instead of a specific class name.
 # Brick.sti_namespace_prefixes = { '::Animals::' => 'Animal',
 #                                  '::Snake' => 'Reptile' }
+
+# # Database schema to use when analysing existing data, such as deriving a list of polymorphic classes in the case that
+# # it wasn't originally specified.
+# Brick.schema_to_analyse = 'engineering'
 
 # # Polymorphic associations are set up by providing a model name and polymorphic association name#{poly}
 

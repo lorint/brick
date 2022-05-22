@@ -122,6 +122,14 @@ module Brick
       @mutex.synchronize { @sti_namespace_prefixes = prefixes }
     end
 
+    def schema_to_analyse
+      @mutex.synchronize { @schema_to_analyse }
+    end
+
+    def schema_to_analyse=(schema)
+      @mutex.synchronize { @schema_to_analyse = schema }
+    end
+
     def skip_database_views
       @mutex.synchronize { @skip_database_views }
     end

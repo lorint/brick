@@ -213,13 +213,13 @@ end %>"
                 poly_cols = []
                 css << "<% bts = { #{
                   bts.each_with_object([]) do |v, s|
-                    foreign_models = if v.last[1].is_a?(Array)
+                    foreign_models = if v.last[2] # Polymorphic?
                                        poly_cols << @_brick_model.reflect_on_association(v[1].first).foreign_type
                                        v.last[1].each_with_object([]) { |x, s| s << "[#{x.name}, #{x.primary_key.inspect}]" }.join(', ')
                                      else
                                        "[#{v.last[1].name}, #{v.last[1].primary_key.inspect}]"
                                      end
-                    s << "#{v.first.inspect} => [#{v.last.first.inspect}, [#{foreign_models}]]"
+                    s << "#{v.first.inspect} => [#{v.last.first.inspect}, [#{foreign_models}], #{v.last[2].inspect}]"
                   end.join(', ')
                 } }
                 poly_cols = #{poly_cols.inspect} %>"
@@ -412,18 +412,18 @@ function changeout(href, param, value) {
       <td>
       <% if (bt = bts[k]) %>
         <%# binding.pry # Postgres column names are limited to 63 characters %>
-        <% if (pairs = bt[1].length > 1)
+        <% if bt[2] # Polymorphic?
              bt_class = #{obj_name}.send(\"#\{bt.first\}_type\")
-             # descrips = @_brick_bt_descrip[bt.first][bt_class]
+             base_class = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class.name.underscore
              poly_id = #{obj_name}.send(\"#\{bt.first\}_id\")
              %><%= link_to(\"#\{bt_class\} ##\{poly_id\}\",
-                           send(\"#\{bt_class.underscore\}_path\".to_sym, poly_id)) if poly_id %><%
-           else # We should do something other than [0..-2] for when there is no primary key (or maybe have an empty final array there in that case?)
-              bt_txt = (bt_class = bt[1].first.first).brick_descrip(
-                #{obj_name}, (descrips = @_brick_bt_descrip[bt.first][bt_class])[0..-2].map { |z| #{obj_name}.send(z.last[0..62]) }, (bt_id_col = descrips.last)
-              )
-              bt_id = #{obj_name}.send(*bt_id_col) if bt_id_col&.present? %>
-          <%= bt_id ? link_to(bt_txt, send(\"#\{bt_class.name.underscore\}_path\".to_sym, bt_id)) : bt_txt %>
+                           send(\"#\{base_class\}_path\".to_sym, poly_id)) if poly_id %><%
+           else
+             bt_txt = (bt_class = bt[1].first.first).brick_descrip(
+               #{obj_name}, (descrips = @_brick_bt_descrip[bt.first][bt_class])[0..-2].map { |z| #{obj_name}.send(z.last[0..62]) }, (bt_id_col = descrips.last)
+             )
+             bt_id = #{obj_name}.send(*bt_id_col) if bt_id_col&.present? %>
+          <%= bt_id ? link_to(bt_txt, send(\"#\{bt_class.base_class.name.underscore\}_path\".to_sym, bt_id)) : bt_txt %>
           <%#= Previously was:  bt_obj = bt[1].first.first.find_by(bt[2] => val); link_to(bt_obj.brick_descrip, send(\"#\{bt[1].first.first.name.underscore\}_path\".to_sym, bt_obj.send(bt[1].first.first.primary_key.to_sym))) if bt_obj %>
         <% end %>
       <% else %>
@@ -463,9 +463,9 @@ function changeout(href, param, value) {
         # Add a final member in this array with descriptive options to be used in <select> drop-downs
         bt_name = bt[1].map { |x| x.first.name }.join('/')
         # %%% Only do this if the user has permissions to edit this bt field
-        if (pairs = bt[1]).length > 1
+        if bt[2] # Polymorphic?
           poly_class_name = @#{obj_name}.first.send(\"#\{bt.first\}_type\")
-          bt_pair = pairs.find { |pair| pair.first.name == poly_class_name }
+          bt_pair = bt[1].find { |pair| pair.first.name == poly_class_name }
           # descrips = @_brick_bt_descrip[bt.first][bt_class]
           poly_id = @#{obj_name}.first.send(\"#\{bt.first\}_id\")
           # bt_class.order(obj_pk = bt_class.primary_key).each { |obj| option_detail << [obj.brick_descrip(nil, obj_pk), obj.send(obj_pk)] }
@@ -473,7 +473,7 @@ function changeout(href, param, value) {
           bt_pair = bt[1].first
         end
         bt_class = bt_pair.first
-        if bt.length < 3
+        if bt.length < 4
           bt << (option_detail = [[\"(No #\{bt_name\} chosen)\", '^^^brick_NULL^^^']])
           # %%% Accommodate composite keys for obj.pk at the end here
           bt_class.order(obj_pk = bt_class.primary_key).each { |obj| option_detail << [obj.brick_descrip(nil, obj_pk), obj.send(obj_pk)] }
@@ -487,8 +487,8 @@ function changeout(href, param, value) {
     <% if bt
       html_options = { prompt: \"Select #\{bt_name\}\" }
       html_options[:class] = 'dimmed' unless val %>
-      <%= f.select k.to_sym, bt[2], { value: val || '^^^brick_NULL^^^' }, html_options %>
-      <%= bt_obj = bt_class.find_by(bt_pair[1] => val); link_to('⇛', send(\"#\{bt_class.name.underscore\}_path\".to_sym, bt_obj.send(bt_class.primary_key.to_sym)), { class: 'show-arrow' }) if bt_obj %>
+      <%= f.select k.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options %>
+      <%= bt_obj = bt_class.find_by(bt_pair[1] => val); link_to('⇛', send(\"#\{bt_class.base_class.name.underscore\}_path\".to_sym, bt_obj.send(bt_class.primary_key.to_sym)), { class: 'show-arrow' }) if bt_obj %>
     <% else case #{model_name}.column_for_attribute(k).type
       when :string, :text %>
         <% if is_bcrypt?(val) # || .readonly? %>
