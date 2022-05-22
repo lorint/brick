@@ -85,12 +85,16 @@ module Brick
     @sti_models ||= {}
   end
 
+  def self.existing_stis
+    @existing_stis ||= Brick.config.sti_namespace_prefixes.each_with_object({}) { |snp, s| s[snp.first[2..-1]] = snp.last unless snp.first.end_with?('::') }
+  end
+
   class << self
     attr_accessor :db_schemas
 
     def set_db_schema(params)
       schema = params['_brick_schema'] || 'public'
-      ActiveRecord::Base.connection.execute("SET SEARCH_PATH='#{schema}';") if schema && ::Brick.db_schemas&.include?(schema)
+      ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema) if schema && ::Brick.db_schemas&.include?(schema)
     end
 
     # All tables and views (what Postgres calls "relations" including column and foreign key info)
@@ -110,7 +114,7 @@ module Brick
           s.first[a.foreign_key] = if a.polymorphic?
                                      primary_tables = relations[model.table_name][:fks].find { |_k, fk| fk[:assoc_name] == a.name.to_s }&.last&.fetch(:inverse_table, [])
                                      models = primary_tables&.map { |table| table.singularize.camelize.constantize }
-                                     [a.name, models]
+                                     [a.name, models, true]
                                    else
                                      [a.name, a.klass]
                                    end
@@ -264,6 +268,7 @@ module Brick
 
     # Polymorphic associations
     def polymorphics=(polys)
+      polys = polys.each_with_object({}) { |poly, s| s[poly] = nil } if polys.is_a?(Array)
       Brick.config.polymorphics = polys || {}
     end
 
@@ -279,6 +284,13 @@ module Brick
       Brick.config.sti_namespace_prefixes = snp
     end
 
+    # Database schema to use when analysing existing data, such as deriving a list of polymorphic classes
+    # for polymorphics in which it wasn't originally specified.
+    # @api public
+    def schema_to_analyse=(schema)
+      Brick.config.schema_to_analyse = schema
+    end
+
     # Load additional references (virtual foreign keys)
     # This is attempted early if a brick initialiser file is found, and then again as a failsafe at the end of our engine's initialisation
     # %%% Maybe look for differences the second time 'round and just add new stuff instead of entirely deferring
@@ -289,12 +301,29 @@ module Brick
       if (ars = ::Brick.config.additional_references) || ::Brick.config.polymorphics
         ars.each { |fk| ::Brick._add_bt_and_hm(fk[0..2], relations) } if ars
         if (polys = ::Brick.config.polymorphics)
+          if (schema = ::Brick.config.schema_to_analyse) && ::Brick.db_schemas&.include?(schema)
+            ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema)
+          end
+          missing_stis = {}
           polys.each do |k, v|
             table_name, poly = k.split('.')
             v ||= ActiveRecord::Base.execute_sql("SELECT DISTINCT #{poly}_type AS typ FROM #{table_name}").map { |result| result['typ'] }
             v.each do |type|
-              ::Brick._add_bt_and_hm([table_name, poly, type.underscore.pluralize, "(brick) #{table_name}_#{poly}"], relations, true)
+              if relations.key?(primary_table = type.underscore.pluralize)
+                ::Brick._add_bt_and_hm([table_name, poly, primary_table, "(brick) #{table_name}_#{poly}"], relations, true)
+              else
+                missing_stis[primary_table] = type unless ::Brick.existing_stis.key?(type)
+              end
             end
+          end
+          unless missing_stis.empty?
+            print "
+You might be missing an STI namespace prefix entry for these tables:  #{missing_stis.keys.join(', ')}.
+In config/initializers/brick.rb appropriate entries would look something like:
+  Brick.sti_namespace_prefixes = {"
+            puts missing_stis.map { |_k, missing_sti| "\n    '::#{missing_sti}' => 'YourParentModel'" }.join(',')
+            puts "  }
+(Just trade out YourParentModel with some more appropriate one.)"
           end
         end
         @_additional_references_loaded = true
