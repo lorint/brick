@@ -1,8 +1,10 @@
 # Brick gem
 
-### Have an instantly-running Rails app from only an existing database
+### Have an instantly-running Rails app from any existing database
 
-An ActiveRecord extension that auto-creates models, views, controllers, and routes.
+Welcome to a seemingly-magical world of spinning up simple and yet well-rounded applications
+from any existing relational database!  This gem auto-creates models, views, controllers, and
+routes.
 
 ## Documentation
 
@@ -10,6 +12,56 @@ An ActiveRecord extension that auto-creates models, views, controllers, and rout
 | -------------- | --------------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
 | 1.0.22         | https://github.com/lorint/brick/blob/v1.0.0/README.md |
+
+You can use The Brick in several ways -- from taking a quick peek inside an existing data set,
+with full ability to navigate across associations, to easily updating and creating data,
+exporting tables or views out to CSV or Google Sheets, importing sets of data, creating a
+minimally-scaffolded application one file at a time, experimenting with various data layouts to
+see how functional a given database design will be, and more.
+
+One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
+such, models, controllers, and views are treated independently.  You can use this tool to only
+build out models if you wish, and then make your own controllers and views.  Or have The Brick
+make generic controllers and views for some resources as you fine-tune others with custom code.
+Or you could go the other way around -- you build the models, and have The Brick auto-create
+the controllers and views.  Any kind of hybrid approach is possible.  The idea is to use
+The Brick to automatically provide the more tedious and simple parts of your application,
+allowing you to focus effort on the tricky custom parts.
+
+In terms of models, all major ActiveRecord associations can be used, including has_many and
+belongs_to, as well as has_many :through, Single Table Inheritance (STI), and polymorphic
+associations.  Appropriate belongs_tos are built based on the foreign keys already in the
+database, and corresponding has_many associations are also built as inverses of the discovered
+belongs_tos.  From there for any tables which only have belongs_to fields, relevant
+has_many :through associations are added.  For example, if there are recipes and ingredients
+set up with an associative table like this:
+
+    Recipe --> RecipeIngredient <-- Ingredient
+
+then first there are two belongs_to associations placed in RecipeIngredient, and then two
+corresponding inverse associations -- has_manys -- one in Recipe, and one in Ingredient.
+Finally with RecipeIngredient being recognised as an associative table (as long as it has no
+other columns than those two foreign keys, recipe_id and ingredient_id, then in Recipe a HMT
+would be added:
+
+    `has_many :ingredients, through: :recipe_ingredients`
+
+and in Ingredient another HMT would be added:
+
+    `has_many :recipes, through: :recipe_ingredients`
+
+So when you run the whole thing you could navigate to https://localhost:3000/recipes, and see
+each recipe and also all the ingredients which it requires through its HMT.
+
+If either (or both) of the foreign keys were missing in the database, they could be added as an
+additional_reference.  Say that the foreign key between Recipe and RecipeIngredient is missing.
+It can be provided by putting a line like this in an initialiser file:
+
+    `::Brick.additional_references = [['recipe_ingredients', 'recipe_id', 'recipes']]`
+
+Brick can auto-create such an initialiser file, and often infer these kinds of useful references
+to fill in the gaps for missing foreign keys.  These suggestions are left commented out initially,
+so very easily brought into play by editing that file.  Myriad settings are avaiable therein.
 
 ## Table of Contents
 
@@ -51,21 +103,19 @@ An ActiveRecord extension that auto-creates models, views, controllers, and rout
 Brick supports all Rails versions which have been current during the past 10 years, which at
 the time of writing, May 2022, includes Rails 3.1 and above.  Older versions may still
 function, but this is not officially supported as significant changes to ActiveRecord came
-with v3.1, and being as this gem is fairly tightly integrated with everything at the data
-layer, adding compatibility for earlier versions of Rails becomes difficult.
+with v3.1, and being as much of this gem is tightly integrated with everything at the data
+layer, adding compatibility for earlier versions of Rails is difficult.
 
-Brick has a compatibility layer which is automatically applied when used along with older
-versions of Rails.  This is provided in order to more easily test the broad range of supported
-versions of ActiveRecord.  When running Rails older than v4.2 on Ruby v2.4 or newer then
-normally everything fails because Fixnum and Bignum were merged to become Integer with newer
-versions of Ruby.  This gem provides a patch for this scenario, as well as patches for places
-Ruby 2.7 would normally error out due to circular references in method definitions in TimeZone
-and HasManyAssociation.
+When used with older versions of Rails, Brick has a compatibility layer which is automatically
+applied.  This makes it easier to test the broad range of supported versions of ActiveRecord.
+An example compatibility provided is when running any Rails older than v4.2 on Ruby v2.4 or
+newer then normally everything fails because starting with Ruby 2.4 Fixnum and Bignum were
+merged to become Integer.  This gem provides a patch for this scenario, as well as patches for
+places Ruby 2.7 and newer would normally error out due to circular references in method
+definitions in TimeZone and HasManyAssociation.
 
-When using the Brick gem with Rails 3.x, more patches are applied to those antique versions
-of ActiveRecord in order to add #find_by, #find_or_create_by, and an updated version of #pluck.
-This fills in the gaps to allow the gem to work along with the limitations of early versions of
-ActiveRecord.
+When using the Brick gem with Rails 3.x, more patches are applied to those antique versions of
+ActiveRecord in order to add #find_by, #find_or_create_by, and an updated version of #pluck.
 
 ### 1.b. Installation
 
@@ -77,9 +127,7 @@ ActiveRecord.
 
 To configure myriad options, such as defining related columns that you want to have act as if they were a foreign key, then you can build out an initializer file for Brick.  The gem automatically provides some suggestions for you based on your current database, so it's useful to make sure your database.yml file is properly configured before continuing.  By using the `install` generator, the file `config/initializers/brick.rb` is automatically written out and here is the command:
 
-    ```
-    bin/rails g brick:install
-    ```
+    `bin/rails g brick:install`
 
 Inside the generated file many options exist, and one of which is `Brick.additional_references` which defines additional foreign key associations, and even shows some suggested ones where possible.  By default these are commented out, and by un-commenting the ones you would like (or perhaps even all of them), then it is as if these foreign keys were present to provide referential integrity.  If you then start up a `rails c` you'll find that appropriate belongs_to and has_many associations are automatically fleshed out.  Even has_many :through associations are provided when possible associative tables are identified -- that is, tables having only foreign keys that refer to other tables.
 
@@ -96,7 +144,6 @@ gem install bundler:1.17.3
 bundle
 bundle exec appraisal ar-6.1 bundle
 DB=sqlite bundle exec appraisal
-
 ```
 
 See our [contribution guidelines][5]

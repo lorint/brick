@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# Some future enhancement ideas:
+
 # Have markers on HM relationships to indicate "load this one every time" or "lazy load it" or "don't bother"
 # Others on BT to indicate "this is a lookup"
 
@@ -18,7 +20,7 @@
 # Sensitive stuff -- make a lock icon thing so people don't accidentally edit stuff
 
 # Static text that can go on pages - headings and footers and whatever
-# Eventually some indication about if it should be a paginated table / unpaginated / a list of just some fields / etc
+# Eventually some indication about if it should be a paginated table / unpaginated / a list of just some fields / columns shown in a different sequence / etc
 
 # Grid where each cell is one field and then when you mouse over then it shows a popup other table of detail inside
 
@@ -32,6 +34,7 @@
 
 # Currently quadrupling up routes
 
+# Modal pop-up things for editing large text / date ranges / hierarchies of data
 
 # For recognised self-references, have the show page display all related objects up to the parent (or the start of a circular reference)
 
@@ -301,6 +304,8 @@ module ActiveRecord
       if is_add_bts || is_add_hms
         bts, hms, associatives = ::Brick.get_bts_and_hms(klass)
         bts.each do |_k, bt|
+          next if bt[2] # Polymorphic?
+
           # join_array will receive this relation name when calling #brick_parse_dsl
           bt_descrip[bt.first] = if bt[1].is_a?(Array)
                                    bt[1].each_with_object({}) { |bt_class, s| s[bt_class] = bt_class.brick_parse_dsl(join_array, bt.first, translations, true) }
@@ -352,15 +357,16 @@ module ActiveRecord
               v1[idx] << col_alias
             end
 
-            if (id_col = k1.primary_key) && !id_for_tables.key?(v.first) # was tbl_name
+            unless id_for_tables.key?(v.first)
               # Accommodate composite primary key by allowing id_col to come in as an array
-              (id_col.is_a?(Array) ? id_col : [id_col]).each do |id_part|
-                selects << "#{"#{tbl_name}.#{id_part}"} AS \"#{(id_alias = "_brfk_#{v.first}__#{id_part}")}\""
-                id_for_tables[v.first] << id_alias
+              ((id_col = k1.primary_key).is_a?(Array) ? id_col : [id_col]).each do |id_part|
+                id_for_tables[v.first] << if id_part
+                                            selects << "#{"#{tbl_name}.#{id_part}"} AS \"#{(id_alias = "_brfk_#{v.first}__#{id_part}")}\""
+                                            id_alias
+                                          end
               end
-              v1 << id_for_tables[v.first]
+              v1 << id_for_tables[v.first].compact
             end
-
           end
         end
         join_array.each do |assoc_name|
@@ -444,8 +450,7 @@ JOIN (SELECT #{selects.join(', ')}, COUNT(#{count_column}) AS _ct_ FROM #{associ
               this_module.const_get(class_name)
             else
               # Build STI subclass and place it into the namespace module
-              # %%% Does this ever get used???
-              puts [this_module.const_set(class_name, klass = Class.new(self)).name, class_name].inspect
+              this_module.const_set(class_name, klass = Class.new(self))
               klass
             end
           end
@@ -520,7 +525,7 @@ class Object
                  singular_table_name = ActiveSupport::Inflector.underscore(model_name)
  
                  # Adjust for STI if we know of a base model for the requested model name
-                 table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
+                 table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, ::Brick.existing_stis[model_name]&.constantize))
                                 base_model.table_name
                               else
                                 ActiveSupport::Inflector.pluralize(singular_table_name)
@@ -561,7 +566,7 @@ class Object
         return
       end
 
-      if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil))
+      if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, ::Brick.existing_stis[model_name]&.constantize))
         is_sti = true
       else
         base_model = ::Brick.config.models_inherit_from || ActiveRecord::Base
@@ -1094,8 +1099,12 @@ module Brick
         if is_polymorphic
           # Assuming same fk (don't yet support composite keys for polymorphics)
           assoc_bt[:inverse_table] << fk[2]
-        else # Expect we've got a composite key going
-          assoc_bt[:fk] = assoc_bt[:fk].is_a?(String) ? [assoc_bt[:fk], fk[1]] : assoc_bt[:fk].concat(fk[1])
+        else # Expect we could have a composite key going
+          if assoc_bt[:fk].is_a?(String)
+            assoc_bt[:fk] = [assoc_bt[:fk], fk[1]] unless fk[1] == assoc_bt[:fk]
+          elsif assoc_bt[:fk].exclude?(fk[1])
+            assoc_bt[:fk] << fk[1]
+          end
           assoc_bt[:assoc_name] = "#{assoc_bt[:assoc_name]}_#{fk[1]}"
         end
       else
@@ -1113,7 +1122,11 @@ module Brick
       return if is_class || ::Brick.config.exclude_hms&.any? { |exclusion| fk[0] == exclusion[0] && fk[1] == exclusion[1] && primary_table == exclusion[2] }
 
       if (assoc_hm = hms.fetch((hm_cnstr_name = "hm_#{cnstr_name}"), nil))
-        assoc_hm[:fk] = assoc_hm[:fk].is_a?(String) ? [assoc_hm[:fk], fk[1]] : assoc_hm[:fk].concat(fk[1])
+        if assoc_hm[:fk].is_a?(String)
+          assoc_hm[:fk] = [assoc_hm[:fk], fk[1]] unless fk[1] == assoc_hm[:fk]
+        elsif assoc_hm[:fk].exclude?(fk[1])
+          assoc_hm[:fk] << fk[1]
+        end
         assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
         assoc_hm[:inverse] = assoc_bt
       else

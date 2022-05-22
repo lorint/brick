@@ -215,6 +215,10 @@ module Brick
 # Brick.sti_namespace_prefixes = { '::Animals::' => 'Animal',
 #                                  '::Snake' => 'Reptile' }
 
+# # Database schema to use when analysing existing data, such as deriving a list of polymorphic classes in the case that
+# # it wasn't originally specified.
+# Brick.schema_to_analyse = 'engineering'
+
 # # Polymorphic associations are set up by providing a model name and polymorphic association name#{poly}
 
 # # If a default route is not supplied, Brick attempts to find the most \"central\" table and wires up the default
