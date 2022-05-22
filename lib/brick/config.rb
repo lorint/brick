@@ -130,6 +130,14 @@ module Brick
       @mutex.synchronize { @schema_to_analyse = schema }
     end
 
+    def default_route_fallback
+      @mutex.synchronize { @default_route_fallback }
+    end
+
+    def default_route_fallback=(resource_name)
+      @mutex.synchronize { @default_route_fallback = resource_name }
+    end
+
     def skip_database_views
       @mutex.synchronize { @skip_database_views }
     end
