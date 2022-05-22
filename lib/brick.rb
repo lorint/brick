@@ -291,6 +291,10 @@ module Brick
       Brick.config.schema_to_analyse = schema
     end
 
+    def default_route_fallback=(resource_name)
+      Brick.config.default_route_fallback = resource_name
+    end
+
     # Load additional references (virtual foreign keys)
     # This is attempted early if a brick initialiser file is found, and then again as a failsafe at the end of our engine's initialisation
     # %%% Maybe look for differences the second time 'round and just add new stuff instead of entirely deferring
@@ -381,6 +385,9 @@ In config/initializers/brick.rb appropriate entries would look something like:
     def finalize!
       existing_controllers = routes.each_with_object({}) { |r, s| c = r.defaults[:controller]; s[c] = nil if c }
       ::Rails.application.routes.append do
+        unless ::Brick.config.default_route_fallback.blank? || ::Rails.application.routes.named_routes.send(:routes)[:root]
+          send(:root, "#{::Brick.config.default_route_fallback}#index")
+        end
         # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
         # If auto-controllers and auto-models are both enabled then this makes sense:
         ::Brick.relations.each do |k, v|
