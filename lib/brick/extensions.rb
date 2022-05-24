@@ -307,7 +307,7 @@ module ActiveRecord
       # %%% Skip the metadata columns
       if selects&.empty? # Default to all columns
         columns.each do |col|
-          selects << "#{table.name}.#{col.name}"
+          selects << "\"#{table.name}\".\"#{col.name}\""
         end
       end
 
@@ -365,7 +365,7 @@ module ActiveRecord
             v1.map { |x| [translations[x[0..-2].map(&:to_s).join('.')], x.last] }.each_with_index do |sel_col, idx|
               field_tbl_name = field_tbl_names[v.first][sel_col.first] ||= shift_or_first(chains[sel_col.first])
 
-              selects << "#{"#{field_tbl_name}.#{sel_col.last}"} AS \"#{(col_alias = "_brfk_#{v.first}__#{sel_col.last}")}\""
+              selects << "#{"\"#{field_tbl_name}\".\"#{sel_col.last}\""} AS \"#{(col_alias = "_brfk_#{v.first}__#{sel_col.last}")}\""
               v1[idx] << col_alias
             end
 
@@ -373,7 +373,7 @@ module ActiveRecord
               # Accommodate composite primary key by allowing id_col to come in as an array
               ((id_col = k1.primary_key).is_a?(Array) ? id_col : [id_col]).each do |id_part|
                 id_for_tables[v.first] << if id_part
-                                            selects << "#{"#{tbl_name}.#{id_part}"} AS \"#{(id_alias = "_brfk_#{v.first}__#{id_part}")}\""
+                                            selects << "#{"\"#{tbl_name}\".\"#{id_part}\""} AS \"#{(id_alias = "_brfk_#{v.first}__#{id_part}")}\""
                                             id_alias
                                           end
               end
@@ -756,7 +756,7 @@ class Object
     def build_controller(class_name, plural_class_name, model, relations)
       table_name = ActiveSupport::Inflector.underscore(plural_class_name)
       singular_table_name = ActiveSupport::Inflector.singularize(table_name)
-      pk = model._brick_primary_key(relations[table_name])
+      pk = model._brick_primary_key(relations.fetch(table_name, nil))
 
       code = +"class #{class_name} < ApplicationController\n"
       built_controller = Class.new(ActionController::Base) do |new_controller_class|

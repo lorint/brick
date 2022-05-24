@@ -207,7 +207,13 @@ input[type=submit] {
   val.is_a?(String) && val.length == 60 && val.start_with?('$2a$')
 end
 def hide_bcrypt(val)
-  is_bcrypt?(val) ? '(hidden)' : val
+  if is_bcrypt?(val)
+    '(hidden)'
+  elsif val.is_a?(String) && val.encoding.name != 'UTF-8'
+    val[0..1000].force_encoding('UTF-8')
+  else
+    val
+  end
 end %>"
 
               if ['index', 'show', 'update'].include?(args.first)
@@ -388,7 +394,7 @@ function changeout(href, param, value) {
 <table id=\"#{table_name}\">
   <thead><tr>#{'<th></th>' if pk.present?}
   <% @#{table_name}.columns.map(&:name).each do |col| %>
-    <% next if #{pk.inspect}.include?(col) || ::Brick.config.metadata_columns.include?(col) || poly_cols.include?(col) %>
+    <% next if #{(pk || []).inspect}.include?(col) || ::Brick.config.metadata_columns.include?(col) || poly_cols.include?(col) %>
     <th>
     <% if (bt = bts[col]) %>
          BT <%
@@ -409,7 +415,7 @@ function changeout(href, param, value) {
   <tr>#{"
     <td><%= link_to '⇛', #{obj_name}_path(#{obj_pk}), { class: 'big-arrow' } %></td>" if obj_pk}
     <% #{obj_name}.attributes.each do |k, val| %>
-      <% next if #{obj_pk.inspect}.include?(k) || ::Brick.config.metadata_columns.include?(k) || poly_cols.include?(k) || k.start_with?('_brfk_') || (k.start_with?('_br_') && (k.length == 63 || k.end_with?('_ct'))) %>
+      <% next if #{(obj_pk || []).inspect}.include?(k) || ::Brick.config.metadata_columns.include?(k) || poly_cols.include?(k) || k.start_with?('_brfk_') || (k.start_with?('_br_') && (k.length == 63 || k.end_with?('_ct'))) %>
       <td>
       <% if (bt = bts[k]) %>
         <%# binding.pry # Postgres column names are limited to 63 characters %>
@@ -456,8 +462,7 @@ function changeout(href, param, value) {
   <% has_fields = false
     @#{obj_name}.attributes.each do |k, val| %>
     <tr>
-    <%# %%% Accommodate composite keys %>
-    <% next if #{pk}.include?(k) || ::Brick.config.metadata_columns.include?(k) %>
+    <% next if #{(pk || []).inspect}.include?(k) || ::Brick.config.metadata_columns.include?(k) %>
     <th class=\"show-field\">
     <% has_fields = true
       if (bt = bts[k])
