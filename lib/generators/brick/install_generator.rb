@@ -28,7 +28,7 @@ module Brick
             col_down = col.downcase
 
             if (is_possible_poly = ['character varying', 'text'].include?(type.first))
-              if col_down.end_with?('_type') &&
+              if col_down.end_with?('_type')
                 poly_type_cut_length = -6
                 col_down = col_down[0..-6]
               elsif col_down.end_with?('type')

@@ -311,7 +311,7 @@ module Brick
           missing_stis = {}
           polys.each do |k, v|
             table_name, poly = k.split('.')
-            v ||= ActiveRecord::Base.execute_sql("SELECT DISTINCT #{poly}_type AS typ FROM #{table_name}").map { |result| result['typ'] }
+            v ||= ActiveRecord::Base.execute_sql("SELECT DISTINCT #{poly}_type AS typ FROM #{table_name}").each_with_object([]) { |result, s| s << result['typ'] if result['typ'] }
             v.each do |type|
               if relations.key?(primary_table = type.underscore.pluralize)
                 ::Brick._add_bt_and_hm([table_name, poly, primary_table, "(brick) #{table_name}_#{poly}"], relations, true)
