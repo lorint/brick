@@ -55,7 +55,8 @@ module Brick
               unless (is_template_exists = _brick_template_exists?(*args, **options))
                 # Need to return true if we can fill in the blanks for a missing one
                 # args will be something like:  ["index", ["categories"]]
-                model = args[1].map(&:camelize).join('::').singularize.constantize
+                args[1][args[1].length - 1] = args[1].last.singularize # Make sure the last item, defining the class name, is singular
+                model = args[1].map(&:camelize).join('::').constantize
                 if is_template_exists = model && (
                      ['index', 'show'].include?(args.first) || # Everything has index and show
                      # Only CUD stuff has create / update / destroy
@@ -72,9 +73,9 @@ module Brick
                        fk_name.zip(pk.map { |pk_part| "#{obj_name}.#{pk_part}" })
                      else
                        pk = pk.each_with_object([]) { |pk_part, s| s << "#{obj_name}.#{pk_part}" }
-                       [[fk_name, "#{pk.length == 1 ? pk.first : pk.inspect}"]]
+                       [[fk_name, pk.length == 1 ? pk.first : pk.inspect]]
                      end
-              keys << [hm_assoc.inverse_of.foreign_type, "#{hm_assoc.active_record.name}"] if hm_assoc.options.key?(:as)
+              keys << [hm_assoc.inverse_of.foreign_type, hm_assoc.active_record.name] if hm_assoc.options.key?(:as)
               keys.map { |x| "#{x.first}: #{x.last}"}.join(', ')
             end
 
@@ -207,7 +208,13 @@ input[type=submit] {
   val.is_a?(String) && val.length == 60 && val.start_with?('$2a$')
 end
 def hide_bcrypt(val)
-  is_bcrypt?(val) ? '(hidden)' : val
+  if is_bcrypt?(val)
+    '(hidden)'
+  elsif val.is_a?(String) && val.encoding.name != 'UTF-8'
+    val[0..1000].force_encoding('UTF-8')
+  else
+    val
+  end
 end %>"
 
               if ['index', 'show', 'update'].include?(args.first)
@@ -388,7 +395,7 @@ function changeout(href, param, value) {
 <table id=\"#{table_name}\">
   <thead><tr>#{'<th></th>' if pk.present?}
   <% @#{table_name}.columns.map(&:name).each do |col| %>
-    <% next if #{pk.inspect}.include?(col) || ::Brick.config.metadata_columns.include?(col) || poly_cols.include?(col) %>
+    <% next if #{(pk || []).inspect}.include?(col) || ::Brick.config.metadata_columns.include?(col) || poly_cols.include?(col) %>
     <th>
     <% if (bt = bts[col]) %>
          BT <%
@@ -409,7 +416,7 @@ function changeout(href, param, value) {
   <tr>#{"
     <td><%= link_to '⇛', #{obj_name}_path(#{obj_pk}), { class: 'big-arrow' } %></td>" if obj_pk}
     <% #{obj_name}.attributes.each do |k, val| %>
-      <% next if #{obj_pk.inspect}.include?(k) || ::Brick.config.metadata_columns.include?(k) || poly_cols.include?(k) || k.start_with?('_brfk_') || (k.start_with?('_br_') && (k.length == 63 || k.end_with?('_ct'))) %>
+      <% next if #{(obj_pk || []).inspect}.include?(k) || ::Brick.config.metadata_columns.include?(k) || poly_cols.include?(k) || k.start_with?('_brfk_') || (k.start_with?('_br_') && (k.length == 63 || k.end_with?('_ct'))) %>
       <td>
       <% if (bt = bts[k]) %>
         <%# binding.pry # Postgres column names are limited to 63 characters %>
@@ -434,8 +441,8 @@ function changeout(href, param, value) {
     <% end %>
     #{hms_columns.each_with_object(+'') { |hm_col, s| s << "<td>#{hm_col}</td>" }}
   </tr>
-  </tbody>
   <% end %>
+  </tbody>
 </table>
 
 #{"<hr><%= link_to \"New #{obj_name}\", new_#{obj_name}_path %>" unless @_brick_model.is_view?}
@@ -456,8 +463,7 @@ function changeout(href, param, value) {
   <% has_fields = false
     @#{obj_name}.attributes.each do |k, val| %>
     <tr>
-    <%# %%% Accommodate composite keys %>
-    <% next if #{pk}.include?(k) || ::Brick.config.metadata_columns.include?(k) %>
+    <% next if #{(pk || []).inspect}.include?(k) || ::Brick.config.metadata_columns.include?(k) %>
     <th class=\"show-field\">
     <% has_fields = true
       if (bt = bts[k])
