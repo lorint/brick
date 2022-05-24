@@ -67,6 +67,18 @@ module ActiveRecord
       false
     end
 
+    def self._brick_primary_key(relation = nil)
+      return instance_variable_get(:@_brick_primary_key) if instance_variable_defined?(:@_brick_primary_key)
+
+      pk = primary_key.is_a?(String) ? [primary_key] : primary_key || []
+      # Just return [] if we're missing any part of the primary key.  (PK is usually just "id")
+      if relation && pk.present?
+        @_brick_primary_key ||= pk.any? { |pk_part| !relation[:cols].key?(pk_part) } ? [] : pk
+      else # No definitive key yet, so return what we can without setting the instance variable
+        pk
+      end
+    end
+
     # Used to show a little prettier name for an object
     def self.brick_get_dsl
       # If there's no DSL yet specified, just try to find the first usable column on this model
@@ -525,7 +537,7 @@ class Object
                  singular_table_name = ActiveSupport::Inflector.underscore(model_name)
  
                  # Adjust for STI if we know of a base model for the requested model name
-                 table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, ::Brick.existing_stis[model_name]&.constantize))
+                 table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil) || ::Brick.existing_stis[model_name]&.constantize)
                                 base_model.table_name
                               else
                                 ActiveSupport::Inflector.pluralize(singular_table_name)
@@ -566,7 +578,7 @@ class Object
         return
       end
 
-      if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, ::Brick.existing_stis[model_name]&.constantize))
+      if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil) || ::Brick.existing_stis[model_name]&.constantize)
         is_sti = true
       else
         base_model = ::Brick.config.models_inherit_from || ActiveRecord::Base
@@ -586,16 +598,14 @@ class Object
           code << "  def self.is_view?; true; end\n"
         end
 
-        # Missing a primary key column?  (Usually "id")
-        ar_pks = primary_key.is_a?(String) ? [primary_key] : primary_key || []
         db_pks = relation[:cols]&.map(&:first)
-        has_pk = ar_pks.length.positive? && (db_pks & ar_pks).sort == ar_pks.sort
+        has_pk = _brick_primary_key(relation).length.positive? && (db_pks & _brick_primary_key).sort == _brick_primary_key.sort
         our_pks = relation[:pkey].values.first
         # No primary key, but is there anything UNIQUE?
         # (Sort so that if there are multiple UNIQUE constraints we'll pick one that uses the least number of columns.)
         our_pks = relation[:ukeys].values.sort { |a, b| a.length <=> b.length }.first unless our_pks&.present?
         if has_pk
-          code << "  # Primary key: #{ar_pks.join(', ')}\n" unless ar_pks == ['id']
+          code << "  # Primary key: #{_brick_primary_key.join(', ')}\n" unless _brick_primary_key == ['id']
         elsif our_pks&.present?
           if our_pks.length > 1 && respond_to?(:'primary_keys=') # Using the composite_primary_keys gem?
             new_model_class.primary_keys = our_pks
@@ -604,6 +614,7 @@ class Object
             new_model_class.primary_key = (pk_sym = our_pks.first.to_sym)
             code << "  self.primary_key = #{pk_sym.inspect}\n"
           end
+          _brick_primary_key(relation) # Set the newly-found PK in the instance variable
         else
           code << "  # Could not identify any column(s) to use as a primary key\n" unless is_view
         end
@@ -648,7 +659,7 @@ class Object
           # # Not NULLables
           # # %%% For the minute we've had to pull this out because it's been troublesome implementing the NotNull validator
           # relation[:cols].each do |col, datatype|
-          #   if (datatype[3] && ar_pks.exclude?(col) && ::Brick.config.metadata_columns.exclude?(col)) ||
+          #   if (datatype[3] && _brick_primary_key.exclude?(col) && ::Brick.config.metadata_columns.exclude?(col)) ||
           #      ::Brick.config.not_nullables.include?("#{matching}.#{col}")
           #     code << "  validates :#{col}, not_null: true\n"
           #     self.send(:validates, col.to_sym, { not_null: true })
@@ -745,13 +756,14 @@ class Object
     def build_controller(class_name, plural_class_name, model, relations)
       table_name = ActiveSupport::Inflector.underscore(plural_class_name)
       singular_table_name = ActiveSupport::Inflector.singularize(table_name)
+      pk = model._brick_primary_key(relations[table_name])
 
       code = +"class #{class_name} < ApplicationController\n"
       built_controller = Class.new(ActionController::Base) do |new_controller_class|
         Object.const_set(class_name.to_sym, new_controller_class)
 
         code << "  def index\n"
-        code << "    @#{table_name} = #{model.name}#{model.primary_key ? ".order(#{model.primary_key.inspect})" : '.all'}\n"
+        code << "    @#{table_name} = #{model.name}#{pk&.present? ? ".order(#{pk.inspect})" : '.all'}\n"
         code << "    @#{table_name}.brick_select(params)\n"
         code << "  end\n"
         self.protect_from_forgery unless: -> { self.request.format.js? }
@@ -769,7 +781,8 @@ class Object
             return
           end
 
-          ar_relation = model.primary_key ? model.order("#{model.table_name}.#{model.primary_key}") : model.all
+          order = pk.each_with_object([]) { |pk_part, s| s << "#{model.table_name}.#{pk_part}" }
+          ar_relation = order.present? ? model.order("#{order.join(', ')}") : model.all
           @_brick_params = ar_relation.brick_select(params, (selects = []), (bt_descrip = {}), (hm_counts = {}), (join_array = ::Brick::JoinArray.new))
           # %%% Add custom HM count columns
           # %%% What happens when the PK is composite?
@@ -801,6 +814,10 @@ class Object
           code << "  # (Define :new, :create)\n"
 
           if model.primary_key
+            if (schema = ::Brick.config.schema_to_analyse) && ::Brick.db_schemas&.include?(schema)
+              ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema)
+            end
+
             is_need_params = true
             # code << "  # (Define :edit, and :destroy)\n"
             code << "  def update\n"
