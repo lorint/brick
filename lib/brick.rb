@@ -395,6 +395,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
         # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
         # If auto-controllers and auto-models are both enabled then this makes sense:
         ::Brick.relations.each do |k, v|
+          k = k.split('.').join('_')
           unless existing_controllers.key?(controller_name = k.underscore.pluralize)
             options = {}
             options[:only] = [:index, :show] if v.key?(:isView)

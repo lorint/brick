@@ -498,6 +498,104 @@ if ActiveSupport::Dependencies.respond_to?(:autoload_module!) # %%% Only works w
   end
 end
 
+Module.class_exec do
+  alias _brick_const_missing const_missing
+  def const_missing(*args)
+    return self.const_get(args.first) if self.const_defined?(args.first)
+    return Object.const_get(args.first) if Object.const_defined?(args.first)
+
+    class_name = args.first.to_s
+    # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
+    # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
+    # that is, checking #qualified_name_for with:  from_mod, const_name
+    # If we want to support namespacing in the future, might have to utilise something like this:
+    # path_suffix = ActiveSupport::Dependencies.qualified_name_for(Object, args.first).underscore
+    # return self._brick_const_missing(*args) if ActiveSupport::Dependencies.search_for_file(path_suffix)
+    # If the file really exists, go and snag it:
+    if !(is_found = ActiveSupport::Dependencies.search_for_file(class_name.underscore)) && (filepath = (self.name || class_name)&.split('::'))
+      filepath = (filepath[0..-2] + [class_name]).join('/').underscore + '.rb'
+    end
+    if is_found
+      return self._brick_const_missing(*args)
+    elsif ActiveSupport::Dependencies.search_for_file(filepath) # Last-ditch effort to pick this thing up before we fill in the gaps on our own
+      my_const = parent.const_missing(class_name) # ends up having:  MyModule::MyClass
+      return my_const
+    end
+
+    relations = ::Brick.instance_variable_get(:@relations)[ActiveRecord::Base.connection_pool.object_id] || {}
+    result = if ::Brick.enable_controllers? && class_name.end_with?('Controller') && (plural_class_name = class_name[0..-11]).length.positive?
+               # Otherwise now it's up to us to fill in the gaps
+               # (Go over to underscores for a moment so that if we have something come in like VABCsController then the model name ends up as
+               # VAbc instead of VABC)
+               if (model = plural_class_name.underscore.singularize.camelize.constantize)
+                 # if it's a controller and no match or a model doesn't really use the same table name, eager load all models and try to find a model class of the right name.
+                 Object.build_controller(class_name, plural_class_name, model, relations)
+               end
+             elsif (::Brick.enable_models? || ::Brick.enable_controllers?) && # Schema match?
+                   schema_name = [(singular_table_name = class_name.underscore),
+                                  (table_name = singular_table_name.pluralize),
+                                  class_name,
+                                  (plural_class_name = class_name.pluralize)].find { |s| Brick.db_schemas.include?(s) }
+               # Build out a module for the schema if it's namespaced
+               schema_name = schema_name.camelize
+               Object.const_set(schema_name.to_sym, (built_module = Module.new))
+               puts self.inspect
+
+               [built_module, "module #{schema_name}; end\n"]
+               #  # %%% Perhaps an option to use the first module just as schema, and additional modules as namespace with a table name prefix applied
+               #  schema_name, model_name = 
+               #  code = +''
+               #  mod_tree = +''
+               #  model_name.split('::')[0..-2].each do |mod_name|
+               #    mod_tree << "::#{mod_name}"
+               #    Module.new(mod_tree)
+               #    code << "module #{mod_tree}; end\n"
+               #  end
+             elsif ::Brick.enable_models?
+               # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
+               # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
+
+               unless self == Object # Are we in some namespace?
+                schema_name = [(singular_schema_name = name.underscore),
+                                (schema_name = singular_schema_name.pluralize),
+                                name,
+                                name.pluralize].find { |s| Brick.db_schemas.include?(s) }
+               end
+
+               plural_class_name = ActiveSupport::Inflector.pluralize(model_name = class_name)
+               # If it's namespaced then we turn the first part into what would be a schema name
+               singular_table_name = ActiveSupport::Inflector.underscore(model_name).gsub('::', '.')
+
+               # Adjust for STI if we know of a base model for the requested model name
+               table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil) || ::Brick.existing_stis[model_name]&.constantize)
+                              base_model.table_name
+                            else
+                              ActiveSupport::Inflector.pluralize(singular_table_name)
+                            end
+
+               # Maybe, just maybe there's a database table that will satisfy this need
+               if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
+                 Object.build_model(schema_name, model_name, singular_table_name, table_name, relations, matching)
+               end
+             end
+    if result
+      built_class, code = result
+      puts "\n#{code}"
+      built_class
+    elsif ::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}") && !schema_name
+#         module_prefixes = type_name.split('::')
+#         path = self.name.split('::')[0..-2] + []
+#         module_prefixes.unshift('') unless module_prefixes.first.blank?
+#         candidate_file = Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb')
+      self._brick_const_missing(*args)
+    else
+      puts "MISSING! #{self.name} #{args.inspect} #{table_name}"
+      self._brick_const_missing(*args)
+    end
+  end
+end
+
+
 class Object
   class << self
     alias _brick_const_missing const_missing
@@ -532,6 +630,25 @@ class Object
                    # if it's a controller and no match or a model doesn't really use the same table name, eager load all models and try to find a model class of the right name.
                    build_controller(class_name, plural_class_name, model, relations)
                  end
+               elsif (::Brick.enable_models? || ::Brick.enable_controllers?) && # Schema match?
+                     db_schema_name = [(singular_table_name = class_name.underscore),
+                                      (table_name = singular_table_name.pluralize),
+                                      class_name,
+                                      (plural_class_name = class_name.pluralize)].find { |s| Brick.db_schemas.include?(s) }
+                 # Build out a module for the schema if it's namespaced
+                 schema_name = db_schema_name.camelize
+                 Object.const_set(schema_name.to_sym, (built_module = Module.new))
+                 Brick.db_schemas[db_schema_name] = built_module
+                 [built_module, "module #{schema_name}; end\n"]
+                 #  # %%% Perhaps an option to use the first module just as schema, and additional modules as namespace with a table name prefix applied
+                 #  schema_name, model_name = 
+                 #  code = +''
+                 #  mod_tree = +''
+                 #  model_name.split('::')[0..-2].each do |mod_name|
+                 #    mod_tree << "::#{mod_name}"
+                 #    Module.new(mod_tree)
+                 #    code << "module #{mod_tree}; end\n"
+                 #  end
                elsif ::Brick.enable_models?
                  # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
                  # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
@@ -547,14 +664,14 @@ class Object
 
                  # Maybe, just maybe there's a database table that will satisfy this need
                  if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(m) })
-                   build_model(model_name, singular_table_name, table_name, relations, matching)
+                   build_model(nil, model_name, singular_table_name, table_name, relations, matching)
                  end
                end
       if result
         built_class, code = result
         puts "\n#{code}"
         built_class
-      elsif ::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}")
+      elsif ::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}") && !schema_name
 #         module_prefixes = type_name.split('::')
 #         path = self.name.split('::')[0..-2] + []
 #         module_prefixes.unshift('') unless module_prefixes.first.blank?
@@ -568,7 +685,13 @@ class Object
 
   private
 
-    def build_model(model_name, singular_table_name, table_name, relations, matching)
+    def build_model(schema_name, model_name, singular_table_name, table_name, relations, matching)
+      unless schema_name.blank? # Should we add the schema to the table name / schema namespace to the class name?
+        schema_module = Brick.db_schemas[schema_name]
+        full_name = "#{Brick.db_schemas[schema_name]&.name}::#{model_name}"
+        matching = "#{schema_name}.#{matching}"
+      end
+
       return if ((is_view = (relation = relations[matching]).key?(:isView)) && ::Brick.config.skip_database_views) ||
                 ::Brick.config.exclude_tables.include?(matching)
 
@@ -580,14 +703,14 @@ class Object
         return
       end
 
-      if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil) || ::Brick.existing_stis[model_name]&.constantize)
+      if (base_model = ::Brick.sti_models[full_name]&.fetch(:base, nil) || ::Brick.existing_stis[full_name]&.constantize)
         is_sti = true
       else
         base_model = ::Brick.config.models_inherit_from || ActiveRecord::Base
       end
-      code = +"class #{model_name} < #{base_model.name}\n"
+      code = +"class #{full_name} < #{base_model.name}\n"
       built_model = Class.new(base_model) do |new_model_class|
-        Object.const_set(model_name.to_sym, new_model_class)
+        (schema_module || Object).const_set(model_name.to_sym, new_model_class)
         # Accommodate singular or camel-cased table names such as "order_detail" or "OrderDetails"
         code << "  self.table_name = '#{self.table_name = matching}'\n" unless table_name == matching
 
@@ -716,7 +839,7 @@ class Object
                 if assoc.key?(:polymorphic)
                   options[:as] = assoc[:fk].to_sym
                 else
-                  need_fk = "#{ActiveSupport::Inflector.singularize(assoc[:inverse][:inverse_table])}_id" != assoc[:fk]
+                  need_fk = "#{ActiveSupport::Inflector.singularize(assoc[:inverse][:inverse_table].split('.').last)}_id" != assoc[:fk]
                 end
                 # fks[table_name].find { |other_assoc| other_assoc.object_id != assoc.object_id && other_assoc[:assoc_name] == assoc[assoc_name] }
                 if (has_ones = ::Brick.config.has_ones&.fetch(model_name, nil))&.key?(singular_assoc_name = ActiveSupport::Inflector.singularize(assoc_name))
@@ -733,7 +856,7 @@ class Object
               end
       # Figure out if we need to specially call out the class_name and/or foreign key
       # (and if either of those then definitely also a specific inverse_of)
-      options[:class_name] = assoc[:primary_class]&.name || singular_table_name.camelize if need_class_name
+      options[:class_name] = assoc[:primary_class]&.name || singular_table_name.split('.').map(&:camelize).join('::') if need_class_name
       # Work around a bug in CPK where self-referencing belongs_to associations double up their foreign keys
       if need_fk # Funky foreign key?
         options[:foreign_key] = if assoc[:fk].is_a?(Array)
@@ -743,7 +866,7 @@ class Object
                                   assoc[:fk].to_sym
                                 end
       end
-      options[:inverse_of] = inverse_assoc_name.to_sym if inverse_assoc_name && (need_class_name || need_fk || need_inverse_of)
+      options[:inverse_of] = inverse_assoc_name.tr('.', '_').to_sym if inverse_assoc_name && (need_class_name || need_fk || need_inverse_of)
 
       # Prepare a list of entries for "has_many :through"
       if macro == :has_many
@@ -754,7 +877,7 @@ class Object
         end
       end
       # And finally create a has_one, has_many, or belongs_to for this association
-      assoc_name = assoc_name.to_sym
+      assoc_name = assoc_name.tr('.', '_').to_sym
       code << "  #{macro} #{assoc_name.inspect}#{options.map { |k, v| ", #{k}: #{v.inspect}" }.join}\n"
       self.send(macro, assoc_name, **options)
     end
@@ -900,7 +1023,7 @@ module ActiveRecord::ConnectionHandling
       schema_sql = 'SELECT NULL AS table_schema;'
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL'
-        schema = 'public' # public # Too early at this point to be able to pick up:  Brick.config.schema_to_analyse
+        schema = 'public' # Too early at this point to be able to pick up:  Brick.config.schema_behavior
         schema_sql = 'SELECT DISTINCT table_schema FROM INFORMATION_SCHEMA.tables;'
       when 'Mysql2'
         schema = ActiveRecord::Base.connection.current_database
@@ -917,7 +1040,7 @@ module ActiveRecord::ConnectionHandling
       end
 
       sql ||= ActiveRecord::Base.send(:sanitize_sql_array, [
-        "SELECT t.table_name AS relation_name, t.table_type,
+        "SELECT t.table_schema AS schema, t.table_name AS relation_name, t.table_type,
           c.column_name, c.data_type,
           COALESCE(c.character_maximum_length, c.numeric_precision) AS max_length,
           tc.constraint_type AS const, kcu.constraint_name AS \"key\",
@@ -946,7 +1069,12 @@ module ActiveRecord::ConnectionHandling
       when 'PostgreSQL', 'SQLite' # These bring back a hash for each row because the query uses column aliases
         ActiveRecord::Base.execute_sql(sql).each do |r|
           # next if internal_views.include?(r['relation_name']) # Skip internal views such as v_all_assessments
-          relation = relations[(relation_name = r['relation_name'])]
+          relation_name = if true
+                            "#{schema_name = r['schema']}.#{r['relation_name']}"
+                          else
+                            r['relation_name']
+                          end
+          relation = relations[relation_name]
           relation[:isView] = true if r['table_type'] == 'VIEW'
           col_name = r['column_name']
           key = case r['const']
@@ -1007,7 +1135,8 @@ module ActiveRecord::ConnectionHandling
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'Mysql2'
         sql = ActiveRecord::Base.send(:sanitize_sql_array, [
-          "SELECT kcu1.TABLE_NAME, kcu1.COLUMN_NAME, kcu2.TABLE_NAME AS primary_table, kcu1.CONSTRAINT_NAME, kcu1.CONSTRAINT_SCHEMA, kcu2.CONSTRAINT_SCHEMA AS CONSTRAINT_SCHEMA_FK
+          "SELECT kcu1.CONSTRAINT_SCHEMA, kcu1.TABLE_NAME, kcu1.COLUMN_NAME,
+                  kcu2.CONSTRAINT_SCHEMA AS primary_schema, kcu2.TABLE_NAME AS primary_table, kcu1.CONSTRAINT_NAME AS CONSTRAINT_SCHEMA_FK
           FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS rc
             INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu1
               ON kcu1.CONSTRAINT_CATALOG = rc.CONSTRAINT_CATALOG
@@ -1029,10 +1158,12 @@ module ActiveRecord::ConnectionHandling
       else
       end
       if sql
-        ::Brick.db_schemas = ActiveRecord::Base.execute_sql(schema_sql)
-        ::Brick.db_schemas = ::Brick.db_schemas.to_a unless ::Brick.db_schemas.is_a?(Array)
-        ::Brick.db_schemas.map! { |row| row['table_schema'] } unless ::Brick.db_schemas.empty? || ::Brick.db_schemas.first.is_a?(String)
-        ::Brick.db_schemas -= ['information_schema', 'pg_catalog']
+        unless (db_schemas = ActiveRecord::Base.execute_sql(schema_sql)).is_a?(Array)
+          db_schemas = db_schemas.to_a
+        end
+        unless db_schemas.empty? || db_schemas.first.is_a?(String)
+          ::Brick.db_schemas = db_schemas.each_with_object({}) { |row, s| s[row['table_schema']] = nil unless ['information_schema', 'pg_catalog'].include?(row['table_schema']) }
+        end
         ActiveRecord::Base.execute_sql(sql).each do |fk|
           fk = fk.values unless fk.is_a?(Array)
           ::Brick._add_bt_and_hm(fk, relations)
@@ -1079,39 +1210,45 @@ module Brick
 
   class << self
     def _add_bt_and_hm(fk, relations, is_polymorphic = false)
-      if (bt_assoc_name = fk[1].underscore).end_with?('_id')
+      if (bt_assoc_name = fk[2].underscore).end_with?('_id')
         bt_assoc_name = bt_assoc_name[0..-4]
       elsif bt_assoc_name.end_with?('id') && bt_assoc_name.exclude?('_') # Make the bold assumption that we can just peel off the final ID part
         bt_assoc_name = bt_assoc_name[0..-3]
       else
         bt_assoc_name = "#{bt_assoc_name}_bt"
       end
-
-      bts = (relation = relations.fetch(fk[0], nil))&.fetch(:fks) { relation[:fks] = {} }
+      # %%% Temporary schema patch
+      fk[1] = "#{fk[0]}.#{for_tbl = fk[1]}" if fk[0]
+      bts = (relation = relations.fetch(fk[1], nil))&.fetch(:fks) { relation[:fks] = {} }
       # %%% Do we miss out on has_many :through or even HM based on constantizing this model early?
       # Maybe it's already gotten this info because we got as far as to say there was a unique class
-      primary_table = (is_class = fk[2].is_a?(Hash) && fk[2].key?(:class)) ? (primary_class = fk[2][:class].constantize).table_name : fk[2]
+      primary_table = if (is_class = fk[4].is_a?(Hash) && fk[4].key?(:class))
+                        pri_tbl = (primary_class = fk[4][:class].constantize).table_name
+                      else
+                        pri_tbl = fk[4]
+                        fk[3] ? "#{fk[3]}.#{pri_tbl}" : pri_tbl
+                      end
       hms = (relation = relations.fetch(primary_table, nil))&.fetch(:fks) { relation[:fks] = {} } unless is_class
 
-      unless (cnstr_name = fk[3])
+      unless (cnstr_name = fk[5])
         # For any appended references (those that come from config), arrive upon a definitely unique constraint name
-        cnstr_base = cnstr_name = "(brick) #{fk[0]}_#{is_class ? fk[2][:class].underscore : fk[2]}"
+        cnstr_base = cnstr_name = "(brick) #{for_tbl}_#{is_class ? fk[4][:class].underscore : pri_tbl}"
         cnstr_added_num = 1
         cnstr_name = "#{cnstr_base}_#{cnstr_added_num += 1}" while bts&.key?(cnstr_name) || hms&.key?(cnstr_name)
         missing = []
-        missing << fk[0] unless relations.key?(fk[0])
+        missing << fk[1] unless relations.key?(fk[1])
         missing << primary_table unless is_class || relations.key?(primary_table)
         unless missing.empty?
           tables = relations.reject { |_k, v| v.fetch(:isView, nil) }.keys.sort
           puts "Brick: Additional reference #{fk.inspect} refers to non-existent #{'table'.pluralize(missing.length)} #{missing.join(' and ')}. (Available tables include #{tables.join(', ')}.)"
           return
         end
-        unless (cols = relations[fk[0]][:cols]).key?(fk[1]) || (is_polymorphic && cols.key?("#{fk[1]}_id") && cols.key?("#{fk[1]}_type"))
+        unless (cols = relations[fk[1]][:cols]).key?(fk[2]) || (is_polymorphic && cols.key?("#{fk[2]}_id") && cols.key?("#{fk[2]}_type"))
           columns = cols.map { |k, v| "#{k} (#{v.first.split(' ').first})" }
-          puts "Brick: Additional reference #{fk.inspect} refers to non-existent column #{fk[1]}. (Columns present in #{fk[0]} are #{columns.join(', ')}.)"
+          puts "Brick: Additional reference #{fk.inspect} refers to non-existent column #{fk[2]}. (Columns present in #{fk[1]} are #{columns.join(', ')}.)"
           return
         end
-        if (redundant = bts.find { |_k, v| v[:inverse]&.fetch(:inverse_table, nil) == fk[0] && v[:fk] == fk[1] && v[:inverse_table] == primary_table })
+        if (redundant = bts.find { |_k, v| v[:inverse]&.fetch(:inverse_table, nil) == fk[1] && v[:fk] == fk[2] && v[:inverse_table] == primary_table })
           if is_class && !redundant.last.key?(:class)
             redundant.last[:primary_class] = primary_class # Round out this BT so it can find the proper :source for a HMT association that references an STI subclass
           else
@@ -1123,18 +1260,18 @@ module Brick
       if (assoc_bt = bts[cnstr_name])
         if is_polymorphic
           # Assuming same fk (don't yet support composite keys for polymorphics)
-          assoc_bt[:inverse_table] << fk[2]
+          assoc_bt[:inverse_table] << fk[4]
         else # Expect we could have a composite key going
           if assoc_bt[:fk].is_a?(String)
-            assoc_bt[:fk] = [assoc_bt[:fk], fk[1]] unless fk[1] == assoc_bt[:fk]
-          elsif assoc_bt[:fk].exclude?(fk[1])
-            assoc_bt[:fk] << fk[1]
+            assoc_bt[:fk] = [assoc_bt[:fk], fk[2]] unless fk[2] == assoc_bt[:fk]
+          elsif assoc_bt[:fk].exclude?(fk[2])
+            assoc_bt[:fk] << fk[2]
           end
-          assoc_bt[:assoc_name] = "#{assoc_bt[:assoc_name]}_#{fk[1]}"
+          assoc_bt[:assoc_name] = "#{assoc_bt[:assoc_name]}_#{fk[2]}"
         end
       else
         inverse_table = [primary_table] if is_polymorphic
-        assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[1], assoc_name: bt_assoc_name, inverse_table: inverse_table || primary_table }
+        assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[2], assoc_name: bt_assoc_name, inverse_table: inverse_table || primary_table }
         assoc_bt[:polymorphic] = true if is_polymorphic
       end
       if is_class
@@ -1144,21 +1281,21 @@ module Brick
         # assoc_bt[:inverse_of] = primary_class.reflect_on_all_associations.find { |a| a.foreign_key == bt[1] }
       end
 
-      return if is_class || ::Brick.config.exclude_hms&.any? { |exclusion| fk[0] == exclusion[0] && fk[1] == exclusion[1] && primary_table == exclusion[2] } || hms.nil?
+      return if is_class || ::Brick.config.exclude_hms&.any? { |exclusion| fk[1] == exclusion[0] && fk[2] == exclusion[1] && primary_table == exclusion[2] } || hms.nil?
 
       if (assoc_hm = hms.fetch((hm_cnstr_name = "hm_#{cnstr_name}"), nil))
         if assoc_hm[:fk].is_a?(String)
-          assoc_hm[:fk] = [assoc_hm[:fk], fk[1]] unless fk[1] == assoc_hm[:fk]
-        elsif assoc_hm[:fk].exclude?(fk[1])
-          assoc_hm[:fk] << fk[1]
+          assoc_hm[:fk] = [assoc_hm[:fk], fk[2]] unless fk[2] == assoc_hm[:fk]
+        elsif assoc_hm[:fk].exclude?(fk[2])
+          assoc_hm[:fk] << fk[2]
         end
         assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
         assoc_hm[:inverse] = assoc_bt
       else
-        assoc_hm = hms[hm_cnstr_name] = { is_bt: false, fk: fk[1], assoc_name: fk[0], alternate_name: bt_assoc_name, inverse_table: fk[0], inverse: assoc_bt }
+        assoc_hm = hms[hm_cnstr_name] = { is_bt: false, fk: fk[2], assoc_name: fk[1], alternate_name: bt_assoc_name, inverse_table: fk[1], inverse: assoc_bt }
         assoc_hm[:polymorphic] = true if is_polymorphic
         hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
-        hm_counts[fk[0]] = hm_counts.fetch(fk[0]) { 0 } + 1
+        hm_counts[fk[1]] = hm_counts.fetch(fk[1]) { 0 } + 1
       end
       assoc_bt[:inverse] = assoc_hm
     end
