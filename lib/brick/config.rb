@@ -122,12 +122,12 @@ module Brick
       @mutex.synchronize { @sti_namespace_prefixes = prefixes }
     end
 
-    def schema_to_analyse
-      @mutex.synchronize { @schema_to_analyse }
+    def schema_behavior
+      @mutex.synchronize { @schema_behavior ||= {} }
     end
 
-    def schema_to_analyse=(schema)
-      @mutex.synchronize { @schema_to_analyse = schema }
+    def schema_behavior=(schema)
+      @mutex.synchronize { @schema_behavior = schema }
     end
 
     def sti_type_column

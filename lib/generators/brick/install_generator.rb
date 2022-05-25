@@ -222,7 +222,8 @@ module Brick
 
 # # Database schema to use when analysing existing data, such as deriving a list of polymorphic classes in the case that
 # # it wasn't originally specified.
-# Brick.schema_to_analyse = 'engineering'
+# Brick.schema_behavior = :namespaced
+# Brick.schema_behavior = { multitenant: { schema_to_analyse: 'engineering' } }
 
 # # Polymorphic associations are set up by providing a model name and polymorphic association name#{poly}
 

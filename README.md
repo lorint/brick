@@ -4,7 +4,7 @@
 
 Welcome to a seemingly-magical world of spinning up simple and yet well-rounded applications
 from any existing relational database!  This gem auto-creates models, views, controllers, and
-routes.
+routes, building appropriate links between the view pages.
 
 ## Documentation
 
@@ -17,16 +17,16 @@ You can use The Brick in several ways -- from taking a quick peek inside an exis
 with full ability to navigate across associations, to easily updating and creating data,
 exporting tables or views out to CSV or Google Sheets, importing sets of data, creating a
 minimally-scaffolded application one file at a time, experimenting with various data layouts to
-see how functional a given database design will be, and more.
+prove out a database design, and more.
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
-such, models, controllers, and views are treated independently.  You can use this tool to only
-build out models if you wish, and then make your own controllers and views.  Or have The Brick
-make generic controllers and views for some resources as you fine-tune others with custom code.
-Or you could go the other way around -- you build the models, and have The Brick auto-create
-the controllers and views.  Any kind of hybrid approach is possible.  The idea is to use
-The Brick to automatically provide the more tedious and simple parts of your application,
-allowing you to focus effort on the tricky custom parts.
+such the models, controllers, and views are treated independently.  You can use this tool to
+only build out models if you wish, and then make your own controllers and views.  Or have The
+Brick make generic controllers and views for some resources as you fine-tune others with custom
+code.  Or you could go the other way around -- you build the models, and have The Brick
+auto-create the controllers and views.  Any kind of hybrid approach is possible.  The idea is
+to use The Brick to automatically provide the more tedious and simple parts of your
+application, allowing you to focus effort on the tricky custom parts.
 
 In terms of models, all major ActiveRecord associations can be used, including has_many and
 belongs_to, as well as has_many :through, Single Table Inheritance (STI), and polymorphic
@@ -59,9 +59,10 @@ It can be provided by putting a line like this in an initialiser file:
 
     `::Brick.additional_references = [['recipe_ingredients', 'recipe_id', 'recipes']]`
 
-Brick can auto-create such an initialiser file, and often infer these kinds of useful references
-to fill in the gaps for missing foreign keys.  These suggestions are left commented out initially,
-so very easily brought into play by editing that file.  Myriad settings are avaiable therein.
+Brick can auto-create such an initialiser file, and often infer these kinds of useful
+references to fill in the gaps for missing foreign keys.  These suggestions are left commented
+out initially, so very easily brought into play by editing that file.  Myriad settings are
+avaiable therein.
 
 ## Table of Contents
 
