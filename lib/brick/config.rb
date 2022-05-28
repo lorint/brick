@@ -130,6 +130,26 @@ module Brick
       @mutex.synchronize { @schema_to_analyse = schema }
     end
 
+    def sti_type_column
+      @mutex.synchronize { @sti_type_column ||= {} }
+    end
+
+    def sti_type_column=(type_col)
+      @mutex.synchronize do
+        (@sti_type_column = type_col).each_with_object({}) do |v, s|
+          if v.last.nil?
+            # Set an STI type column generally
+            ActiveRecord::Base.inheritance_column = v.first
+          else
+            # Custom STI type columns for models built from specific tables
+            (v.last.is_a?(Array) ? v.last : [v.last]).each do |table|
+              ::Brick.relations[table][:sti_col] = v.first
+            end
+          end
+        end
+      end
+    end
+
     def default_route_fallback
       @mutex.synchronize { @default_route_fallback }
     end
