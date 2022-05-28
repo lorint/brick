@@ -291,6 +291,10 @@ module Brick
       Brick.config.schema_to_analyse = schema
     end
 
+    def sti_type_column=(type_col)
+      Brick.config.sti_type_column = (type_col.is_a?(String) ? { type_col => nil } : type_col)
+    end
+
     def default_route_fallback=(resource_name)
       Brick.config.default_route_fallback = resource_name
     end
