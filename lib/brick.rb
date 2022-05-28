@@ -90,7 +90,7 @@ module Brick
   end
 
   class << self
-    attr_accessor :db_schemas
+    attr_accessor :default_schema, :db_schemas
 
     def set_db_schema(params)
       schema = params['_brick_schema'] || 'public'
@@ -287,8 +287,12 @@ module Brick
     # Database schema to use when analysing existing data, such as deriving a list of polymorphic classes
     # for polymorphics in which it wasn't originally specified.
     # @api public
-    def schema_to_analyse=(schema)
-      Brick.config.schema_to_analyse = schema
+    def schema_behavior=(behavior)
+      Brick.config.schema_behavior = (behavior.is_a?(Symbol) ? { behavior => nil } : behavior)
+    end
+    # For any Brits out there
+    def schema_behaviour=(behavior)
+      Brick.schema_behavior = behavior
     end
 
     def sti_type_column=(type_col)
@@ -309,7 +313,7 @@ module Brick
       if (ars = ::Brick.config.additional_references) || ::Brick.config.polymorphics
         ars.each { |fk| ::Brick._add_bt_and_hm(fk[0..2], relations) } if ars
         if (polys = ::Brick.config.polymorphics)
-          if (schema = ::Brick.config.schema_to_analyse) && ::Brick.db_schemas&.include?(schema)
+          if (schema = ::Brick.config.schema_behavior[:multitenant]&.fetch(:schema_to_analyse, nil)) && ::Brick.db_schemas&.include?(schema)
             ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema)
           end
           missing_stis = {}
@@ -394,12 +398,21 @@ In config/initializers/brick.rb appropriate entries would look something like:
         end
         # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
         # If auto-controllers and auto-models are both enabled then this makes sense:
-        ::Brick.relations.each do |k, v|
-          k = k.split('.').join('_')
-          unless existing_controllers.key?(controller_name = k.underscore.pluralize)
+        ::Brick.relations.each do |rel_name, v|
+          rel_name = rel_name.split('.').map(&:underscore)
+          schema_names = rel_name[0..-2]
+          k = rel_name.last # join('_')
+          puts rel_name.last
+          unless existing_controllers.key?(controller_name = k.pluralize)
             options = {}
             options[:only] = [:index, :show] if v.key?(:isView)
-            send(:resources, controller_name.to_sym, **options)
+            if schema_names.present? # && !Object.const_defined('Apartment')
+              send(:namespace, schema_names.first) do
+                send(:resources, controller_name.to_sym, **options)
+              end
+            else
+              send(:resources, controller_name.to_sym, **options)
+            end
           end
         end
       end
