@@ -630,6 +630,10 @@ class Object
         else
           code << "  # Could not identify any column(s) to use as a primary key\n" unless is_view
         end
+        if (sti_col = relation.fetch(:sti_col, nil))
+          new_model_class.send(:'inheritance_column=', sti_col)
+          code << "  self.inheritance_column = #{sti_col.inspect}\n"
+        end
 
         unless is_sti
           fks = relation[:fks] || {}

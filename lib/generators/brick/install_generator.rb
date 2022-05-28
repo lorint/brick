@@ -215,6 +215,11 @@ module Brick
 # Brick.sti_namespace_prefixes = { '::Animals::' => 'Animal',
 #                                  '::Snake' => 'Reptile' }
 
+# # Custom inheritance_column to be used for STI.  This is by default \"type\", and applies to all models.  With this
+# # option you can change this either for specific models, or apply a new overall name generally:
+# Brick.sti_type_column = 'sti_type'
+# Brick.sti_type_column = { 'rails_type' => ['sales.specialoffer'] }
+
 # # Database schema to use when analysing existing data, such as deriving a list of polymorphic classes in the case that
 # # it wasn't originally specified.
 # Brick.schema_to_analyse = 'engineering'
