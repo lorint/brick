@@ -222,7 +222,7 @@ end %>"
               if ['index', 'show', 'update'].include?(args.first)
                 poly_cols = []
                 css << "<% bts = { #{
-                  bts.each_with_object([]) do |v, s|
+                  bt_items = bts.each_with_object([]) do |v, s|
                     foreign_models = if v.last[2] # Polymorphic?
                                        poly_cols << @_brick_model.reflect_on_association(v[1].first).foreign_type
                                        v.last[1].each_with_object([]) { |x, s| s << "[#{x.name}, #{x.primary_key.inspect}]" }.join(', ')
@@ -230,7 +230,10 @@ end %>"
                                        "[#{v.last[1].name}, #{v.last[1].primary_key.inspect}]"
                                      end
                     s << "#{v.first.inspect} => [#{v.last.first.inspect}, [#{foreign_models}], #{v.last[2].inspect}]"
-                  end.join(', ')
+                  end
+                  # # %%% Need to fix poly going to an STI class
+                  # binding.pry unless poly_cols.empty?
+                  bt_items.join(', ')
                 } }
                 poly_cols = #{poly_cols.inspect} %>"
               end
