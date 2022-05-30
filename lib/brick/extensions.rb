@@ -108,7 +108,8 @@ module ActiveRecord
             if ch == ']' # Time to process a bracketed thing?
               parts = bracket_name.split('.')
               first_parts = parts[0..-2].map do |part|
-                klass = klass.reflect_on_association(part_sym = part.to_sym).klass
+                klass = (orig_class = klass).reflect_on_association(part_sym = part.to_sym)&.klass
+                puts "Couldn't reference #{orig_class.name}##{part} that's part of the DSL \"#{dsl}\"." if klass.nil?
                 part_sym
               end
               parts = prefix + first_parts + [parts[-1]]
@@ -492,7 +493,9 @@ if ActiveSupport::Dependencies.respond_to?(:autoload_module!) # %%% Only works w
       alias _brick_autoload_module! autoload_module!
       def autoload_module!(*args)
         into, const_name, qualified_name, path_suffix = args
-        if (base_class = ::Brick.config.sti_namespace_prefixes&.fetch("::#{into.name}::", nil)&.constantize)
+        base_class_name = ::Brick.config.sti_namespace_prefixes&.fetch("::#{into.name}::", nil)
+        base_class_name = "::#{base_class_name}" unless base_class_name.start_with?('::')
+        if (base_class = base_class_name&.constantize)
           ::Brick.sti_models[qualified_name] = { base: base_class }
           # Build subclass and place it into the specially STI-namespaced module
           into.const_set(const_name.to_sym, klass = Class.new(base_class))
@@ -513,8 +516,13 @@ end
 Module.class_exec do
   alias _brick_const_missing const_missing
   def const_missing(*args)
-    if (self.const_defined?(args.first) && (possible = self.const_get(args.first)) != self) ||
-       (self != Object && Object.const_defined?(args.first) && (possible = Object.const_get(args.first)) != self)
+    if (self.const_defined?(args.first) && (possible = self.const_get(args.first)) && possible != self) ||
+       (self != Object && Object.const_defined?(args.first) &&
+         (
+           (possible = Object.const_get(args.first)) &&
+           (possible != self || (possible == self && possible.is_a?(Class)))
+         )
+       )
       return possible
     end
     class_name = args.first.to_s
@@ -550,12 +558,13 @@ Module.class_exec do
                end
              elsif (::Brick.enable_models? || ::Brick.enable_controllers?) && # Schema match?
                    self == Object && # %%% This works for Person::Person -- but also limits us to not being able to allow more than one level of namespacing
-                   schema_name = [(singular_table_name = class_name.underscore),
-                                  (table_name = singular_table_name.pluralize),
-                                  class_name,
-                                  (plural_class_name = class_name.pluralize)].find { |s| Brick.db_schemas.include?(s) }
+                   (schema_name = [(singular_table_name = class_name.underscore),
+                                   (table_name = singular_table_name.pluralize),
+                                   class_name,
+                                   (plural_class_name = class_name.pluralize)].find { |s| Brick.db_schemas.include?(s) }&.camelize ||
+                                  (::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}::") && class_name))
                # Build out a module for the schema if it's namespaced
-               schema_name = schema_name.camelize
+               # schema_name = schema_name.camelize
                self.const_set(schema_name.to_sym, (built_module = Module.new))
 
                [built_module, "module #{schema_name}; end\n"]
@@ -564,27 +573,37 @@ Module.class_exec do
                # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
                # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
 
-               unless self == Object # Are we in some namespace?
+               if (base_model = ::Brick.config.sti_namespace_prefixes&.fetch("::#{name}::", nil)&.constantize) || # Are we part of an auto-STI namespace? ...
+                  self != Object # ... or otherwise already in some namespace?
                  schema_name = [(singular_schema_name = name.underscore),
                                 (schema_name = singular_schema_name.pluralize),
                                 name,
                                 name.pluralize].find { |s| Brick.db_schemas.include?(s) }
                end
-
                plural_class_name = ActiveSupport::Inflector.pluralize(model_name = class_name)
                # If it's namespaced then we turn the first part into what would be a schema name
-               singular_table_name = ActiveSupport::Inflector.underscore(model_name).gsub('::', '.')
+               singular_table_name = ActiveSupport::Inflector.underscore(model_name).gsub('/', '.')
 
-               # Adjust for STI if we know of a base model for the requested model name
-               table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil) || ::Brick.existing_stis[model_name]&.constantize)
-                              base_model.table_name
-                            else
-                              ActiveSupport::Inflector.pluralize(singular_table_name)
-                            end
-
-               # Maybe, just maybe there's a database table that will satisfy this need
-               if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
-                 Object.send(:build_model, schema_name, model_name, singular_table_name, table_name, relations, matching)
+               if base_model
+                 schema_name = name.underscore # For the auto-STI namespace models
+                 table_name = base_model.table_name
+                 Object.send(:build_model, self, model_name, singular_table_name, table_name, relations, table_name)
+               else
+                 # Adjust for STI if we know of a base model for the requested model name
+                 # %%% Does not yet work with namespaced model names.  Perhaps prefix with plural_class_name when doing the lookups here.
+                 table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil) || ::Brick.existing_stis[model_name]&.constantize)
+                                base_model.table_name
+                              else
+                                ActiveSupport::Inflector.pluralize(singular_table_name)
+                              end
+                 if ::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') &&
+                    Apartment.excluded_models.include?(table_name.singularize.camelize)
+                   schema_name = Apartment.default_schema
+                 end
+                 # Maybe, just maybe there's a database table that will satisfy this need
+                 if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
+                   Object.send(:build_model, schema_name, model_name, singular_table_name, table_name, relations, matching)
+                 end
                end
              end
     if result
@@ -612,15 +631,22 @@ class Object
   private
 
     def build_model(schema_name, model_name, singular_table_name, table_name, relations, matching)
-      full_name = if schema_name.blank?
+      full_name = if (::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') && schema_name == Apartment.default_schema)
+                    relation = relations["#{schema_name}.#{matching}"]
+                    model_name
+                  elsif schema_name.blank?
                     model_name
                   else # Prefix the schema to the table name + prefix the schema namespace to the class name
-                    schema_module = (Brick.db_schemas[schema_name] ||= self.const_get(schema_name.singularize.camelize))
-                    matching = "#{schema_name}.#{matching}"
+                    schema_module = if schema_name.instance_of?(Module) # from an auto-STI namespace?
+                                      schema_name
+                                    else
+                                      matching = "#{schema_name}.#{matching}"
+                                      (Brick.db_schemas[schema_name] ||= self.const_get(schema_name.singularize.camelize))
+                                    end
                     "#{schema_module&.name}::#{model_name}"
                   end
 
-      return if ((is_view = (relation = relations[matching]).key?(:isView)) && ::Brick.config.skip_database_views) ||
+      return if ((is_view = (relation ||= relations[matching]).key?(:isView)) && ::Brick.config.skip_database_views) ||
                 ::Brick.config.exclude_tables.include?(matching)
 
       # Are they trying to use a pluralised class name such as "Employees" instead of "Employee"?
@@ -712,7 +738,8 @@ class Object
           hmts&.each do |hmt_fk, fks|
             hmt_fk = hmt_fk.tr('.', '_')
             fks.each do |fk|
-              through = fk.first[:assoc_name]
+              # %%% Will not work with custom has_many name
+              through = ::Brick.config.schema_behavior[:multitenant] ? fk.first[:assoc_name] : fk.first[:inverse_table].tr('.', '_').pluralize
               hmt_name = if fks.length > 1
                            if fks[0].first[:inverse][:assoc_name] == fks[1].first[:inverse][:assoc_name] # Same BT names pointing back to us? (Most common scenario)
                              "#{hmt_fk}_through_#{fk.first[:assoc_name]}"
@@ -724,10 +751,14 @@ class Object
                          else
                            hmt_fk
                          end
-              source = fk.last unless hmt_name.singularize == fk.last
-              code << "  has_many :#{hmt_name}, through: #{(assoc_name = through.to_sym).to_sym.inspect}#{", source: :#{source}" if source}\n"
-              options = { through: assoc_name }
-              options[:source] = source.to_sym if source
+              options = { through: through.to_sym }
+              if relation[:fks].any? { |k, v| v[:assoc_name] == hmt_name }
+                hmt_name = "#{hmt_name.singularize}_#{fk.first[:assoc_name]}"
+                options[:class_name] = fk.first[:inverse_table].singularize.camelize
+                options[:foreign_key] = fk.first[:fk].to_sym
+              end
+              options[:source] = fk.last.to_sym unless hmt_name.singularize == fk.last
+              code << "  has_many :#{hmt_name}#{options.map { |opt| ", #{opt.first}: #{opt.last.inspect}" }.join}\n"
               self.send(:has_many, hmt_name.to_sym, **options)
             end
           end
@@ -792,7 +823,11 @@ class Object
               end
       # Figure out if we need to specially call out the class_name and/or foreign key
       # (and if either of those then definitely also a specific inverse_of)
-      options[:class_name] = "::#{assoc[:primary_class]&.name || singular_table_name.split('.').map(&:camelize).join('::')}" if need_class_name
+      if (singular_table_parts = singular_table_name.split('.')).length > 1 &&
+         ::Brick.config.schema_behavior[:multitenant] && singular_table_parts.first == 'public'
+        singular_table_parts.shift
+      end
+      options[:class_name] = "::#{assoc[:primary_class]&.name || singular_table_parts.map(&:camelize).join('::')}" if need_class_name
       # Work around a bug in CPK where self-referencing belongs_to associations double up their foreign keys
       if need_fk # Funky foreign key?
         options[:foreign_key] = if assoc[:fk].is_a?(Array)
@@ -958,11 +993,20 @@ module ActiveRecord::ConnectionHandling
     conn
   end
 
+  # This is done separately so that during testing it can be called right after a migration
+  # in order to make sure everything is good.
   def _brick_reflect_tables
+    initializer_loaded = false
     if (relations = ::Brick.relations).empty?
-      # Hopefully our initializer is named exactly this!
+      # If there's schema things configured then we only expect our initializer to be named exactly this
       if File.exist?(brick_initializer = Rails.root.join('config/initializers/brick.rb'))
-        load brick_initializer
+        initializer_loaded = load brick_initializer
+      end
+      # Load the initializer for the Apartment gem a little early so that if .excluded_models and
+      # .default_schema are specified then we can work with non-tenanted models more appropriately
+      if Object.const_defined?('Apartment') && File.exist?(apartment_initializer = Rails.root.join('config/initializers/apartment.rb'))
+        load apartment_initializer
+        apartment_excluded = Apartment.excluded_models
       end
       # Only for Postgres?  (Doesn't work in sqlite3)
       # puts ActiveRecord::Base.execute_sql("SELECT current_setting('SEARCH_PATH')").to_a.inspect
@@ -970,7 +1014,9 @@ module ActiveRecord::ConnectionHandling
       schema_sql = 'SELECT NULL AS table_schema;'
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL'
-        if (::Brick.default_schema = schema = ::Brick.config.schema_behavior&.[](:multitenant)&.[](:schema_to_analyse))
+        if (is_multitenant = (multitenancy = ::Brick.config.schema_behavior[:multitenant]) &&
+           (sta = multitenancy[:schema_to_analyse]) != 'public')
+          ::Brick.default_schema = schema = sta
           ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
         end
         schema_sql = 'SELECT DISTINCT table_schema FROM INFORMATION_SCHEMA.tables;'
@@ -986,6 +1032,28 @@ module ActiveRecord::ConnectionHandling
         ORDER BY m.name, p.cid"
       else
         puts "Unfamiliar with connection adapter #{ActiveRecord::Base.connection.adapter_name}"
+      end
+
+      unless (db_schemas = ActiveRecord::Base.execute_sql(schema_sql)).is_a?(Array)
+        db_schemas = db_schemas.to_a
+      end
+      unless db_schemas.empty?
+        ::Brick.db_schemas = db_schemas.each_with_object({}) do |row, s|
+          row = row.is_a?(String) ? row : row['table_schema']
+          # Remove any system schemas
+          s[row] = nil unless ['information_schema', 'pg_catalog'].include?(row)
+        end
+      end
+
+      if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+        if (possible_schema = ::Brick.config.schema_behavior&.[](:multitenant)&.[](:schema_to_analyse))
+          if ::Brick.db_schemas.key?(possible_schema)
+            ::Brick.default_schema = schema = possible_schema
+            ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
+          else
+            puts "*** In the brick.rb initializer the line \"::Brick.schema_behavior = ...\" refers to a schema called \"#{possible_schema}\".  This schema does not exist. ***"
+          end
+        end
       end
 
       sql ||= "SELECT t.table_schema AS schema, t.table_name AS relation_name, t.table_type,
@@ -1014,13 +1082,16 @@ module ActiveRecord::ConnectionHandling
       measures = []
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'SQLite' # These bring back a hash for each row because the query uses column aliases
-        schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+        # schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
         ActiveRecord::Base.execute_sql(sql).each do |r|
-          relation_name = if r['schema'] != schema
-                            "#{schema_name = r['schema']}.#{r['relation_name']}"
-                          else
-                            r['relation_name']
-                          end
+          # If Apartment gem lists the table as being associated with a non-tenanted model then use whatever it thinks
+          # is the default schema, usually 'public'.
+          schema_name = if ::Brick.config.schema_behavior[:multitenant]
+                          Apartment.default_schema if apartment_excluded&.include?(r['relation_name'].singularize.camelize)
+                        elsif ![schema, 'public'].include?(r['schema'])
+                          r['schema']
+                        end
+          relation_name = schema_name ? "#{schema_name}.#{r['relation_name']}" : r['relation_name']
           relation = relations[relation_name]
           relation[:isView] = true if r['table_type'] == 'VIEW'
           col_name = r['column_name']
@@ -1077,7 +1148,7 @@ module ActiveRecord::ConnectionHandling
       #     end
       #   end
       # end
-      schema = ::Brick.default_schema # Reset back for this next round of fun
+      # schema = ::Brick.default_schema # Reset back for this next round of fun
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'Mysql2'
         sql = "SELECT kcu1.CONSTRAINT_SCHEMA, kcu1.TABLE_NAME, kcu1.COLUMN_NAME,
@@ -1102,19 +1173,20 @@ module ActiveRecord::ConnectionHandling
       else
       end
       if sql
-        ::Brick.default_schema ||= schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-        unless (db_schemas = ActiveRecord::Base.execute_sql(schema_sql)).is_a?(Array)
-          db_schemas = db_schemas.to_a
-        end
-        unless db_schemas.empty?
-          ::Brick.db_schemas = db_schemas.each_with_object({}) do |row, s|
-            row = row.is_a?(String) ? row : row['table_schema']
-            # Remove whatever default schema we're using and other system schemas
-            s[row] = nil unless ['information_schema', 'pg_catalog', schema].include?(row)
-          end
-        end
+        # ::Brick.default_schema ||= schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
         ActiveRecord::Base.execute_sql(sql).each do |fk|
           fk = fk.values unless fk.is_a?(Array)
+          # Multitenancy makes things a little more general overall, except for non-tenanted tables
+          if apartment_excluded&.include?(fk[1].singularize.camelize)
+            fk[0] = Apartment.default_schema
+          elsif fk[0] == 'public' || (is_multitenant && fk[0] == schema)
+            fk[0] = nil
+          end
+          if apartment_excluded&.include?(fk[4].singularize.camelize)
+            fk[3] = Apartment.default_schema
+          elsif fk[3] == 'public' || (is_multitenant && fk[3] == schema)
+            fk[3] = nil
+          end
           ::Brick._add_bt_and_hm(fk, relations)
         end
       end
@@ -1127,11 +1199,7 @@ module ActiveRecord::ConnectionHandling
       views.keys.each { |k| puts ActiveSupport::Inflector.singularize(k).camelize }
     end
 
-    # Try to load the initializer pretty danged early
-    if File.exist?(brick_initialiser = Rails.root.join('config/initializers/brick.rb'))
-      load brick_initialiser
-      ::Brick.load_additional_references
-    end
+    ::Brick.load_additional_references if initializer_loaded
   end
 end
 
@@ -1159,30 +1227,50 @@ module Brick
 
   class << self
     def _add_bt_and_hm(fk, relations, is_polymorphic = false)
-      if (bt_assoc_name = fk[2].underscore).end_with?('_id')
-        bt_assoc_name = bt_assoc_name[0..-4]
-      elsif bt_assoc_name.end_with?('id') && bt_assoc_name.exclude?('_') # Make the bold assumption that we can just peel off the final ID part
-        bt_assoc_name = bt_assoc_name[0..-3]
-      else
-        bt_assoc_name = "#{bt_assoc_name}_bt"
+      bt_assoc_name = fk[2]
+      unless is_polymorphic
+        bt_assoc_name = if bt_assoc_name.underscore.end_with?('_id')
+                          bt_assoc_name[0..-4]
+                        elsif bt_assoc_name.downcase.end_with?('id') && bt_assoc_name.exclude?('_')
+                          bt_assoc_name[0..-3] # Make the bold assumption that we can just peel off any final ID part
+                        else
+                          "#{bt_assoc_name}_bt"
+                        end
       end
       # %%% Temporary schema patch
-      for_tbl = "#{fk[1]}_"
-      fk[1] = "#{fk[0]}.#{fk[1]}" if fk[0] && fk[0] != ::Brick.default_schema
+      for_tbl = fk[1]
+      fk[0] = Apartment.default_schema if Object.const_defined?('Apartment') && Apartment.excluded_models.include?(for_tbl.singularize.camelize)
+      fk[1] = "#{fk[0]}.#{fk[1]}" if fk[0] # && fk[0] != ::Brick.default_schema
       bts = (relation = relations.fetch(fk[1], nil))&.fetch(:fks) { relation[:fks] = {} }
+
       # %%% Do we miss out on has_many :through or even HM based on constantizing this model early?
       # Maybe it's already gotten this info because we got as far as to say there was a unique class
       primary_table = if (is_class = fk[4].is_a?(Hash) && fk[4].key?(:class))
                         pri_tbl = (primary_class = fk[4][:class].constantize).table_name
+                        if (pri_tbl_parts = pri_tbl.split('.')).length > 1
+                          fk[3] = pri_tbl_parts.first
+                        end
                       else
+                        is_schema = if ::Brick.config.schema_behavior[:multitenant]
+                                      # If Apartment gem lists the primary table as being associated with a non-tenanted model
+                                      # then use 'public' schema for the primary table
+                                      if Object.const_defined?('Apartment') && Apartment.excluded_models.include?(fk[4].singularize.camelize)
+                                        fk[3] = Apartment.default_schema
+                                        true
+                                      end
+                                    else
+                                      fk[3] && fk[3] != ::Brick.default_schema && fk[3] != 'public'
+                                    end
                         pri_tbl = fk[4]
-                        (fk[3] && fk[3] != ::Brick.default_schema) ? "#{fk[3]}.#{pri_tbl}" : pri_tbl
+                        is_schema ? "#{fk[3]}.#{pri_tbl}" : pri_tbl
                       end
       hms = (relation = relations.fetch(primary_table, nil))&.fetch(:fks) { relation[:fks] = {} } unless is_class
 
       unless (cnstr_name = fk[5])
         # For any appended references (those that come from config), arrive upon a definitely unique constraint name
-        cnstr_base = cnstr_name = "(brick) #{for_tbl}#{is_class ? fk[4][:class].underscore : pri_tbl}"
+        pri_tbl = is_class ? fk[4][:class].underscore : pri_tbl
+        pri_tbl = "#{bt_assoc_name}_#{pri_tbl}" if pri_tbl.singularize != bt_assoc_name
+        cnstr_base = cnstr_name = "(brick) #{for_tbl}_#{pri_tbl}"
         cnstr_added_num = 1
         cnstr_name = "#{cnstr_base}_#{cnstr_added_num += 1}" while bts&.key?(cnstr_name) || hms&.key?(cnstr_name)
         missing = []
@@ -1242,7 +1330,13 @@ module Brick
         assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
         assoc_hm[:inverse] = assoc_bt
       else
-        assoc_hm = hms[hm_cnstr_name] = { is_bt: false, fk: fk[2], assoc_name: fk[1].tr('.', '_').pluralize, alternate_name: bt_assoc_name, inverse_table: fk[1], inverse: assoc_bt }
+        inv_tbl = if ::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') && fk[0] == Apartment.default_schema
+                    for_tbl
+                  else
+                    fk[1]
+                  end
+        assoc_hm = hms[hm_cnstr_name] = { is_bt: false, fk: fk[2], assoc_name: for_tbl.pluralize, alternate_name: bt_assoc_name,
+                                          inverse_table: inv_tbl, inverse: assoc_bt }
         assoc_hm[:polymorphic] = true if is_polymorphic
         hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
         hm_counts[fk[1]] = hm_counts.fetch(fk[1]) { 0 } + 1

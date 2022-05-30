@@ -18,7 +18,8 @@ module Brick
     desc 'Generates an initializer file for configuring Brick'
 
     def create_initializer_file
-      unless File.exist?(filename = 'config/initializers/brick.rb')
+      is_brick_file = File.exist?(filename = 'config/initializers/brick.rb')
+      if is_brick_file && ::Brick.config.schema_behavior[:multitenant] || !is_brick_file
         # See if we can make suggestions for additional_references and polymorphic associations
         resembles_fks = Hash.new { |h, k| h[k] = [] }
         possible_polymorphics = {}
@@ -223,7 +224,10 @@ module Brick
 # # Database schema to use when analysing existing data, such as deriving a list of polymorphic classes in the case that
 # # it wasn't originally specified.
 # Brick.schema_behavior = :namespaced
-# Brick.schema_behavior = { multitenant: { schema_to_analyse: 'engineering' } }
+#{Brick.config.schema_behavior ? "Brick.schema_behavior = { multitenant: { schema_to_analyse: #{
+  Brick.config.schema_behavior[:multitenant][:schema_to_analyse].inspect}" :
+"# Brick.schema_behavior = { multitenant: { schema_to_analyse: 'engineering'"
+} } }
 
 # # Polymorphic associations are set up by providing a model name and polymorphic association name#{poly}
 
