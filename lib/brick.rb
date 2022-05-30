@@ -93,16 +93,19 @@ module Brick
     attr_accessor :default_schema, :db_schemas
 
     def set_db_schema(params)
-      schema = params['_brick_schema']
+      schema = params['_brick_schema'] || 'public'
       ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema) if schema && ::Brick.db_schemas&.include?(schema)
     end
 
     # All tables and views (what Postgres calls "relations" including column and foreign key info)
     def relations
-      connections = Brick.instance_variable_get(:@relations) ||
-        Brick.instance_variable_set(:@relations, (connections = {}))
       # Key our list of relations for this connection off of the connection pool's object_id
-      (connections[ActiveRecord::Base.connection_pool.object_id] ||= Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = {} } })
+      (@relations ||= {})[ActiveRecord::Base.connection_pool.object_id] ||= Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = {} } }
+    end
+
+    # If multitenancy is enabled, a list of non-tenanted "global" models
+    def non_tenanted_models
+      @pending_models ||= {}
     end
 
     def get_bts_and_hms(model)
