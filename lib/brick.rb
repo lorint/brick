@@ -317,7 +317,7 @@ module Brick
         if ars
           ars.each do |ar|
             fk = ar.length < 5 ? [nil, +ar[0], ar[1], nil, +ar[2]] : [ar[0], +ar[1], ar[2], ar[3], +ar[4], ar[5]]
-            ::Brick._add_bt_and_hm(fk, relations)
+            ::Brick._add_bt_and_hm(fk, relations, false, true)
           end
         end
         if (polys = ::Brick.config.polymorphics)
@@ -330,7 +330,7 @@ module Brick
             v ||= ActiveRecord::Base.execute_sql("SELECT DISTINCT #{poly}_type AS typ FROM #{table_name}").each_with_object([]) { |result, s| s << result['typ'] if result['typ'] }
             v.each do |type|
               if relations.key?(primary_table = type.underscore.pluralize)
-                ::Brick._add_bt_and_hm([nil, table_name, poly, nil, primary_table, "(brick) #{table_name}_#{poly}"], relations, true)
+                ::Brick._add_bt_and_hm([nil, table_name, poly, nil, primary_table, "(brick) #{table_name}_#{poly}"], relations, true, true)
               else
                 missing_stis[primary_table] = type unless ::Brick.existing_stis.key?(type)
               end

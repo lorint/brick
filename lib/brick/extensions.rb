@@ -780,6 +780,7 @@ class Object
                              else
                                assoc[:assoc_name]
                              end
+                options[:optional] = true if assoc.key?(:optional)
                 if assoc.key?(:polymorphic)
                   options[:polymorphic] = true
                 else
@@ -1226,7 +1227,7 @@ module Brick
   # rubocop:enable Style/CommentedKeyword
 
   class << self
-    def _add_bt_and_hm(fk, relations, is_polymorphic = false)
+    def _add_bt_and_hm(fk, relations, is_polymorphic = false, is_optional = false)
       bt_assoc_name = fk[2]
       unless is_polymorphic
         bt_assoc_name = if bt_assoc_name.underscore.end_with?('_id')
@@ -1310,6 +1311,7 @@ module Brick
       else
         inverse_table = [primary_table] if is_polymorphic
         assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[2], assoc_name: bt_assoc_name, inverse_table: inverse_table || primary_table }
+        assoc_bt[:optional] = true if is_optional
         assoc_bt[:polymorphic] = true if is_polymorphic
       end
       if is_class
