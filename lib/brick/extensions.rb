@@ -552,7 +552,7 @@ Module.class_exec do
                full_class_name = +''
                full_class_name << "::#{self.name}" unless self == Object
                full_class_name << "::#{plural_class_name.underscore.singularize.camelize}"
-               if (model = self.const_get(full_class_name))
+               if (plural_class_name == 'BrickSwagger' || model = self.const_get(full_class_name))
                  # if it's a controller and no match or a model doesn't really use the same table name, eager load all models and try to find a model class of the right name.
                  Object.send(:build_controller, self, class_name, plural_class_name, model, relations)
                end
@@ -857,19 +857,70 @@ class Object
     def build_controller(namespace, class_name, plural_class_name, model, relations)
       table_name = ActiveSupport::Inflector.underscore(plural_class_name)
       singular_table_name = ActiveSupport::Inflector.singularize(table_name)
-      pk = model._brick_primary_key(relations.fetch(table_name, nil))
+      pk = model&._brick_primary_key(relations.fetch(table_name, nil))
 
       namespace_name = "#{namespace.name}::" if namespace
       code = +"class #{namespace_name}#{class_name} < ApplicationController\n"
       built_controller = Class.new(ActionController::Base) do |new_controller_class|
         (namespace || Object).const_set(class_name.to_sym, new_controller_class)
 
-        code << "  def index\n"
-        code << "    @#{table_name} = #{model.name}#{pk&.present? ? ".order(#{pk.inspect})" : '.all'}\n"
-        code << "    @#{table_name}.brick_select(params)\n"
-        code << "  end\n"
+        unless (is_swagger = plural_class_name == 'BrickSwagger') # && request.format == :json)
+          code << "  def index\n"
+          code << "    @#{table_name} = #{model.name}#{pk&.present? ? ".order(#{pk.inspect})" : '.all'}\n"
+          code << "    @#{table_name}.brick_select(params)\n"
+          code << "  end\n"
+        end
         self.protect_from_forgery unless: -> { self.request.format.js? }
         self.define_method :index do
+          if is_swagger
+            json = { 'openapi': '3.0.1', 'info': { 'title': 'API V1', 'version': 'v1' },
+                     'servers': [
+                       { 'url': 'https://{defaultHost}', 'variables': { 'defaultHost': { 'default': 'www.example.com' } } }
+                     ]
+                   }
+            json['paths'] = relations.inject({}) do |s, v|
+              s["/api/v1/#{v.first}"] = {
+                'get': {
+                  'summary': "list #{v.first}",
+                  'parameters': v.last[:cols].map { |k, v| { 'name' => k, 'schema': { 'type': v.first } } },
+                  'responses': { '200': { 'description': 'successful' } }
+                }
+              }
+              # next if v.last[:isView]
+
+              s["/api/v1/#{v.first}/{id}"] = {
+                'patch': {
+                  'summary': "update a #{v.first.singularize}",
+                  'parameters': v.last[:cols].reject { |k, v| Brick.config.metadata_columns.include?(k) }.map do |k, v|
+                    { 'name' => k, 'schema': { 'type': v.first } }
+                  end,
+                  'responses': { '200': { 'description': 'successful' } }
+                }
+                # "/api/v1/books/{id}": {
+                #   "parameters": [
+                #     {
+                #       "name": "id",
+                #       "in": "path",
+                #       "description": "id",
+                #       "required": true,
+                #       "schema": {
+                #         "type": "string"
+                #       }
+                #     },
+                #     {
+                #       "name": "Authorization",
+                #       "in": "header",
+                #       "schema": {
+                #         "type": "string"
+                #       }
+                #     }
+                #   ],
+              }
+              s
+            end
+            render inline: json.to_json, content_type: request.format
+            return
+          end
           ::Brick.set_db_schema(params)
           if request.format == :csv # Asking for a template?
             require 'csv'
@@ -898,7 +949,7 @@ class Object
           @_brick_join_array = join_array
         end
 
-        if model.primary_key
+        if model&.primary_key
           code << "  def show\n"
           code << (find_by_id = "    id = params[:id]&.split(/[\\/,_]/)
     id = id.first if id.is_a?(Array) && id.length == 1
@@ -913,7 +964,7 @@ class Object
         end
 
         # By default, views get marked as read-only
-        unless false # model.readonly # (relation = relations[model.table_name]).key?(:isView)
+        unless is_swagger # model.readonly # (relation = relations[model.table_name]).key?(:isView)
           code << "  # (Define :new, :create)\n"
 
           if model.primary_key
@@ -972,10 +1023,21 @@ class Object
 
     def _brick_get_hm_assoc_name(relation, hm_assoc)
       if relation[:hm_counts][hm_assoc[:assoc_name]]&.> 1
+        # binding.pry if (same_name = relation[:fks].find { |x| x.last[:assoc_name] == hm_assoc[:assoc_name] && x.last != hm_assoc }) #&&
+                                    # x.last[:alternate_name] == hm_assoc[:alternate_name] })
+        # relation[:fks].any? { |k, v| v[:assoc_name] == new_alt_name }
         plural = ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name])
-        [hm_assoc[:alternate_name] == name.underscore ? "#{hm_assoc[:assoc_name].singularize}_#{plural}" : plural, true]
+        new_alt_name = (hm_assoc[:alternate_name] == name.underscore) ? "#{hm_assoc[:assoc_name].singularize}_#{plural}" : plural
+        # uniq = 1
+        # while same_name = relation[:fks].find { |x| x.last[:assoc_name] == hm_assoc[:assoc_name] && x.last != hm_assoc }
+        #   hm_assoc[:assoc_name] = "#{hm_assoc_name}_#{uniq += 1}"
+        # end
+        # puts new_alt_name
+        # hm_assoc[:assoc_name] = new_alt_name
+        [new_alt_name, true]
       else
         assoc_name = hm_assoc[:inverse_table].pluralize
+        # hm_assoc[:assoc_name] = assoc_name
         [assoc_name, assoc_name.include?('.')]
       end
     end

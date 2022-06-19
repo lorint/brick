@@ -423,6 +423,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
             end
           end
         end
+        send(:get, '/api-docs/v1/swagger.json', { to: 'brick_swagger#index' }) if Object.const_defined?('Rswag::Ui')
       end
       super
     end
