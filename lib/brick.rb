@@ -132,6 +132,7 @@ module Brick
       associatives = hms.each_with_object({}) do |hmt, s|
         if (through = hmt.last.options[:through])
           skip_hms[through] = nil
+          # binding.pry if hmt.first == :issue_issues
           s[hmt.first] = hms[through] # End up with a hash of HMT names pointing to join-table associations
         elsif hmt.last.inverse_of.nil?
           puts "SKIPPING #{hmt.last.name.inspect}"
@@ -423,6 +424,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
             end
           end
         end
+        send(:get, '/api-docs/v1/swagger.json', { to: 'brick_swagger#index' }) if Object.const_defined?('Rswag::Ui')
       end
       super
     end
