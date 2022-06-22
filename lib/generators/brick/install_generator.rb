@@ -209,7 +209,7 @@ module Brick
 # # Specify STI subclasses either directly by name or as a general module prefix that should always relate to a specific
 # # parent STI class.  The prefixed :: here for these examples is mandatory.  Also having a suffixed :: means instead of
 # # a class reference, this is for a general namespace reference.  So in this case requests for, say, either of the
-# # non-existant classes Animals::Cat or Animals::Goat (or anything else with the module prefix of \"Animals::\" would
+# # non-existent classes Animals::Cat or Animals::Goat (or anything else with the module prefix of \"Animals::\" would
 # # build a model that inherits from Animal.  And a request specifically for the class Snake would build a new model
 # # that inherits from Reptile, and no other request would do this -- only specifically for Snake.  The ending ::
 # # indicates that it's a module prefix instead of a specific class name.
