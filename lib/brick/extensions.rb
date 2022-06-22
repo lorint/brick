@@ -577,6 +577,8 @@ Module.class_exec do
                [built_module, "module #{schema_name}; end\n"]
                #  # %%% Perhaps an option to use the first module just as schema, and additional modules as namespace with a table name prefix applied
              elsif ::Brick.enable_models?
+               # Custom inheritable Brick base model?
+               class_name = (inheritable_name = class_name)[5..-1] if class_name.start_with?('Brick')
                # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
                # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
 
@@ -594,7 +596,7 @@ Module.class_exec do
                if base_model
                  schema_name = name.underscore # For the auto-STI namespace models
                  table_name = base_model.table_name
-                 Object.send(:build_model, self, model_name, singular_table_name, table_name, relations, table_name)
+                 Object.send(:build_model, self, inheritable_name, model_name, singular_table_name, table_name, relations, table_name)
                else
                  # Adjust for STI if we know of a base model for the requested model name
                  # %%% Does not yet work with namespaced model names.  Perhaps prefix with plural_class_name when doing the lookups here.
@@ -609,7 +611,7 @@ Module.class_exec do
                  end
                  # Maybe, just maybe there's a database table that will satisfy this need
                  if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
-                   Object.send(:build_model, schema_name, model_name, singular_table_name, table_name, relations, matching)
+                   Object.send(:build_model, schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching)
                  end
                end
              end
@@ -637,12 +639,12 @@ class Object
 
   private
 
-    def build_model(schema_name, model_name, singular_table_name, table_name, relations, matching)
+    def build_model(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching)
       full_name = if (::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') && schema_name == Apartment.default_schema)
                     relation = relations["#{schema_name}.#{matching}"]
-                    model_name
+                    inheritable_name || model_name
                   elsif schema_name.blank?
-                    model_name
+                    inheritable_name || model_name
                   else # Prefix the schema to the table name + prefix the schema namespace to the class name
                     schema_module = if schema_name.instance_of?(Module) # from an auto-STI namespace?
                                       schema_name
@@ -650,7 +652,7 @@ class Object
                                       matching = "#{schema_name}.#{matching}"
                                       (Brick.db_schemas[schema_name] ||= self.const_get(schema_name.singularize.camelize))
                                     end
-                    "#{schema_module&.name}::#{model_name}"
+                    "#{schema_module&.name}::#{inheritable_name || model_name}"
                   end
 
       return if ((is_view = (relation ||= relations[matching]).key?(:isView)) && ::Brick.config.skip_database_views) ||
@@ -659,12 +661,14 @@ class Object
       # Are they trying to use a pluralised class name such as "Employees" instead of "Employee"?
       if table_name == singular_table_name && !ActiveSupport::Inflector.inflections.uncountable.include?(table_name)
         unless ::Brick.config.sti_namespace_prefixes&.key?("::#{singular_table_name.camelize}::")
-          puts "Warning: Class name for a model that references table \"#{matching}\" should be \"#{ActiveSupport::Inflector.singularize(model_name)}\"."
+          puts "Warning: Class name for a model that references table \"#{matching
+               }\" should be \"#{ActiveSupport::Inflector.singularize(inheritable_name || model_name)}\"."
         end
         return
       end
 
-      if (base_model = ::Brick.sti_models[full_name]&.fetch(:base, nil) || ::Brick.existing_stis[full_name]&.constantize)
+      full_model_name = full_name.split('::').tap { |fn| fn[-1] = model_name }.join('::')
+      if (base_model = ::Brick.sti_models[full_model_name]&.fetch(:base, nil) || ::Brick.existing_stis[full_model_name]&.constantize)
         is_sti = true
       else
         base_model = ::Brick.config.models_inherit_from || ActiveRecord::Base
@@ -672,9 +676,21 @@ class Object
       hmts = nil
       code = +"class #{full_name} < #{base_model.name}\n"
       built_model = Class.new(base_model) do |new_model_class|
-        (schema_module || Object).const_set(model_name.to_sym, new_model_class)
+        (schema_module || Object).const_set((inheritable_name || model_name).to_sym, new_model_class)
+        if inheritable_name
+          new_model_class.define_singleton_method :inherited do |subclass|
+            super(subclass)
+            if subclass.name == model_name
+              puts "#{full_model_name} properly extends from #{full_name}"
+            else
+              puts "should be \"class #{model_name} < #{inheritable_name}\"\n           (not \"#{subclass.name} < #{inheritable_name}\")"
+            end
+          end
+          self.abstract_class = true
+          code << "  self.abstract_class = true\n"
+        end
         # Accommodate singular or camel-cased table names such as "order_detail" or "OrderDetails"
-        code << "  self.table_name = '#{self.table_name = matching}'\n" unless table_name == matching
+        code << "  self.table_name = '#{self.table_name = matching}'\n" if inheritable_name || table_name != matching
 
         # Override models backed by a view so they return true for #is_view?
         # (Dynamically-created controllers and view templates for such models will then act in a read-only way)
