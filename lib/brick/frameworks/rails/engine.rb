@@ -238,9 +238,10 @@ end %>"
                 poly_cols = #{poly_cols.inspect} %>"
               end
 
-              # %%% When doing schema select, if there's an ID then remove it, or if we're on a new page go to index
+              # %%% When doing schema select, if we're on a new page go to index
               script = "<script>
 var schemaSelect = document.getElementById(\"schema\");
+var tblSelect = document.getElementById(\"tbl\");
 var brickSchema;
 if (schemaSelect) {
   brickSchema = changeout(location.href, \"_brick_schema\");
@@ -250,7 +251,8 @@ if (schemaSelect) {
   schemaSelect.value = brickSchema || \"public\";
   schemaSelect.focus();
   schemaSelect.addEventListener(\"change\", function () {
-    location.href = changeout(location.href, \"_brick_schema\", this.value);
+    // If there's an ID then remove it (trim after selected table)
+    location.href = changeout(location.href, \"_brick_schema\", this.value, tblSelect.value);
   });
 }
 [... document.getElementsByTagName(\"FORM\")].forEach(function (form) {
@@ -265,7 +267,6 @@ if (schemaSelect) {
   });
 });
 
-var tblSelect = document.getElementById(\"tbl\");
 if (tblSelect) {
   tblSelect.value = changeout(location.href)[0];
   if (tblSelect.selectedIndex < 0) tblSelect.value = changeout(location.href)[1];
@@ -277,7 +278,7 @@ if (tblSelect) {
   });
 }
 
-function changeout(href, param, value) {
+function changeout(href, param, value, trimAfter) {
   var hrefParts = href.split(\"?\");
   if (param === undefined || param === null) {
     hrefParts = hrefParts[0].split(\"://\");
@@ -287,6 +288,11 @@ function changeout(href, param, value) {
       return [pathParts.slice(1, 3).join('/'), pathParts.slice(1, 2)];
     else
       return hrefParts[0] + \"://\" + pathParts[0] + \"/\" + value;
+  }
+  if (trimAfter) {
+    var pathParts = hrefParts[0].split(\"/\");
+    while (pathParts.lastIndexOf(trimAfter) != pathParts.length - 1) pathParts.pop();
+    hrefParts[0] = pathParts.join(\"/\");
   }
   var params = hrefParts.length > 1 ? hrefParts[1].split(\"&\") : [];
   params = params.reduce(function (s, v) { var parts = v.split(\"=\"); s[parts[0]] = parts[1]; return s; }, {});
