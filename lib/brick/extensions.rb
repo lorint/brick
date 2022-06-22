@@ -163,6 +163,7 @@ module ActiveRecord
                         bracket_name.split('.').each do |part|
                           obj_name += ".#{part}"
                           this_obj = caches.fetch(obj_name) { caches[obj_name] = this_obj&.send(part.to_sym) }
+                          break if this_obj.nil?
                         end
                         this_obj&.to_s || ''
                       end
@@ -308,6 +309,23 @@ module ActiveRecord
       # , is_add_bts, is_add_hms
     )
       is_add_bts = is_add_hms = true
+      is_distinct = nil
+      wheres = {}
+      params.each do |k, v|
+        case (ks = k.split('.')).length
+        when 1
+          next unless klass._brick_get_fks.include?(k)
+        when 2
+          assoc_name = ks.first.to_sym
+          # Make sure it's a good association name and that the model has that column name
+          next unless klass.reflect_on_association(assoc_name)&.klass&.column_names&.any?(ks.last)
+
+          join_array[assoc_name] = nil # Store this relation name in our special collection for .joins()
+          is_distinct = true
+          distinct!
+        end
+        wheres[k] = v.split(',')
+      end
 
       # %%% Skip the metadata columns
       if selects&.empty? # Default to all columns
@@ -316,7 +334,9 @@ module ActiveRecord
           if (col_name = col.name) == 'class'
             col_alias = ' AS _class'
           end
-          selects << "\"#{tbl_no_schema}\".\"#{col_name}\"#{col_alias}"
+          # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
+          cast_as_text = '::text' if is_distinct && Brick.relations[klass.table_name]&.[](:cols)&.[](col.name)&.first&.start_with?('xml')
+          selects << "\"#{tbl_no_schema}\".\"#{col_name}\"#{cast_as_text}#{col_alias}"
         end
       end
 
@@ -342,22 +362,6 @@ module ActiveRecord
         end
       end
 
-      wheres = {}
-      params.each do |k, v|
-        case (ks = k.split('.')).length
-        when 1
-          next unless klass._brick_get_fks.include?(k)
-        when 2
-          assoc_name = ks.first.to_sym
-          # Make sure it's a good association name and that the model has that column name
-          next unless klass.reflect_on_association(assoc_name)&.klass&.column_names&.any?(ks.last)
-
-          join_array[assoc_name] = nil # Store this relation name in our special collection for .joins()
-          distinct!
-        end
-        wheres[k] = v.split(',')
-      end
-
       if join_array.present?
         left_outer_joins!(join_array)
         # Without working from a duplicate, touching the AREL ast tree sets the @arel instance variable, which causes the relation to be immutable.
@@ -375,7 +379,9 @@ module ActiveRecord
             v1.map { |x| [translations[x[0..-2].map(&:to_s).join('.')], x.last] }.each_with_index do |sel_col, idx|
               field_tbl_name = (field_tbl_names[v.first][sel_col.first] ||= shift_or_first(chains[sel_col.first])).split('.').last
 
-              selects << "#{"\"#{field_tbl_name}\".\"#{sel_col.last}\""} AS \"#{(col_alias = "_brfk_#{v.first}__#{sel_col.last}")}\""
+              # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
+              is_xml = is_distinct && Brick.relations[sel_col.first.table_name]&.[](:cols)&.[](sel_col.last)&.first&.start_with?('xml')
+              selects << "\"#{field_tbl_name}\".\"#{sel_col.last}\"#{'::text' if is_xml} AS \"#{(col_alias = "_brfk_#{v.first}__#{sel_col.last}")}\""
               v1[idx] << col_alias
             end
 
@@ -493,8 +499,9 @@ if ActiveSupport::Dependencies.respond_to?(:autoload_module!) # %%% Only works w
       alias _brick_autoload_module! autoload_module!
       def autoload_module!(*args)
         into, const_name, qualified_name, path_suffix = args
-        base_class_name = ::Brick.config.sti_namespace_prefixes&.fetch("::#{into.name}::", nil)
-        base_class_name = "::#{base_class_name}" unless base_class_name.start_with?('::')
+        if (base_class_name = ::Brick.config.sti_namespace_prefixes&.fetch("::#{into.name}::", nil))
+          base_class_name = "::#{base_class_name}" unless base_class_name.start_with?('::')
+        end
         if (base_class = base_class_name&.constantize)
           ::Brick.sti_models[qualified_name] = { base: base_class }
           # Build subclass and place it into the specially STI-namespaced module
@@ -754,8 +761,12 @@ class Object
               options = { through: through.to_sym }
               if relation[:fks].any? { |k, v| v[:assoc_name] == hmt_name }
                 hmt_name = "#{hmt_name.singularize}_#{fk.first[:assoc_name]}"
-                options[:class_name] = fk.first[:inverse_table].singularize.camelize
-                options[:foreign_key] = fk.first[:fk].to_sym
+                # Was:
+                # options[:class_name] = fk.first[:inverse_table].singularize.camelize
+                # options[:foreign_key] = fk.first[:fk].to_sym
+                far_assoc = relations[fk.first[:inverse_table]][:fks].find { |_k, v| v[:assoc_name] == fk.last }
+                options[:class_name] = far_assoc.last[:inverse_table].singularize.camelize
+                options[:foreign_key] = far_assoc.last[:fk].to_sym
               end
               options[:source] = fk.last.to_sym unless hmt_name.singularize == fk.last
               code << "  has_many :#{hmt_name}#{options.map { |opt| ", #{opt.first}: #{opt.last.inspect}" }.join}\n"
@@ -934,7 +945,8 @@ class Object
             return
           end
 
-          order = pk.each_with_object([]) { |pk_part, s| s << "#{model.table_name}.#{pk_part}" }
+          quoted_table_name = model.table_name.split('.').map { |x| "\"#{x}\"" }.join('.')
+          order = pk.each_with_object([]) { |pk_part, s| s << "#{quoted_table_name}.\"#{pk_part}\"" }
           ar_relation = order.present? ? model.order("#{order.join(', ')}") : model.all
           @_brick_params = ar_relation.brick_select(params, (selects = []), (bt_descrip = {}), (hm_counts = {}), (join_array = ::Brick::JoinArray.new))
           # %%% Add custom HM count columns
@@ -949,7 +961,8 @@ class Object
           @_brick_join_array = join_array
         end
 
-        if model&.primary_key
+        is_pk_string = nil
+        if (pk_col = model&.primary_key)
           code << "  def show\n"
           code << (find_by_id = "    id = params[:id]&.split(/[\\/,_]/)
     id = id.first if id.is_a?(Array) && id.length == 1
@@ -957,7 +970,12 @@ class Object
           code << "  end\n"
           self.define_method :show do
             ::Brick.set_db_schema(params)
-            id = params[:id]&.split(/[\/,_]/)
+            id = if model.columns_hash[pk_col]&.type == :string
+                   is_pk_string = true
+                   params[:id]
+                 else
+                   params[:id]&.split(/[\/,_]/)
+                 end
             id = id.first if id.is_a?(Array) && id.length == 1
             instance_variable_set("@#{singular_table_name}".to_sym, model.find(id))
           end
@@ -996,7 +1014,7 @@ class Object
               #   return
               end
 
-              id = params[:id]&.split(/[\/,_]/)
+              id = is_pk_string ? params[:id] : params[:id]&.split(/[\/,_]/)
               id = id.first if id.is_a?(Array) && id.length == 1
               instance_variable_set("@#{singular_table_name}".to_sym, (obj = model.find(id)))
               obj = obj.first if obj.is_a?(Array)
@@ -1022,10 +1040,8 @@ class Object
     end
 
     def _brick_get_hm_assoc_name(relation, hm_assoc)
-      if relation[:hm_counts][hm_assoc[:assoc_name]]&.> 1
-        # binding.pry if (same_name = relation[:fks].find { |x| x.last[:assoc_name] == hm_assoc[:assoc_name] && x.last != hm_assoc }) #&&
-                                    # x.last[:alternate_name] == hm_assoc[:alternate_name] })
-        # relation[:fks].any? { |k, v| v[:assoc_name] == new_alt_name }
+      if (relation[:hm_counts][hm_assoc[:assoc_name]]&.> 1) &&
+         hm_assoc[:alternate_name] != hm_assoc[:inverse][:assoc_name]
         plural = ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name])
         new_alt_name = (hm_assoc[:alternate_name] == name.underscore) ? "#{hm_assoc[:assoc_name].singularize}_#{plural}" : plural
         # uniq = 1
@@ -1086,12 +1102,14 @@ module ActiveRecord::ConnectionHandling
       when 'Mysql2'
         ::Brick.default_schema = schema = ActiveRecord::Base.connection.current_database
       when 'SQLite'
+        # %%% Retrieve internal ActiveRecord table names like this:
+        # ActiveRecord::Base.internal_metadata_table_name, ActiveRecord::Base.schema_migrations_table_name
         sql = "SELECT m.name AS relation_name, UPPER(m.type) AS table_type,
           p.name AS column_name, p.type AS data_type,
           CASE p.pk WHEN 1 THEN 'PRIMARY KEY' END AS const
         FROM sqlite_master AS m
           INNER JOIN pragma_table_info(m.name) AS p
-        WHERE m.name NOT IN ('ar_internal_metadata', 'schema_migrations')
+        WHERE m.name NOT IN (?, ?)
         ORDER BY m.name, p.cid"
       else
         puts "Unfamiliar with connection adapter #{ActiveRecord::Base.connection.adapter_name}"
@@ -1119,6 +1137,9 @@ module ActiveRecord::ConnectionHandling
         end
       end
 
+      # %%% Retrieve internal ActiveRecord table names like this:
+      # ActiveRecord::Base.internal_metadata_table_name, ActiveRecord::Base.schema_migrations_table_name
+      # For if it's not SQLite -- so this is the Postgres and MySQL version
       sql ||= "SELECT t.table_schema AS schema, t.table_name AS relation_name, t.table_type,
           c.column_name, c.data_type,
           COALESCE(c.character_maximum_length, c.numeric_precision) AS max_length,
@@ -1140,13 +1161,13 @@ module ActiveRecord::ConnectionHandling
         WHERE t.table_schema NOT IN ('information_schema', 'pg_catalog')#{"
           AND t.table_schema = COALESCE(current_setting('SEARCH_PATH'), 'public')" if schema }
   --          AND t.table_type IN ('VIEW') -- 'BASE TABLE', 'FOREIGN TABLE'
-          AND t.table_name NOT IN ('pg_stat_statements', 'ar_internal_metadata', 'schema_migrations')
+          AND t.table_name NOT IN ('pg_stat_statements', ?, ?)
         ORDER BY 1, t.table_type DESC, c.ordinal_position"
       measures = []
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'SQLite' # These bring back a hash for each row because the query uses column aliases
         # schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-        ActiveRecord::Base.execute_sql(sql).each do |r|
+        ActiveRecord::Base.execute_sql(sql, ActiveRecord::Base.internal_metadata_table_name, ActiveRecord::Base.schema_migrations_table_name).each do |r|
           # If Apartment gem lists the table as being associated with a non-tenanted model then use whatever it thinks
           # is the default schema, usually 'public'.
           schema_name = if ::Brick.config.schema_behavior[:multitenant]
@@ -1255,11 +1276,25 @@ module ActiveRecord::ConnectionHandling
       end
     end
 
-    puts "\nClasses that can be built from tables:"
-    relations.select { |_k, v| !v.key?(:isView) }.keys.each { |k| puts ActiveSupport::Inflector.singularize(k).camelize }
-    unless (views = relations.select { |_k, v| v.key?(:isView) }).empty?
+    apartment = Object.const_defined?('Apartment') && Apartment
+    tables = []
+    views = []
+    relations.each do |k, v|
+      name_parts = k.split('.')
+      if v.key?(:isView)
+        views
+      else
+        name_parts.shift if apartment && name_parts.length > 1 && name_parts.first == Apartment.default_schema
+        tables
+      end << name_parts.map { |x| x.singularize.camelize }.join('::')
+    end
+    unless tables.empty?
+      puts "\nClasses that can be built from tables:"
+      tables.sort.each { |x| puts x }
+    end
+    unless views.empty?
       puts "\nClasses that can be built from views:"
-      views.keys.each { |k| puts ActiveSupport::Inflector.singularize(k).camelize }
+      views.sort.each { |x| puts x }
     end
 
     ::Brick.load_additional_references if initializer_loaded
@@ -1302,7 +1337,8 @@ module Brick
       end
       # %%% Temporary schema patch
       for_tbl = fk[1]
-      fk[0] = Apartment.default_schema if Object.const_defined?('Apartment') && Apartment.excluded_models.include?(for_tbl.singularize.camelize)
+      apartment = Object.const_defined?('Apartment') && Apartment
+      fk[0] = Apartment.default_schema if apartment && apartment.excluded_models.include?(for_tbl.singularize.camelize)
       fk[1] = "#{fk[0]}.#{fk[1]}" if fk[0] # && fk[0] != ::Brick.default_schema
       bts = (relation = relations.fetch(fk[1], nil))&.fetch(:fks) { relation[:fks] = {} }
 
@@ -1317,7 +1353,7 @@ module Brick
                         is_schema = if ::Brick.config.schema_behavior[:multitenant]
                                       # If Apartment gem lists the primary table as being associated with a non-tenanted model
                                       # then use 'public' schema for the primary table
-                                      if Object.const_defined?('Apartment') && Apartment.excluded_models.include?(fk[4].singularize.camelize)
+                                      if apartment && apartment&.excluded_models.include?(fk[4].singularize.camelize)
                                         fk[3] = Apartment.default_schema
                                         true
                                       end
@@ -1394,7 +1430,7 @@ module Brick
         assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
         assoc_hm[:inverse] = assoc_bt
       else
-        inv_tbl = if ::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') && fk[0] == Apartment.default_schema
+        inv_tbl = if ::Brick.config.schema_behavior[:multitenant] && apartment && fk[0] == Apartment.default_schema
                     for_tbl
                   else
                     fk[1]
