@@ -124,8 +124,15 @@ module Brick
               schema_options = ::Brick.db_schemas.keys.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
               # %%% If we are not auto-creating controllers (or routes) then omit by default, and if enabled anyway, such as in a development
               # environment or whatever, then get either the controllers or routes list instead
-              table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).sort
-                              .each_with_object(+'') { |v, s| s << "<option value=\"#{v.underscore.gsub('.', '/').pluralize}\">#{v}</option>" }.html_safe
+              apartment_default_schema = ::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') && Apartment.default_schema
+              table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).map do |tbl|
+                                if (tbl_parts = tbl.split('.')).first == apartment_default_schema
+                                  tbl = tbl_parts.last
+                                end
+                                tbl
+                              end.sort.each_with_object(+'') do |v, s|
+                                s << "<option value=\"#{v.underscore.gsub('.', '/').pluralize}\">#{v}</option>"
+                              end.html_safe
               css = +"<style>
 #dropper {
   background-color: #eee;
@@ -243,40 +250,44 @@ end %>"
 var schemaSelect = document.getElementById(\"schema\");
 var tblSelect = document.getElementById(\"tbl\");
 var brickSchema;
-if (schemaSelect) {
-  brickSchema = changeout(location.href, \"_brick_schema\");
-  if (brickSchema) {
-    [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
-  }
-  schemaSelect.value = brickSchema || \"public\";
-  schemaSelect.focus();
-  schemaSelect.addEventListener(\"change\", function () {
-    // If there's an ID then remove it (trim after selected table)
-    location.href = changeout(location.href, \"_brick_schema\", this.value, tblSelect.value);
-  });
-}
-[... document.getElementsByTagName(\"FORM\")].forEach(function (form) {
-  if (brickSchema)
-    form.action = changeout(form.action, \"_brick_schema\", brickSchema);
-  form.addEventListener('submit', function (ev) {
-    [... ev.target.getElementsByTagName(\"SELECT\")].forEach(function (select) {
-      if (select.value === \"^^^brick_NULL^^^\")
-        select.value = null;
-    });
-    return true;
-  });
-});
 
-if (tblSelect) {
-  tblSelect.value = changeout(location.href)[0];
-  if (tblSelect.selectedIndex < 0) tblSelect.value = changeout(location.href)[1];
-  tblSelect.addEventListener(\"change\", function () {
-    var lhr = changeout(location.href, null, this.value);
+// This PageTransitionEvent fires when the page first loads, as well as after any other history
+// transition such as when using the browser's Back and Forward buttons.
+window.addEventListener(\"pageshow\", function() {
+  if (schemaSelect) { // First drop-down is only present if multitenant
+    brickSchema = changeout(location.href, \"_brick_schema\");
+    if (brickSchema) {
+      [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
+    }
+    schemaSelect.value = brickSchema || \"public\";
+    schemaSelect.focus();
+    schemaSelect.addEventListener(\"change\", function () {
+      // If there's an ID then remove it (trim after selected table)
+      location.href = changeout(location.href, \"_brick_schema\", this.value, tblSelect.value);
+    });
+  }
+  [... document.getElementsByTagName(\"FORM\")].forEach(function (form) {
     if (brickSchema)
-      lhr = changeout(lhr, \"_brick_schema\", schemaSelect.value);
-    location.href = lhr;
+      form.action = changeout(form.action, \"_brick_schema\", brickSchema);
+    form.addEventListener('submit', function (ev) {
+      [... ev.target.getElementsByTagName(\"SELECT\")].forEach(function (select) {
+        if (select.value === \"^^^brick_NULL^^^\")
+          select.value = null;
+      });
+      return true;
+    });
   });
-}
+
+  if (tblSelect) { // Always present
+    tblSelect.value = changeout(location.href)[schemaSelect ? 1 : 0];
+    tblSelect.addEventListener(\"change\", function () {
+      var lhr = changeout(location.href, null, this.value);
+      if (brickSchema)
+        lhr = changeout(lhr, \"_brick_schema\", schemaSelect.value);
+      location.href = lhr;
+    });
+  }
+});
 
 function changeout(href, param, value, trimAfter) {
   var hrefParts = href.split(\"?\");
@@ -359,7 +370,6 @@ function changeout(href, param, value, trimAfter) {
 
   async function updateSignInStatus(isSignedIn) {
     if (isSignedIn) {
-      console.log(\"turds!\");
       await gapi.client.sheets.spreadsheets.create({
         properties: {
           title: #{table_name.inspect},
@@ -572,7 +582,7 @@ function changeout(href, param, value, trimAfter) {
       s << "<table id=\"#{hm_name}\">
         <tr><th>#{hm[3]}</th></tr>
         <% collection = @#{obj_name}.#{hm_name}
-        collection = collection.is_a?(ActiveRecord::Associations::CollectionProxy) ? collection.order(#{pk.inspect}) : [collection]
+        collection = collection.is_a?(ActiveRecord::Associations::CollectionProxy) ? collection.order(#{pk.inspect}) : [collection].compact
         if collection.empty? %>
           <tr><td>(none)</td></tr>
         <% else %>
@@ -606,6 +616,7 @@ function changeout(href, param, value, trimAfter) {
 
         # Just in case it hadn't been done previously when we tried to load the brick initialiser,
         # go make sure we've loaded additional references (virtual foreign keys and polymorphic associations).
+        # (This should only happen if for whatever reason the initializer file was not exactly config/initializers/brick.rb.)
         ::Brick.load_additional_references
       end
     end
