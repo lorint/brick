@@ -124,8 +124,15 @@ module Brick
               schema_options = ::Brick.db_schemas.keys.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
               # %%% If we are not auto-creating controllers (or routes) then omit by default, and if enabled anyway, such as in a development
               # environment or whatever, then get either the controllers or routes list instead
-              table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).sort
-                              .each_with_object(+'') { |v, s| s << "<option value=\"#{v.underscore.gsub('.', '/').pluralize}\">#{v}</option>" }.html_safe
+              apartment_default_schema = ::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') && Apartment.default_schema
+              table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).map do |tbl|
+                                if (tbl_parts = tbl.split('.')).first == apartment_default_schema
+                                  tbl = tbl_parts.last
+                                end
+                                tbl
+                              end.sort.each_with_object(+'') do |v, s|
+                                s << "<option value=\"#{v.underscore.gsub('.', '/').pluralize}\">#{v}</option>"
+                              end.html_safe
               css = +"<style>
 #dropper {
   background-color: #eee;
@@ -572,7 +579,7 @@ function changeout(href, param, value, trimAfter) {
       s << "<table id=\"#{hm_name}\">
         <tr><th>#{hm[3]}</th></tr>
         <% collection = @#{obj_name}.#{hm_name}
-        collection = collection.is_a?(ActiveRecord::Associations::CollectionProxy) ? collection.order(#{pk.inspect}) : [collection]
+        collection = collection.is_a?(ActiveRecord::Associations::CollectionProxy) ? collection.order(#{pk.inspect}) : [collection].compact
         if collection.empty? %>
           <tr><td>(none)</td></tr>
         <% else %>
@@ -606,6 +613,7 @@ function changeout(href, param, value, trimAfter) {
 
         # Just in case it hadn't been done previously when we tried to load the brick initialiser,
         # go make sure we've loaded additional references (virtual foreign keys and polymorphic associations).
+        # (This should only happen if for whatever reason the initializer file was not exactly config/initializers/brick.rb.)
         ::Brick.load_additional_references
       end
     end
