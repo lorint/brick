@@ -19,7 +19,7 @@ You can use The Brick in several ways -- from taking a quick peek inside an exis
 with full ability to navigate across associations, to easily updating and creating data,
 exporting tables or views out to CSV or Google Sheets, importing sets of data, creating a
 minimally-scaffolded application one file at a time, experimenting with various data layouts to
-prove out a database design, and more.
+see how functional a given database design will be, and more.
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -61,10 +61,9 @@ It can be provided by putting a line like this in an initialiser file:
 
     ::Brick.additional_references = [['recipe_ingredients', 'recipe_id', 'recipes']]
 
-Brick can auto-create such an initialiser file, and often infer these kinds of useful
-references to fill in the gaps for missing foreign keys.  These suggestions are left commented
-out initially, so very easily brought into play by editing that file.  Myriad settings are
-avaiable therein.
+Brick can auto-create such an initialiser file, and often infer these kinds of useful references
+to fill in the gaps for missing foreign keys.  These suggestions are left commented out initially,
+so very easily brought into play by editing that file.  Myriad settings are avaiable therein.
 
 ## Table of Contents
 
@@ -166,7 +165,7 @@ If you're on Ruby 2.7 or later:
     sudo apt-get install default-libmysqlclient-dev
 
 On OSX / MacOS with Homebrew:
-    brew install mysql 
+    brew install mysql
     brew services start mysql
 
 On an Apple Silicon machine (M1 / M2 / M3 processor) then also set this:

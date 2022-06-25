@@ -203,7 +203,9 @@ module ActiveRecord
       model_underscore = name.underscore
       assoc_name = CGI.escapeHTML(assoc_name.to_s)
       model_path = Rails.application.routes.url_helpers.send("#{model_underscore.tr('/', '_').pluralize}_path".to_sym)
-      link = Class.new.extend(ActionView::Helpers::UrlHelper).link_to(name, model_path)
+      av_class = Class.new.extend(ActionView::Helpers::UrlHelper)
+      av_class.extend(ActionView::Helpers::TagHelper) if ActionView.version < ::Gem::Version.new('7')
+      link = av_class.link_to(name, model_path)
       model_underscore == assoc_name ? link : "#{assoc_name}-#{link}".html_safe
     end
 
@@ -1183,7 +1185,8 @@ module ActiveRecord::ConnectionHandling
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'SQLite' # These bring back a hash for each row because the query uses column aliases
         # schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-        ActiveRecord::Base.execute_sql(sql, ActiveRecord::Base.internal_metadata_table_name, ActiveRecord::Base.schema_migrations_table_name).each do |r|
+        ar_imtn = ActiveRecord.version >= ::Gem::Version.new('5.0') ? ActiveRecord::Base.internal_metadata_table_name : ''
+        ActiveRecord::Base.execute_sql(sql, ActiveRecord::Base.schema_migrations_table_name, ar_imtn).each do |r|
           # If Apartment gem lists the table as being associated with a non-tenanted model then use whatever it thinks
           # is the default schema, usually 'public'.
           schema_name = if ::Brick.config.schema_behavior[:multitenant]
