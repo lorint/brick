@@ -71,7 +71,7 @@ module Brick
   end
 
   class << self
-    attr_accessor :default_schema, :db_schemas
+    attr_accessor :default_schema, :db_schemas, :is_multitenant
 
     def set_db_schema(params)
       schema = params['_brick_schema'] || 'public'

@@ -522,6 +522,16 @@ if ActiveSupport::Dependencies.respond_to?(:autoload_module!) # %%% Only works w
   end
 end
 
+# class Object
+#   class << self
+#     alias _brick_const_missing const_missing
+#     def const_missing(*args)
+#       binding.pry
+#       _brick_const_missing(*args)
+#     end
+#   end
+# end
+
 Module.class_exec do
   alias _brick_const_missing const_missing
   def const_missing(*args)
@@ -609,7 +619,7 @@ Module.class_exec do
                               end
                  if ::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') &&
                     Apartment.excluded_models.include?(table_name.singularize.camelize)
-                   schema_name = Apartment.default_schema
+                   schema_name = ::Brick.default_schema
                  end
                  # Maybe, just maybe there's a database table that will satisfy this need
                  if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
@@ -642,7 +652,7 @@ class Object
   private
 
     def build_model(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching)
-      full_name = if (::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') && schema_name == Apartment.default_schema)
+      full_name = if (::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') && schema_name == ::Brick.default_schema)
                     relation = relations["#{schema_name}.#{matching}"]
                     inheritable_name || model_name
                   elsif schema_name.blank?
@@ -889,7 +899,7 @@ class Object
       pk = model&._brick_primary_key(relations.fetch(table_name, nil))
 
       namespace_name = "#{namespace.name}::" if namespace
-      code = +"class #{namespace_name}#{class_name} < ApplicationController\n"
+      code = +"class #{namespace_name}#{class_name} < ActionController::Base\n"
       built_controller = Class.new(ActionController::Base) do |new_controller_class|
         (namespace || Object).const_set(class_name.to_sym, new_controller_class)
 
@@ -1094,7 +1104,7 @@ module ActiveRecord::ConnectionHandling
       end
       # Load the initializer for the Apartment gem a little early so that if .excluded_models and
       # .default_schema are specified then we can work with non-tenanted models more appropriately
-      if Object.const_defined?('Apartment') && File.exist?(apartment_initializer = Rails.root.join('config/initializers/apartment.rb'))
+      if Object.const_defined?('Apartment') && (apartment = Apartment) && File.exist?(apartment_initializer = Rails.root.join('config/initializers/apartment.rb'))
         load apartment_initializer
         apartment_excluded = Apartment.excluded_models
       end
@@ -1104,10 +1114,14 @@ module ActiveRecord::ConnectionHandling
       schema_sql = 'SELECT NULL AS table_schema;'
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL'
-        if (is_multitenant = (multitenancy = ::Brick.config.schema_behavior[:multitenant]) &&
-           (sta = multitenancy[:schema_to_analyse]) != 'public')
-          ::Brick.default_schema = schema = sta
-          ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
+        if (::Brick.is_multitenant = apartment_excluded || (multitenancy = ::Brick.config.schema_behavior[:multitenant]))
+          ::Brick.default_schema = schema = if (sta = multitenancy&.[](:schema_to_analyse) || apartment&.default_schema) && sta != 'public'
+                                              ActiveRecord::Base.execute_sql('SET SEARCH_PATH = ?', sta)
+                                              sta
+                                            else # Set default schema to be the current schema
+                                              ActiveRecord::Base.execute_sql("SELECT current_setting('SEARCH_PATH')").first.values.first
+                                              'public'
+                                            end
         end
         schema_sql = 'SELECT DISTINCT table_schema FROM INFORMATION_SCHEMA.tables;'
       when 'Mysql2'
@@ -1182,8 +1196,8 @@ module ActiveRecord::ConnectionHandling
         ActiveRecord::Base.execute_sql(sql, ActiveRecord::Base.schema_migrations_table_name, ar_imtn).each do |r|
           # If Apartment gem lists the table as being associated with a non-tenanted model then use whatever it thinks
           # is the default schema, usually 'public'.
-          schema_name = if ::Brick.config.schema_behavior[:multitenant]
-                          Apartment.default_schema if apartment_excluded&.include?(r['relation_name'].singularize.camelize)
+          schema_name = if ::Brick.is_multitenant
+                          ::Brick.default_schema if apartment_excluded&.include?(r['relation_name'].singularize.camelize)
                         elsif ![schema, 'public'].include?(r['schema'])
                           r['schema']
                         end
@@ -1274,13 +1288,13 @@ module ActiveRecord::ConnectionHandling
           fk = fk.values unless fk.is_a?(Array)
           # Multitenancy makes things a little more general overall, except for non-tenanted tables
           if apartment_excluded&.include?(fk[1].singularize.camelize)
-            fk[0] = Apartment.default_schema
-          elsif fk[0] == 'public' || (is_multitenant && fk[0] == schema)
+            fk[0] = ::Brick.default_schema
+          elsif (!is_multitenant && fk[0] == 'public') || (is_multitenant && fk[0] == schema)
             fk[0] = nil
           end
           if apartment_excluded&.include?(fk[4].singularize.camelize)
-            fk[3] = Apartment.default_schema
-          elsif fk[3] == 'public' || (is_multitenant && fk[3] == schema)
+            fk[3] = ::Brick.default_schema
+          elsif (!is_multitenant && fk[3] == 'public') || (is_multitenant && fk[3] == schema)
             fk[3] = nil
           end
           ::Brick._add_bt_and_hm(fk, relations)
@@ -1296,7 +1310,7 @@ module ActiveRecord::ConnectionHandling
       if v.key?(:isView)
         views
       else
-        name_parts.shift if apartment && name_parts.length > 1 && name_parts.first == Apartment.default_schema
+        name_parts.shift if apartment && name_parts.length > 1 && name_parts.first == ::Brick.default_schema
         tables
       end << name_parts.map { |x| x.singularize.camelize }.join('::')
     end
@@ -1350,9 +1364,10 @@ module Brick
       # %%% Temporary schema patch
       for_tbl = fk[1]
       apartment = Object.const_defined?('Apartment') && Apartment
-      fk[0] = Apartment.default_schema if apartment && apartment.excluded_models.include?(for_tbl.singularize.camelize)
+      fk[0] = ::Brick.default_schema if apartment && apartment.excluded_models.include?(for_tbl.singularize.camelize)
       fk[1] = "#{fk[0]}.#{fk[1]}" if fk[0] # && fk[0] != ::Brick.default_schema
       bts = (relation = relations.fetch(fk[1], nil))&.fetch(:fks) { relation[:fks] = {} }
+      binding.pry unless bts
 
       # %%% Do we miss out on has_many :through or even HM based on constantizing this model early?
       # Maybe it's already gotten this info because we got as far as to say there was a unique class
@@ -1362,11 +1377,11 @@ module Brick
                           fk[3] = pri_tbl_parts.first
                         end
                       else
-                        is_schema = if ::Brick.config.schema_behavior[:multitenant]
+                        is_schema = if ::Brick.is_multitenant
                                       # If Apartment gem lists the primary table as being associated with a non-tenanted model
                                       # then use 'public' schema for the primary table
                                       if apartment && apartment&.excluded_models.include?(fk[4].singularize.camelize)
-                                        fk[3] = Apartment.default_schema
+                                        fk[3] = ::Brick.default_schema
                                         true
                                       end
                                     else
@@ -1442,7 +1457,7 @@ module Brick
         assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
         assoc_hm[:inverse] = assoc_bt
       else
-        inv_tbl = if ::Brick.config.schema_behavior[:multitenant] && apartment && fk[0] == Apartment.default_schema
+        inv_tbl = if ::Brick.is_multitenant && apartment && fk[0] == ::Brick.default_schema
                     for_tbl
                   else
                     fk[1]
