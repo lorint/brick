@@ -1,25 +1,6 @@
 # frozen_string_literal: true
 
-require 'active_record/version'
-
-# ActiveRecord before 4.0 didn't have #version
-unless ActiveRecord.respond_to?(:version)
-  module ActiveRecord
-    def self.version
-      ::Gem::Version.new(ActiveRecord::VERSION::STRING)
-    end
-  end
-end
-
-# In ActiveSupport older than 5.0, the duplicable? test tries to new up a BigDecimal,
-# and Ruby 2.6 and later deprecates #new.  This removes the warning from BigDecimal.
-require 'bigdecimal'
-if (ruby_version = ::Gem::Version.new(RUBY_VERSION)) >= ::Gem::Version.new('2.6') &&
-   ActiveRecord.version < ::Gem::Version.new('5.0')
-  def BigDecimal.new(*args, **kwargs)
-    BigDecimal(*args, **kwargs)
-  end
-end
+require 'brick/compatibility'
 
 # Allow ActiveRecord 4.0 and 4.1 to work with newer Ruby (>= 2.4) by avoiding a "stack level too deep"
 # error when ActiveSupport tries to smarten up Numeric by messing with Fixnum and Bignum at the end of:
@@ -45,8 +26,8 @@ end
 require 'brick/util'
 
 # Allow ActiveRecord < 3.2 to work with Ruby 2.7 and later
-if ActiveRecord.version < ::Gem::Version.new('3.2') &&
-   ruby_version >= ::Gem::Version.new('2.7')
+if (ruby_version = ::Gem::Version.new(RUBY_VERSION)) >= ::Gem::Version.new('2.7') &&
+   ActiveRecord.version < ::Gem::Version.new('3.2')
   # Remove circular reference for "now"
   ::Brick::Util._patch_require(
     'active_support/values/time_zone.rb', '/activesupport',
