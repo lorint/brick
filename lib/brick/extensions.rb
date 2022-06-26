@@ -1108,9 +1108,11 @@ module ActiveRecord::ConnectionHandling
       # Only for Postgres?  (Doesn't work in sqlite3)
       # puts ActiveRecord::Base.execute_sql("SELECT current_setting('SEARCH_PATH')").to_a.inspect
 
+      is_postgres = nil
       schema_sql = 'SELECT NULL AS table_schema;'
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL'
+        is_postgres = true
         if (is_multitenant = (multitenancy = ::Brick.config.schema_behavior[:multitenant]) &&
            (sta = multitenancy[:schema_to_analyse]) != 'public')
           ::Brick.default_schema = schema = sta
@@ -1158,7 +1160,8 @@ module ActiveRecord::ConnectionHandling
       # %%% Retrieve internal ActiveRecord table names like this:
       # ActiveRecord::Base.internal_metadata_table_name, ActiveRecord::Base.schema_migrations_table_name
       # For if it's not SQLite -- so this is the Postgres and MySQL version
-      sql ||= "SELECT t.table_schema AS schema, t.table_name AS relation_name, t.table_type,
+      sql ||= "SELECT t.table_schema AS schema, t.table_name AS relation_name, t.table_type,#{"
+          pg_catalog.obj_description((t.table_schema || '.' || t.table_name)::regclass, 'pg_class') AS table_description," if is_postgres}
           c.column_name, c.data_type,
           COALESCE(c.character_maximum_length, c.numeric_precision) AS max_length,
           tc.constraint_type AS const, kcu.constraint_name AS \"key\",
@@ -1197,6 +1200,7 @@ module ActiveRecord::ConnectionHandling
           relation_name = schema_name ? "#{schema_name}.#{r['relation_name']}" : r['relation_name']
           relation = relations[relation_name]
           relation[:isView] = true if r['table_type'] == 'VIEW'
+          relation[:description] = r['table_description'] if r['table_description']
           col_name = r['column_name']
           key = case r['const']
                 when 'PRIMARY KEY'
