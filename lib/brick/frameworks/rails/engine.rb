@@ -415,18 +415,19 @@ function changeout(href, param, value, trimAfter) {
                          end
 # %%% Instead of our current "for Janet Leverling (Employee)" kind of link we previously had this code that did a "where x = 123" thing:
 #   (where <%= @_brick_params.each_with_object([]) { |v, s| s << \"#\{v.first\} = #\{v.last.inspect\}\" }.join(', ') %>)
-"#{css}
+x = "#{css}
 <p style=\"color: green\"><%= notice %></p>#{"
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
-<h1>#{model_plural = model_name.pluralize}</h1>#{template_link}
-
-<% if @_brick_params&.present? %>
+<h1>#{model_plural = model_name.pluralize}</h1>#{template_link}<%
+   if (relation = Brick.relations[#{model_name}.table_name])[:description] %><%=
+     relation.fetch(:description, nil) %><br><%
+   end
+   if @_brick_params&.present? %>
   <% if @_brick_params.length == 1 # %%% Does not yet work with composite keys
        k, id = @_brick_params.first
        id = id.first if id.is_a?(Array) && id.length == 1
        origin = (key_parts = k.split('.')).length == 1 ? #{model_name} : #{model_name}.reflect_on_association(key_parts.first).klass
-      #  binding.pry
        if (destination_fk = Brick.relations[origin.table_name][:fks].values.find { |fk| puts fk.inspect; fk[:fk] == key_parts.last }) &&
           (obj = (destination = origin.reflect_on_association(destination_fk[:assoc_name])&.klass)&.find(id)) %>
          <h3>for <%= link_to \"#{"#\{obj.brick_descrip\} (#\{destination.name\})\""}, send(\"#\{destination.name.underscore.tr('/', '_')\}_path\".to_sym, id) %></h3><%
@@ -436,19 +437,23 @@ function changeout(href, param, value, trimAfter) {
 <% end %>
 <table id=\"#{table_name}\">
   <thead><tr>#{'<th></th>' if pk.present?}
-  <% @#{table_name}.columns.map(&:name).each do |col| %>
-    <% next if (#{(pk || []).inspect}.include?(col) && #{model_name}.column_for_attribute(col).type == :integer && !bts.key?(col)) ||
-               ::Brick.config.metadata_columns.include?(col) || poly_cols.include?(col) %>
-    <th>
-    <% if (bt = bts[col]) %>
+  <% col_order = []
+     @#{table_name}.columns.each do |col|
+       col_name = col.name
+       next if (#{(pk || []).inspect}.include?(col_name) && col.type == :integer && !bts.key?(col_name)) ||
+               ::Brick.config.metadata_columns.include?(col_name) || poly_cols.include?(col_name)
+
+       col_order << col_name %>
+    <th<%= \" title = \\\"#\{col.comment}\\\"\".html_safe unless col.comment.blank? %>><%
+       if (bt = bts[col_name]) %>
          BT <%
          bt[1].each do |bt_pair| %><%=
            bt_pair.first.bt_link(bt.first) %> <%
          end %><%
        else %><%=
-         col %><%
-       end %>
-    </th>
+         col_name %><%
+       end
+  %></th>
   <% end %>
   <%# Consider getting the name from the association -- h.first.name -- if a more \"friendly\" alias should be used for a screwy table name %>
   #{hms_headers.map { |h| "<th>#{h[1]} <%= link_to('#{h[2]}', #{h.first.klass.name.underscore.tr('/', '_').pluralize}_path) %></th>\n" }.join}
@@ -458,11 +463,10 @@ function changeout(href, param, value, trimAfter) {
   <% @#{table_name}.each do |#{obj_name}| %>
   <tr>#{"
     <td><%= link_to '⇛', #{path_obj_name}_path(#{obj_pk}), { class: 'big-arrow' } %></td>" if obj_pk}
-    <% #{obj_name}.attributes.each do |k, val| %>
-      <% next if (#{(obj_pk || []).inspect}.include?(k) && #{model_name}.column_for_attribute(k).type == :integer && !bts.key?(k)) ||
-                 ::Brick.config.metadata_columns.include?(k) || poly_cols.include?(k) || k.start_with?('_brfk_') || (k.start_with?('_br_') && (k.length == 63 || k.end_with?('_ct'))) %>
+    <% col_order.each do |col_name|
+         val = #{obj_name}.attributes[col_name] %>
       <td>
-      <% if (bt = bts[k]) %>
+      <% if (bt = bts[col_name]) %>
         <% if bt[2] # Polymorphic?
              bt_class = #{obj_name}.send(\"#\{bt.first\}_type\")
              base_class = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class.name.underscore
@@ -491,13 +495,18 @@ function changeout(href, param, value, trimAfter) {
 
 #{"<hr><%= link_to \"New #{obj_name}\", new_#{path_obj_name}_path %>" unless @_brick_model.is_view?}
 #{script}"
+puts x
+x
                        when 'show', 'update'
 "#{css}
 <p style=\"color: green\"><%= notice %></p>#{"
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
-<h1>#{model_name}: <%= (obj = @#{obj_name})&.brick_descrip || controller_name %></h1>
-<%= link_to '(See all #{obj_name.pluralize})', #{path_obj_name.pluralize}_path %>
+<h1>#{model_name}: <%= (obj = @#{obj_name})&.brick_descrip || controller_name %></h1><%
+if (relation = Brick.relations[#{model_name}.table_name])[:description] %><%=
+  relation.fetch(:description, nil) %><br><%
+end
+%><%= link_to '(See all #{obj_name.pluralize})', #{path_obj_name.pluralize}_path %>
 <% if obj %>
   <%= # path_options = [obj.#{pk}]
     # path_options << { '_brick_schema':  } if
@@ -505,11 +514,12 @@ function changeout(href, param, value, trimAfter) {
     form_for(obj.becomes(#{model_name})) do |f| %>
   <table>
   <% has_fields = false
-    @#{obj_name}.attributes.each do |k, val| %>
+    @#{obj_name}.attributes.each do |k, val|
+      col = #{model_name}.columns_hash[k] %>
     <tr>
     <% next if (#{(pk || []).inspect}.include?(k) && !bts.key?(k)) ||
                ::Brick.config.metadata_columns.include?(k) %>
-    <th class=\"show-field\">
+    <th class=\"show-field\"<%= \" title = \\\"#\{col.comment}\\\"\".html_safe unless col.comment.blank? %>>
     <% has_fields = true
       if (bt = bts[k])
         # Add a final member in this array with descriptive options to be used in <select> drop-downs
