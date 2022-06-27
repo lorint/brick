@@ -141,9 +141,14 @@ module Brick
   display: none;
 }
 
+#headerTop {
+	position: sticky;
+	top: 0px;
+	background-color: white;
+	z-index: 1;
+}
 table {
   border-collapse: collapse;
-  margin: 25px 0;
   font-size: 0.9em;
   font-family: sans-serif;
   min-width: 400px;
@@ -255,6 +260,7 @@ end %>"
 var schemaSelect = document.getElementById(\"schema\");
 var tblSelect = document.getElementById(\"tbl\");
 var brickSchema;
+var #{table_name}HtColumns;
 
 // This PageTransitionEvent fires when the page first loads, as well as after any other history
 // transition such as when using the browser's Back and Forward buttons.
@@ -315,6 +321,42 @@ function changeout(href, param, value, trimAfter) {
   if (value === undefined) return params[param];
   params[param] = value;
   return hrefParts[0] + \"?\" + Object.keys(params).reduce(function (s, v) { s.push(v + \"=\" + params[v]); return s; }, []).join(\"&\");
+}
+
+// Snag first TR for sticky header
+var grid = document.getElementById(\"#{table_name}\");
+#{table_name}HtColumns = grid && [grid.getElementsByTagName(\"TR\")[0]];
+var headerTop = document.getElementById(\"headerTop\");
+function setHeaderSizes() {
+  // console.log(\"start\");
+  // See if the headerTop is already populated
+  // %%% Grab the TRs from headerTop, clear it out, do this stuff, add them back
+  headerTop.innerHTML = \"\"; // %%% Would love to not have to clear it out like this every time!  (Currently doing this to support resize events.)
+  var isEmpty = headerTop.childElementCount === 0;
+  // Set up proper sizings of sticky column header
+  var node;
+  for (var j = 0; j < #{table_name}HtColumns.length; ++j) {
+    var row = #{table_name}HtColumns[j];
+    var tr = isEmpty ? document.createElement(\"TR\") : headerTop.childNodes[j];
+    tr.innerHTML = row.innerHTML.trim();
+    // Match up widths from the original column headers
+    for (var i = 0; i < row.childNodes.length; ++i) {
+      node = row.childNodes[i];
+      if (node.nodeType === 1) {
+        var style = tr.childNodes[i].style;
+        style.minWidth = style.maxWidth = getComputedStyle(node).width;
+      }
+    }
+    if (isEmpty) headerTop.appendChild(tr);
+  }
+  grid.style.marginTop = \"-\" + getComputedStyle(headerTop).height;
+  // console.log(\"end\");
+}
+if (headerTop) {
+  setHeaderSizes();
+  window.addEventListener('resize', function(event) {
+    setHeaderSizes();
+  }, true);
 }
 </script>"
               inline = case args.first
@@ -435,16 +477,18 @@ function changeout(href, param, value, trimAfter) {
      end %>
   (<%= link_to 'See all #{model_plural.split('::').last}', #{path_obj_name.pluralize}_path %>)
 <% end %>
+<br>
+<table id=\"headerTop\">
 <table id=\"#{table_name}\">
-  <thead><tr>#{'<th></th>' if pk.present?}
-  <% col_order = []
+  <thead><tr>#{'<th></th>' if pk.present?}<%
+     col_order = []
      @#{table_name}.columns.each do |col|
        col_name = col.name
        next if (#{(pk || []).inspect}.include?(col_name) && col.type == :integer && !bts.key?(col_name)) ||
                ::Brick.config.metadata_columns.include?(col_name) || poly_cols.include?(col_name)
 
-       col_order << col_name %>
-    <th<%= \" title = \\\"#\{col.comment}\\\"\".html_safe if col.respond_to?(:comment) && !col.comment.blank? %>><%
+       col_order << col_name
+    %><th<%= \" title = \\\"#\{col.comment}\\\"\".html_safe if col.respond_to?(:comment) && !col.comment.blank? %>><%
        if (bt = bts[col_name]) %>
          BT <%
          bt[1].each do |bt_pair| %><%=
@@ -453,11 +497,11 @@ function changeout(href, param, value, trimAfter) {
        else %><%=
          col_name %><%
        end
-  %></th>
-  <% end %>
-  <%# Consider getting the name from the association -- h.first.name -- if a more \"friendly\" alias should be used for a screwy table name %>
-  #{hms_headers.map { |h| "<th>#{h[1]} <%= link_to('#{h[2]}', #{h.first.klass.name.underscore.tr('/', '_').pluralize}_path) %></th>\n" }.join}
-  </tr></thead>
+  %></th><%
+     end
+     # Consider getting the name from the association -- h.first.name -- if a more \"friendly\" alias should be used for a screwy table name
+  %>#{hms_headers.map { |h| "<th>#{h[1]} <%= link_to('#{h[2]}', #{h.first.klass.name.underscore.tr('/', '_').pluralize}_path) %></th>" }.join
+  }</tr></thead>
 
   <tbody>
   <% @#{table_name}.each do |#{obj_name}| %>
@@ -506,6 +550,7 @@ if (relation = Brick.relations[#{model_name}.table_name])[:description] %><%=
 end
 %><%= link_to '(See all #{obj_name.pluralize})', #{path_obj_name.pluralize}_path %>
 <% if obj %>
+  <br><br>
   <%= # path_options = [obj.#{pk}]
     # path_options << { '_brick_schema':  } if
     # url = send(:#{model_name.underscore}_path, obj.#{pk})
