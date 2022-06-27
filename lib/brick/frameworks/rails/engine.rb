@@ -462,8 +462,8 @@ if (headerTop) {
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
 <h1>#{model_plural = model_name.pluralize}</h1>#{template_link}<%
-   if (relation = Brick.relations[#{model_name}.table_name])[:description] %><%=
-     relation.fetch(:description, nil) %><br><%
+   if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %><%=
+     description %><br><%
    end
    if @_brick_params&.present? %>
   <% if @_brick_params.length == 1 # %%% Does not yet work with composite keys
@@ -545,8 +545,8 @@ if (headerTop) {
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
 <h1>#{model_name}: <%= (obj = @#{obj_name})&.brick_descrip || controller_name %></h1><%
-if (relation = Brick.relations[#{model_name}.table_name])[:description] %><%=
-  relation.fetch(:description, nil) %><br><%
+if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %><%=
+  description %><br><%
 end
 %><%= link_to '(See all #{obj_name.pluralize})', #{path_obj_name.pluralize}_path %>
 <% if obj %>

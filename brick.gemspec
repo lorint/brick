@@ -29,7 +29,7 @@ gem_spec = Gem::Specification.new do |s|
 
   require 'brick/util'
 
-  s.add_dependency 'activerecord', ['>= 3.0', '< 7.1']
+  s.add_dependency 'activerecord', ['>= 3.0', '< 7.2']
 
   s.add_development_dependency 'appraisal', '~> 2.2'
   s.add_development_dependency 'pry-byebug', '~> 3.7.0'
