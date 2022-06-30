@@ -1188,8 +1188,13 @@ module ActiveRecord::ConnectionHandling
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'SQLite' # These bring back a hash for each row because the query uses column aliases
         # schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+        ar_smtn = if ActiveRecord::Base.respond_to?(:schema_migrations_table_name)
+                    ActiveRecord::Base.schema_migrations_table_name
+                  else
+                    'schema_migrations'
+                  end
         ar_imtn = ActiveRecord.version >= ::Gem::Version.new('5.0') ? ActiveRecord::Base.internal_metadata_table_name : ''
-        ActiveRecord::Base.execute_sql(sql, ActiveRecord::Base.schema_migrations_table_name, ar_imtn).each do |r|
+        ActiveRecord::Base.execute_sql(sql, ar_smtn, ar_imtn).each do |r|
           # If Apartment gem lists the table as being associated with a non-tenanted model then use whatever it thinks
           # is the default schema, usually 'public'.
           schema_name = if ::Brick.config.schema_behavior[:multitenant]
