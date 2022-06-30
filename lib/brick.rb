@@ -45,6 +45,59 @@ if (ruby_version = ::Gem::Version.new(RUBY_VERSION)) >= ::Gem::Version.new('2.7'
   end
 end
 
+# Add left_outer_join! to Associations::JoinDependency and Relation::QueryMethods
+if ActiveRecord.version < ::Gem::Version.new('5')
+  is_add_left_outer_join = true
+  ::Brick::Util._patch_require(
+    'active_record/associations/join_dependency.rb', '/activerecord', # /associations
+      ["def join_constraints(outer_joins)
+        joins = join_root.children.flat_map { |child|
+          make_inner_joins join_root, child
+        }",
+      "def join_constraints(outer_joins, join_type)
+        joins = join_root.children.flat_map { |child|
+
+          if join_type == Arel::Nodes::OuterJoin
+            make_left_outer_joins join_root, child
+          else
+            make_inner_joins join_root, child
+          end
+        }"],
+    :JoinDependency # This one is in an "eager_autoload do" -- so how to handle it?
+  )
+
+  # Three changes all in the same file, query_methods.rb:
+  ::Brick::Util._patch_require(
+    'active_record/relation/query_methods.rb', '/activerecord',
+    [
+     # Change 1 - Line 904
+     ['build_joins(arel, joins_values.flatten) unless joins_values.empty?',
+    "build_joins(arel, joins_values.flatten) unless joins_values.empty?
+      build_left_outer_joins(arel, left_outer_joins_values.flatten) unless left_outer_joins_values.empty?"
+    ],
+     # Change 2 - Line 992
+     ["raise 'unknown class: %s' % join.class.name
+        end
+      end",
+   "raise 'unknown class: %s' % join.class.name
+        end
+      end
+
+      build_join_query(manager, buckets, Arel::Nodes::InnerJoin)
+   end
+
+   def build_join_query(manager, buckets, join_type)"
+     ],
+     # Change 3 - Line 1012
+    ['join_infos = join_dependency.join_constraints stashed_association_joins',
+    'join_infos = join_dependency.join_constraints stashed_association_joins, join_type'
+     ]
+    ],
+    :QueryMethods
+  )
+end
+
+
 # puts ::Brick::Util._patch_require(
 #     'cucumber/cli/options.rb', '/cucumber/cli/options', # /cli/options
 #     ['  def extract_environment_variables',
@@ -416,6 +469,9 @@ end
 require 'brick/version_number'
 
 require 'active_record'
+require 'active_record/relation'
+require 'active_record/relation/query_methods' if is_add_left_outer_join
+
 # Major compatibility fixes for ActiveRecord < 4.2
 # ================================================
 ActiveSupport.on_load(:active_record) do
@@ -634,6 +690,62 @@ ActiveSupport.on_load(:active_record) do
           end
         end
       end
+
+      if is_add_left_outer_join
+        # Final pieces for left_outer_joins support, which was derived from this commit:
+        # https://github.com/rails/rails/commit/3f46ef1ddab87482b730a3f53987e04308783d8b
+        module Associations
+          class JoinDependency
+            def make_left_outer_joins(parent, child)
+              tables    = child.tables
+              join_type = Arel::Nodes::OuterJoin
+              info      = make_constraints parent, child, tables, join_type
+
+              [info] + child.children.flat_map { |c| make_left_outer_joins(child, c) }
+            end
+          end
+        end
+        module Querying
+          delegate :left_outer_joins, to: :all
+        end
+        class Relation
+          MULTI_VALUE_METHODS = MULTI_VALUE_METHODS + [:left_outer_joins] unless MULTI_VALUE_METHODS.include?(:left_outer_joins)
+        end
+        module QueryMethods
+          attr_writer :left_outer_joins_values
+          def left_outer_joins_values
+            @left_outer_joins_values ||= []
+          end
+
+          def left_outer_joins(*args)
+            check_if_method_has_arguments!(:left_outer_joins, args)
+
+            args.compact!
+            args.flatten!
+
+            spawn.left_outer_joins!(*args)
+          end
+
+          def left_outer_joins!(*args) # :nodoc:
+            self.left_outer_joins_values += args
+            self
+          end
+
+          def build_left_outer_joins(manager, outer_joins)
+            buckets = outer_joins.group_by do |join|
+              case join
+              when Hash, Symbol, Array
+                :association_join
+              else
+                raise ArgumentError, 'only Hash, Symbol and Array are allowed'
+              end
+            end
+
+            build_join_query(manager, buckets, Arel::Nodes::OuterJoin)
+          end
+        end
+      end
+      # (End of left_outer_joins support)
     end
   end
 
