@@ -1,12 +1,21 @@
 # frozen_string_literal: true
 
 require 'active_record/version'
-
 # ActiveRecord before 4.0 didn't have #version
 unless ActiveRecord.respond_to?(:version)
   module ActiveRecord
     def self.version
       ::Gem::Version.new(ActiveRecord::VERSION::STRING)
+    end
+  end
+end
+
+require 'action_view'
+# Older ActionView didn't have #version
+unless ActionView.respond_to?(:version)
+  module ActionView
+    def self.version
+      ActionPack.version
     end
   end
 end

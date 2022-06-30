@@ -2,10 +2,10 @@
 
 require 'brick/compatibility'
 
-# Allow ActiveRecord 4.0 and 4.1 to work with newer Ruby (>= 2.4) by avoiding a "stack level too deep"
+# Allow ActiveRecord 4.2.7 and older to work with newer Ruby (>= 2.4) by avoiding a "stack level too deep"
 # error when ActiveSupport tries to smarten up Numeric by messing with Fixnum and Bignum at the end of:
 # activesupport-4.0.13/lib/active_support/core_ext/numeric/conversions.rb
-if ActiveRecord.version < ::Gem::Version.new('4.2') &&
+if ActiveRecord.version < ::Gem::Version.new('4.2.8') &&
    ActiveRecord.version > ::Gem::Version.new('3.2') &&
    Object.const_defined?('Integer') && Integer.superclass.name == 'Numeric'
   class OurFixnum < Integer; end
@@ -467,6 +467,15 @@ In config/initializers/brick.rb appropriate entries would look something like:
 end
 
 require 'brick/version_number'
+
+# Older versions of ActiveRecord would only show more serious error information from "panic" level, which is
+# a level only available in Postgres 12 and older.  This patch will allow older and newer versions of Postgres
+# to work along with fairly old versions of Rails.
+if Object.const_defined?('PG::VERSION') && ActiveRecord.version < ::Gem::Version.new('4.2.6')
+  ::Brick::Util._patch_require(
+    'active_record/connection_adapters/postgresql_adapter.rb', '/activerecord', ["'panic'", "'error'"]
+  )
+end
 
 require 'active_record'
 require 'active_record/relation'

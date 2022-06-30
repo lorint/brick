@@ -50,23 +50,26 @@ module Brick
         # ====================================
         if ::Brick.enable_views?
           ActionView::LookupContext.class_exec do
+            # Used by Rails 5.0 and above
             alias :_brick_template_exists? :template_exists?
             def template_exists?(*args, **options)
-              unless (is_template_exists = _brick_template_exists?(*args, **options))
-                # Need to return true if we can fill in the blanks for a missing one
-                # args will be something like:  ["index", ["categories"]]
-                args[1] = args[1].each_with_object([]) { |a, s| s.concat(a.split('/')) }
-                args[1][args[1].length - 1] = args[1].last.singularize # Make sure the last item, defining the class name, is singular
-                model = args[1].map(&:camelize).join('::').constantize
-                if is_template_exists = model && (
-                     ['index', 'show'].include?(args.first) || # Everything has index and show
+              _brick_template_exists?(*args, **options) || set_brick_model(args)
+            end
+
+            def set_brick_model(find_args)
+              # Need to return true if we can fill in the blanks for a missing one
+              # args will be something like:  ["index", ["categories"]]
+              find_args[1] = find_args[1].each_with_object([]) { |a, s| s.concat(a.split('/')) }
+              if (class_name = find_args[1].last&.singularize)
+                find_args[1][find_args[1].length - 1] = class_name # Make sure the last item, defining the class name, is singular
+                if (model = find_args[1].map(&:camelize).join('::').constantize) && (
+                     ['index', 'show'].include?(find_args.first) || # Everything has index and show
                      # Only CUD stuff has create / update / destroy
-                      (!model.is_view? && ['new', 'create', 'edit', 'update', 'destroy'].include?(args.first))
+                     (!model.is_view? && ['new', 'create', 'edit', 'update', 'destroy'].include?(find_args.first))
                    )
                   @_brick_model = model
                 end
               end
-              is_template_exists
             end
 
             def path_keys(hm_assoc, fk_name, obj_name, pk)
@@ -82,9 +85,13 @@ module Brick
 
             alias :_brick_find_template :find_template
             def find_template(*args, **options)
-              return  _brick_find_template(*args, **options) unless @_brick_model
+              unless (model_name = (
+                       @_brick_model ||
+                       (ActionView.version < ::Gem::Version.new('5.0') && args[1].is_a?(Array) ? set_brick_model(args) : nil)
+                     )&.name)
+                return _brick_find_template(*args, **options)
+              end
 
-              model_name = @_brick_model.name
               pk = @_brick_model._brick_primary_key(::Brick.relations.fetch(model_name, nil))
               obj_name = model_name.split('::').last.underscore
               path_obj_name = model_name.underscore.tr('/', '_')
