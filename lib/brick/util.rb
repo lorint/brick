@@ -5,7 +5,7 @@ module Brick
   module Util
     # ===================================
     # Epic require patch
-    def self._patch_require(module_filename, folder_matcher, search_text, replacement_text, autoload_symbol = nil, is_bundler = false)
+    def self._patch_require(module_filename, folder_matcher, replacements, autoload_symbol = nil, is_bundler = false)
       mod_name_parts = module_filename.split('.')
       extension = case mod_name_parts.last
                   when 'rb', 'so', 'o'
@@ -28,10 +28,13 @@ module Brick
           Dir.mkdir(new_part) unless Dir.exist?(new_part)
           new_part
         end
-        if ::Brick::Util._write_patched(folder_matcher, module_filename, extension, custom_require_dir, nil, search_text, replacement_text) &&
+        if ::Brick::Util._write_patched(folder_matcher, module_filename, extension, custom_require_dir, nil, replacements) &&
            !alp.include?(custom_require_dir)
           alp.unshift(custom_require_dir)
         end
+        # require 'pry-byebug'
+        # binding.pry
+        # z = 10
       elsif is_bundler
         puts "Bundler hack"
         require 'pry-byebug'
@@ -56,13 +59,13 @@ module Brick
             define_method(:require) do |name|
               puts name if name.to_s.include?('cucu')
               if (require_override = ::Brick::Util.instance_variable_get(:@_require_overrides)[name])
-                extension, folder_matcher, search_text, replacement_text, autoload_symbol = require_override
+                extension, folder_matcher, replacements, autoload_symbol = require_override
                 patched_filename = "/patched_#{name.tr('/', '_')}#{extension}"
                 if $LOADED_FEATURES.find { |f| f.end_with?(patched_filename) }
                   false
                 else
                   is_replaced = false
-                  if (replacement_path = ::Brick::Util._write_patched(folder_matcher, name, extension, ::Brick::Util._custom_require_dir, patched_filename, search_text, replacement_text))
+                  if (replacement_path = ::Brick::Util._write_patched(folder_matcher, name, extension, ::Brick::Util._custom_require_dir, patched_filename, replacements))
                     is_replaced = Kernel.send(:orig_require, replacement_path)
                   elsif replacement_path.nil?
                     puts "Couldn't find #{name} to require it!"
@@ -75,7 +78,7 @@ module Brick
             end
           end
         end
-        require_overrides[module_filename] = [extension, folder_matcher, search_text, replacement_text, autoload_symbol]
+        require_overrides[module_filename] = [extension, folder_matcher, replacements, autoload_symbol]
       end
     end
 
@@ -94,7 +97,7 @@ module Brick
 
     # Returns the full path to the replaced filename, or
     # false if the file already exists, and nil if it was unable to write anything.
-    def self._write_patched(folder_matcher, name, extension, dir, patched_filename, search_text, replacement_text)
+    def self._write_patched(folder_matcher, name, extension, dir, patched_filename, replacements)
       # See if our replacement file might already exist for some reason
       name = +"/#{name}" unless name.start_with?('/')
       name << extension unless name.end_with?(extension)
@@ -111,9 +114,13 @@ module Brick
         break if path.include?(folder_matcher) && (orig_as = File.open(orig_path))
       end
       puts [folder_matcher, name].inspect
-      if (orig_text = orig_as&.read)
-        File.open(replacement_path, 'w') do |replacement|
-          num_written = replacement.write(orig_text.gsub(search_text, replacement_text))
+      if (updated_text = orig_as&.read)
+        File.open(replacement_path, 'w') do |replaced_file|
+          replacements = [replacements] unless replacements.first.is_a?(Array)
+          replacements.each do |search_text, replacement_text|
+            updated_text.gsub!(search_text, replacement_text)
+          end
+          num_written = replaced_file.write(updated_text)
         end
         orig_as.close
       end

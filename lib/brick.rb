@@ -31,15 +31,15 @@ if (ruby_version = ::Gem::Version.new(RUBY_VERSION)) >= ::Gem::Version.new('2.7'
   # Remove circular reference for "now"
   ::Brick::Util._patch_require(
     'active_support/values/time_zone.rb', '/activesupport',
-    '  def parse(str, now=now)',
-    '  def parse(str, now=now())'
+    ['  def parse(str, now=now)',
+     '  def parse(str, now=now())']
   )
   # Remove circular reference for "reflection" for ActiveRecord 3.1
   if ActiveRecord.version >= ::Gem::Version.new('3.1')
     ::Brick::Util._patch_require(
       'active_record/associations/has_many_association.rb', '/activerecord',
-      'reflection = reflection)',
-      'reflection = reflection())',
+      ['reflection = reflection)',
+       'reflection = reflection())'],
       :HasManyAssociation # Make sure the path for this guy is available to be autoloaded
     )
   end
@@ -47,9 +47,9 @@ end
 
 # puts ::Brick::Util._patch_require(
 #     'cucumber/cli/options.rb', '/cucumber/cli/options', # /cli/options
-#     '  def extract_environment_variables',
-#     "  def extract_environment_variables\n
-#     puts 'Patch test!'"
+#     ['  def extract_environment_variables',
+#      "  def extract_environment_variables\n
+#     puts 'Patch test!'"]
 #   ).inspect
 
 # An ActiveRecord extension that uses INFORMATION_SCHEMA views to reflect on all
