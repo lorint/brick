@@ -529,6 +529,7 @@ if (headerTop) {
                # 0..62 because Postgres column names are limited to 63 characters
                #{obj_name}, (descrips = @_brick_bt_descrip[bt.first][bt_class])[0..-2].map { |z| #{obj_name}.send(z.last[0..62]) }, (bt_id_col = descrips.last)
              )
+             bt_txt ||= \"<< Orphaned ID: #\{val} >>\" if val
              bt_id = #{obj_name}.send(*bt_id_col) if bt_id_col&.present? %>
           <%= bt_id ? link_to(bt_txt, send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_id)) : bt_txt %>
           <%#= Previously was:  bt_obj = bt[1].first.first.find_by(bt[2] => val); link_to(bt_obj.brick_descrip, send(\"#\{bt[1].first.first.name.underscore\}_path\".to_sym, bt_obj.send(bt[1].first.first.primary_key.to_sym))) if bt_obj %>
@@ -610,7 +611,11 @@ end
       html_options = { prompt: \"Select #\{bt_name\}\" }
       html_options[:class] = 'dimmed' unless val %>
       <%= f.select k.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options %>
-      <%= bt_obj = bt_class&.find_by(bt_pair[1] => val); link_to('⇛', send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_obj.send(bt_class.primary_key.to_sym)), { class: 'show-arrow' }) if bt_obj %>
+      <%= if (bt_obj = bt_class&.find_by(bt_pair[1] => val))
+            link_to('⇛', send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_obj.send(bt_class.primary_key.to_sym)), { class: 'show-arrow' })
+          elsif val
+            \"Orphaned ID: #\{val}\"
+          end %>
     <% else case #{model_name}.column_for_attribute(k).type
       when :string, :text %>
         <% if is_bcrypt?(val) # || .readonly? %>

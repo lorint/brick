@@ -70,7 +70,11 @@ module ActiveRecord
     def self._brick_primary_key(relation = nil)
       return instance_variable_get(:@_brick_primary_key) if instance_variable_defined?(:@_brick_primary_key)
 
-      pk = primary_key.is_a?(String) ? [primary_key] : primary_key || []
+      pk = begin
+             primary_key.is_a?(String) ? [primary_key] : primary_key || []
+           rescue
+             []
+           end
       # Just return [] if we're missing any part of the primary key.  (PK is usually just "id")
       if relation && pk.present?
         @_brick_primary_key ||= pk.any? { |pk_part| !relation[:cols].key?(pk_part) } ? [] : pk
@@ -1470,6 +1474,46 @@ module Brick
         hm_counts[fk[1]] = hm_counts.fetch(fk[1]) { 0 } + 1
       end
       assoc_bt[:inverse] = assoc_hm
+    end
+
+    # Locate orphaned records
+    def find_orphans(multi_schema)
+      is_default_schema = multi_schema&.==(Apartment.default_schema)
+      relations.each_with_object([]) do |v, s|
+        frn_tbl = v.first
+        next if (relation = v.last).key?(:isView) || config.exclude_tables.include?(frn_tbl) ||
+                !(for_pk = (relation[:pkey].values.first&.first))
+
+        is_default_frn_schema = !is_default_schema && multi_schema &&
+                                ((frn_parts = frn_tbl.split('.')).length > 1 && frn_parts.first)&.==(Apartment.default_schema)
+        relation[:fks].select { |_k, assoc| assoc[:is_bt] }.each do |_k, bt|
+          begin
+            unless bt.key?(:polymorphic)
+              # Skip if database is multitenant, we're not focused on "public", and the foreign and primary tables
+              # are both in the "public" schema
+              pri_tbl = bt.key?(:inverse_table) && bt[:inverse_table]
+              next if is_default_frn_schema &&
+                      ((pri_parts = pri_tbl&.split('.'))&.length > 1 && pri_parts.first)&.==(Apartment.default_schema)
+
+              pri_pk = relations[pri_tbl].fetch(:pkey, nil)&.values&.first&.first ||
+                       _class_pk(pri_tbl, multi_schema)
+              ActiveRecord::Base.execute_sql(
+                "SELECT frn.#{bt[:fk]} AS pri_id, frn.#{for_pk} AS frn_id
+                FROM #{frn_tbl} AS frn
+                  LEFT OUTER JOIN #{pri_tbl} AS pri ON pri.#{pri_pk} = frn.#{bt[:fk]}
+                WHERE frn.#{bt[:fk]} IS NOT NULL AND pri.#{pri_pk} IS NULL
+                ORDER BY 1, 2"
+              ).each { |o| s << [frn_tbl, o['frn_id'], pri_tbl, o['pri_id'], bt[:fk]] }
+            end
+          rescue StandardError => err
+            puts "Strange -- #{err.inspect}"
+          end
+        end
+      end
+    end
+
+    def _class_pk(dotted_name, multitenant)
+      Object.const_get((multitenant ? [dotted_name.split('.').last] : dotted_name.split('.')).map { |nm| "::#{nm.singularize.camelize}" }.join).primary_key
     end
   end
 end
