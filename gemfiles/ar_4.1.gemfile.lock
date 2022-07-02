@@ -31,6 +31,7 @@ GEM
     database_cleaner (1.99.0)
     diff-lcs (1.5.0)
     erubis (2.7.0)
+    fancy_gets (0.1.10)
     ffaker (2.20.0)
     generator_spec (0.9.4)
       activesupport (>= 3.0.0)

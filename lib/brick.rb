@@ -481,6 +481,11 @@ require 'active_record'
 require 'active_record/relation'
 require 'active_record/relation/query_methods' if is_add_left_outer_join
 
+# Rake tasks
+class Railtie < Rails::Railtie
+  Dir.glob("#{File.expand_path(__dir__)}/brick/tasks/**/*.rake").each { |task| load task }
+end
+
 # Major compatibility fixes for ActiveRecord < 4.2
 # ================================================
 ActiveSupport.on_load(:active_record) do

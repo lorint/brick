@@ -1,8 +1,9 @@
 PATH
   remote: .
   specs:
-    brick (1.0.39)
+    brick (1.0.40)
       activerecord (>= 4.2, < 7.2)
+      fancy_gets
 
 GEM
   remote: https://rubygems.org/
@@ -42,6 +43,7 @@ GEM
     crass (1.0.6)
     diff-lcs (1.5.0)
     erubi (1.10.0)
+    fancy_gets (0.1.10)
     ffaker (2.20.0)
     generator_spec (0.9.4)
       activesupport (>= 3.0.0)

@@ -70,7 +70,11 @@ module ActiveRecord
     def self._brick_primary_key(relation = nil)
       return instance_variable_get(:@_brick_primary_key) if instance_variable_defined?(:@_brick_primary_key)
 
-      pk = primary_key.is_a?(String) ? [primary_key] : primary_key || []
+      pk = begin
+             primary_key.is_a?(String) ? [primary_key] : primary_key || []
+           rescue
+             []
+           end
       # Just return [] if we're missing any part of the primary key.  (PK is usually just "id")
       if relation && pk.present?
         @_brick_primary_key ||= pk.any? { |pk_part| !relation[:cols].key?(pk_part) } ? [] : pk
