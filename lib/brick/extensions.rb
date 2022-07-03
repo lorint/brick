@@ -1488,7 +1488,34 @@ module Brick
                                 ((frn_parts = frn_tbl.split('.')).length > 1 && frn_parts.first)&.==(Apartment.default_schema)
         relation[:fks].select { |_k, assoc| assoc[:is_bt] }.each do |_k, bt|
           begin
-            unless bt.key?(:polymorphic)
+            if bt.key?(:polymorphic)
+              pri_pk = for_pk
+              pri_tables = Brick.config.polymorphics["#{frn_tbl}.#{bt[:fk]}"]
+                                .each_with_object(Hash.new { |h, k| h[k] = [] }) do |pri_class, s|
+                s[Object.const_get(pri_class).table_name] << pri_class
+              end
+              fk_id_col = "#{bt[:fk]}_id"
+              fk_type_col = "#{bt[:fk]}_type"
+              selects = []
+              pri_tables.each do |pri_tbl, pri_types|
+                # Skip if database is multitenant, we're not focused on "public", and the foreign and primary tables
+                # are both in the "public" schema
+                next if is_default_frn_schema &&
+                        ((pri_parts = pri_tbl&.split('.'))&.length > 1 && pri_parts.first)&.==(Apartment.default_schema)
+
+                selects << "SELECT '#{pri_tbl}' AS pri_tbl, frn.#{fk_type_col} AS pri_type, frn.#{fk_id_col} AS pri_id, frn.#{for_pk} AS frn_id
+                FROM #{frn_tbl} AS frn
+                  LEFT OUTER JOIN #{pri_tbl} AS pri ON pri.#{pri_pk} = frn.#{fk_id_col}
+                WHERE frn.#{fk_type_col} IN (#{
+                  pri_types.map { |pri_type| "'#{pri_type}'" }.join(', ')
+                }) AND frn.#{bt[:fk]}_id IS NOT NULL AND pri.#{pri_pk} IS NULL\n"
+              end
+              ActiveRecord::Base.execute_sql(selects.join("UNION ALL\n")).each do |o|
+                entry = [frn_tbl, o['frn_id'], o['pri_type'], o['pri_id'], fk_id_col]
+                entry << o['pri_tbl'] if (pri_class = Object.const_get(o['pri_type'])) != pri_class.base_class
+                s << entry
+              end
+            else
               # Skip if database is multitenant, we're not focused on "public", and the foreign and primary tables
               # are both in the "public" schema
               pri_tbl = bt.key?(:inverse_table) && bt[:inverse_table]
