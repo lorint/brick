@@ -53,7 +53,9 @@ module Brick
             # Used by Rails 5.0 and above
             alias :_brick_template_exists? :template_exists?
             def template_exists?(*args, **options)
-              _brick_template_exists?(*args, **options) || set_brick_model(args)
+              (::Brick.config.add_orphans && args.first == 'orphans') ||
+              _brick_template_exists?(*args, **options) ||
+              set_brick_model(args)
             end
 
             def set_brick_model(find_args)
@@ -88,44 +90,55 @@ module Brick
               unless (model_name = (
                        @_brick_model ||
                        (ActionView.version < ::Gem::Version.new('5.0') && args[1].is_a?(Array) ? set_brick_model(args) : nil)
-                     )&.name)
+                     )&.name) ||
+                     (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']])
                 return _brick_find_template(*args, **options)
               end
 
-              pk = @_brick_model._brick_primary_key(::Brick.relations.fetch(model_name, nil))
-              obj_name = model_name.split('::').last.underscore
-              path_obj_name = model_name.underscore.tr('/', '_')
-              table_name = obj_name.pluralize
-              template_link = nil
-              bts, hms, associatives = ::Brick.get_bts_and_hms(@_brick_model) # This gets BT and HM and also has_many :through (HMT)
-              hms_columns = [] # Used for 'index'
-              skip_klass_hms = ::Brick.config.skip_index_hms[model_name] || {}
-              hms_headers = hms.each_with_object([]) do |hm, s|
-                hm_stuff = [(hm_assoc = hm.last), "H#{hm_assoc.macro == :has_one ? 'O' : 'M'}#{'T' if hm_assoc.options[:through]}", (assoc_name = hm.first)]
-                hm_fk_name = if hm_assoc.options[:through]
-                               associative = associatives[hm_assoc.name]
-                               "'#{associative.name}.#{associative.foreign_key}'"
-                             else
-                               hm_assoc.foreign_key
-                             end
-                if args.first == 'index'
-                  hms_columns << if hm_assoc.macro == :has_many
-                                   set_ct = if skip_klass_hms.key?(assoc_name.to_sym)
-                                              'nil'
-                                            else
-                                              # Postgres column names are limited to 63 characters
-                                              attrib_name = "_br_#{assoc_name}_ct"[0..62]
-                                              "#{obj_name}.#{attrib_name} || 0"
-                                            end
+              unless is_orphans
+                pk = @_brick_model._brick_primary_key(::Brick.relations.fetch(model_name, nil))
+                obj_name = model_name.split('::').last.underscore
+                path_obj_name = model_name.underscore.tr('/', '_')
+                table_name = obj_name.pluralize
+                template_link = nil
+                bts, hms, associatives = ::Brick.get_bts_and_hms(@_brick_model) # This gets BT and HM and also has_many :through (HMT)
+                hms_columns = [] # Used for 'index'
+                skip_klass_hms = ::Brick.config.skip_index_hms[model_name] || {}
+                hms_headers = hms.each_with_object([]) do |hm, s|
+                  hm_stuff = [(hm_assoc = hm.last), "H#{hm_assoc.macro == :has_one ? 'O' : 'M'}#{'T' if hm_assoc.options[:through]}", (assoc_name = hm.first)]
+                  hm_fk_name = if hm_assoc.options[:through]
+                                associative = associatives[hm_assoc.name]
+                                associative && "'#{associative.name}.#{associative.foreign_key}'"
+                              else
+                                hm_assoc.foreign_key
+                              end
+                  if args.first == 'index'
+                    hms_columns << if hm_assoc.macro == :has_many
+                                     set_ct = if skip_klass_hms.key?(assoc_name.to_sym)
+                                                'nil'
+                                              else
+                                                # Postgres column names are limited to 63 characters
+                                                attrib_name = "_br_#{assoc_name}_ct"[0..62]
+                                                "#{obj_name}.#{attrib_name} || 0"
+                                              end
+                                     if hm_fk_name
 "<%= ct = #{set_ct}
      link_to \"#\{ct || 'View'\} #{assoc_name}\", #{hm_assoc.klass.name.underscore.tr('/', '_').pluralize}_path({ #{path_keys(hm_assoc, hm_fk_name, obj_name, pk)} }) unless ct&.zero? %>\n"
-                                 else # has_one
+                                     else
+"#{assoc_name}\n"
+                                     end
+                                   else # has_one
 "<%= obj = #{obj_name}.#{hm.first}; link_to(obj.brick_descrip, obj) if obj %>\n"
-                                 end
-                elsif args.first == 'show'
-                  hm_stuff << "<%= link_to '#{assoc_name}', #{hm_assoc.klass.name.underscore.tr('/', '_').pluralize}_path({ #{path_keys(hm_assoc, hm_fk_name, "@#{obj_name}", pk)} }) %>\n"
+                                   end
+                  elsif args.first == 'show'
+                    hm_stuff << if hm_fk_name
+                                  "<%= link_to '#{assoc_name}', #{hm_assoc.klass.name.underscore.tr('/', '_').pluralize}_path({ #{path_keys(hm_assoc, hm_fk_name, "@#{obj_name}", pk)} }) %>\n"
+                                else
+                                  assoc_name
+                                end
+                  end
+                  s << hm_stuff
                 end
-                s << hm_stuff
               end
 
               schema_options = ::Brick.db_schemas.keys.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
@@ -140,6 +153,7 @@ module Brick
                               end.sort.each_with_object(+'') do |v, s|
                                 s << "<option value=\"#{v.underscore.gsub('.', '/').pluralize}\">#{v}</option>"
                               end.html_safe
+              table_options << '<option value="brick_orphans">(Orphans)</option>'.html_safe if is_orphans
               css = +"<style>
 #dropper {
   background-color: #eee;
@@ -507,7 +521,13 @@ if (headerTop) {
   %></th><%
      end
      # Consider getting the name from the association -- h.first.name -- if a more \"friendly\" alias should be used for a screwy table name
-  %>#{hms_headers.map { |h| "<th>#{h[1]} <%= link_to('#{h[2]}', #{h.first.klass.name.underscore.tr('/', '_').pluralize}_path) %></th>" }.join
+  %>#{hms_headers.map do |h|
+        if h.first.options[:through] && !h.first.through_reflection
+    "<th>#{h[1]} #{h[2]} %></th>"
+        else
+    "<th>#{h[1]} <%= link_to('#{h[2]}', #{h.first.klass.name.underscore.tr('/', '_').pluralize}_path) %></th>"
+        end
+      end.join
   }</tr></thead>
 
   <tbody>
@@ -547,6 +567,22 @@ if (headerTop) {
 
 #{"<hr><%= link_to \"New #{obj_name}\", new_#{path_obj_name}_path %>" unless @_brick_model.is_view?}
 #{script}"
+                       when 'orphans'
+                         if is_orphans
+"#{css}
+<p style=\"color: green\"><%= notice %></p>#{"
+<select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
+<select id=\"tbl\">#{table_options}</select>
+<h1>Orphans<%= \" for #\{}\" if false %></h1>
+<% @orphans.each do |o|
+  via = \" (via #\{o[4]})\" unless \"#\{o[2].split('.').last.underscore.singularize}_id\" == o[4] %>
+  <a href=\"/<%= o[0].split('.').last %>/<%= o[1] %>\">
+    <%= \"#\{o[0]} #\{o[1]} refers#\{via} to non-existent #\{o[2]} #\{o[3]}#\{\" (in table \\\"#\{o[5]}\\\")\" if o[5]}\" %>
+  </a><br>
+<% end %>
+#{script}"
+                         end
+
                        when 'show', 'update'
 "#{css}
 <p style=\"color: green\"><%= notice %></p>#{"
@@ -646,6 +682,8 @@ end
   <% end %>
 
   #{hms_headers.each_with_object(+'') do |hm, s|
+    next if hm.first.options[:through] && !hm.first.through_reflection
+
     if (pk = hm.first.klass.primary_key)
       hm_singular_name = (hm_name = hm.first.name.to_s).singularize.underscore
       obj_pk = (pk.is_a?(Array) ? pk : [pk]).each_with_object([]) { |pk_part, s| s << "#{hm_singular_name}.#{pk_part}" }.join(', ')

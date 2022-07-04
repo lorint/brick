@@ -415,14 +415,16 @@ module ActiveRecord
       hm_counts.each do |k, hm|
         associative = nil
         count_column = if hm.options[:through]
-                         fk_col = (associative = associatives[hm.name]).foreign_key
-                         hm.foreign_key
+                         fk_col = (associative = associatives[hm.name])&.foreign_key
+                         hm.foreign_key if fk_col
                        else
                          fk_col = hm.foreign_key
                          poly_type = hm.inverse_of.foreign_type if hm.options.key?(:as)
                          pk = hm.klass.primary_key
                          (pk.is_a?(Array) ? pk.first : pk) || '*'
                        end
+        next unless count_column # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
+
         tbl_alias = "_br_#{hm.name}"
         pri_tbl = hm.active_record
         on_clause = []
@@ -565,7 +567,9 @@ Module.class_exec do
                full_class_name = +''
                full_class_name << "::#{self.name}" unless self == Object
                full_class_name << "::#{plural_class_name.underscore.singularize.camelize}"
-               if (plural_class_name == 'BrickSwagger' || model = self.const_get(full_class_name))
+               if (plural_class_name == 'BrickSwagger' ||
+                  (::Brick.config.add_orphans && plural_class_name == 'BrickGem') ||
+                  model = self.const_get(full_class_name))
                  # if it's a controller and no match or a model doesn't really use the same table name, eager load all models and try to find a model class of the right name.
                  Object.send(:build_controller, self, class_name, plural_class_name, model, relations)
                end
@@ -896,6 +900,16 @@ class Object
       code = +"class #{namespace_name}#{class_name} < ApplicationController\n"
       built_controller = Class.new(ActionController::Base) do |new_controller_class|
         (namespace || Object).const_set(class_name.to_sym, new_controller_class)
+
+        # Brick-specific pages
+        if plural_class_name == 'BrickGem'
+          self.define_method :orphans do
+            instance_variable_set(:@orphans, ::Brick.find_orphans(::Brick.set_db_schema(params)))
+            puts "BrickGemController #{action_name} #{params.inspect}"
+            # render inline: 'Brick gem!'
+          end
+          return [new_controller_class, code + ' # BrickGem controller!']
+        end
 
         unless (is_swagger = plural_class_name == 'BrickSwagger') # && request.format == :json)
           code << "  def index\n"
