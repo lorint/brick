@@ -205,5 +205,10 @@ module Brick
     def not_nullables=(columns)
       @mutex.synchronize { @not_nullables = columns }
     end
+
+    # Add a special page to show references to non-existent records ("orphans")
+    def add_orphans
+      true
+    end
   end
 end

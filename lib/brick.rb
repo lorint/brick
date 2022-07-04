@@ -128,7 +128,10 @@ module Brick
 
     def set_db_schema(params)
       schema = params['_brick_schema'] || 'public'
-      ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema) if schema && ::Brick.db_schemas&.include?(schema)
+      if schema && ::Brick.db_schemas&.include?(schema)
+        ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema)
+        schema
+      end
     end
 
     # All tables and views (what Postgres calls "relations" including column and foreign key info)
@@ -456,6 +459,9 @@ In config/initializers/brick.rb appropriate entries would look something like:
             else
               send(:resources, controller_name.to_sym, **options)
             end
+          end
+          if ::Brick.config.add_orphans && instance_variable_get(:@set).named_routes.names.exclude?(:brick_orphans)
+            get('/brick_orphans', to: 'brick_gem#orphans', as: 'brick_orphans')
           end
         end
         send(:get, '/api-docs/v1/swagger.json', { to: 'brick_swagger#index' }) if Object.const_defined?('Rswag::Ui')
