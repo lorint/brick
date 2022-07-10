@@ -214,6 +214,9 @@ table tbody tr.active-row {
   color: #009879;
 }
 
+td.val {
+  display: block;
+}
 a.show-arrow {
   font-size: 1.5em;
   text-decoration: none;
@@ -227,11 +230,27 @@ a.big-arrow {
   overflow: hidden;
 }
 .wide-input input[type=text] {
-  width: 100%;
+  display: inline-block;
+  width: 90%;
 }
 .dimmed {
   background-color: #C0C0C0;
 }
+
+#revertTemplate {
+  display: none;
+}
+svg.revert {
+  display: none;
+  margin-left: 0.25em;
+}
+.wide-input > svg.revert {
+  float: right;
+}
+input+svg.revert {
+  top: 0.5em;
+}
+
 input[type=submit] {
   background-color: #004998;
   color: #FFF;
@@ -240,7 +259,9 @@ input[type=submit] {
   text-align: right;
 }
 </style>
-<% def is_bcrypt?(val)
+<% is_includes_dates = nil
+
+def is_bcrypt?(val)
   val.is_a?(String) && val.length == 60 && val.start_with?('$2a$')
 end
 def hide_bcrypt(val, max_len = 200)
@@ -485,7 +506,7 @@ if (headerTop) {
                          end
 # %%% Instead of our current "for Janet Leverling (Employee)" kind of link we previously had this code that did a "where x = 123" thing:
 #   (where <%= @_brick_params.each_with_object([]) { |v, s| s << \"#\{v.first\} = #\{v.last.inspect\}\" }.join(', ') %>)
-"#{css}
++"#{css}
 <p style=\"color: green\"><%= notice %></p>#{"
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
@@ -575,7 +596,7 @@ if (headerTop) {
 #{script}"
                        when 'orphans'
                          if is_orphans
-"#{css}
++"#{css}
 <p style=\"color: green\"><%= notice %></p>#{"
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
@@ -590,7 +611,14 @@ if (headerTop) {
                          end
 
                        when 'show', 'update'
-"#{css}
++"#{css}
+
+<svg id=\"revertTemplate\" version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"
+  width=\"32px\" height=\"32px\" viewBox=\"0 0 512 512\" xml:space=\"preserve\">
+<path id=\"revertPath\" fill=\"#2020A0\" d=\"M271.844,119.641c-78.531,0-148.031,37.875-191.813,96.188l-80.172-80.188v256h256l-87.094-87.094
+  c23.141-70.188,89.141-120.906,167.063-120.906c97.25,0,176,78.813,176,176C511.828,227.078,404.391,119.641,271.844,119.641z\" />
+</svg>
+
 <p style=\"color: green\"><%= notice %></p>#{"
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
@@ -648,31 +676,39 @@ end
       <%= k %>
     <% end %>
     </th>
-    <td>
-    <% if bt
+    <td class=\"val\">
+    <% dt_pickers = { datetime: 'datetimepicker', timestamp: 'datetimepicker', time: 'timepicker', date: 'datepicker' }
+    if bt
       html_options = { prompt: \"Select #\{bt_name\}\" }
       html_options[:class] = 'dimmed' unless val %>
       <%= f.select k.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options %>
       <%= if (bt_obj = bt_class&.find_by(bt_pair[1] => val))
             link_to('⇛', send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_obj.send(bt_class.primary_key.to_sym)), { class: 'show-arrow' })
           elsif val
-            \"Orphaned ID: #\{val}\"
-          end %>
-    <% else case #{model_name}.column_for_attribute(k).type
+            \"<span>Orphaned ID: #\{val}</span>\".html_safe
+          end %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg>
+    <% else case (col_type = #{model_name}.column_for_attribute(k).type)
       when :string, :text %>
         <% if is_bcrypt?(val) # || .readonly? %>
           <%= hide_bcrypt(val, 1000) %>
         <% else %>
-          <div class=\"wide-input\"><%= f.text_field k.to_sym %></div>
+          <div class=\"wide-input\"><%= f.text_field k.to_sym %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg></div>
         <% end %>
       <% when :boolean %>
-        <%= f.check_box k.to_sym %>
-      <% when :integer, :decimal, :float, :date, :datetime, :time, :timestamp
+        <%= f.check_box k.to_sym %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg>
+      <% when :integer, :decimal, :float
          # What happens when keys are UUID?
          # Postgres naturally uses the +uuid_generate_v4()+ function from the uuid-ossp extension
          # If it's not yet enabled then:  enable_extension 'uuid-ossp'
          # ActiveUUID gem created a new :uuid type %>
-        <%= val %>
+        <%= if col_type == :integer
+              f.text_field k.to_sym, { pattern: '\\d*', class: 'check-validity' }
+            else
+              f.number_field k.to_sym
+            end %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg>
+      <% when *dt_pickers.keys
+           is_includes_dates = true %>
+        <%= f.text_field k.to_sym, { class: dt_pickers[col_type] } %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg>
       <% when :binary, :primary_key %>
       <% end %>
     <% end %>
@@ -714,6 +750,66 @@ end
 #{script}"
 
                        end
+              inline << "
+<% if is_includes_dates %>
+<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css\">
+<style>
+.flatpickr-calendar {
+  background: #A0FFA0;
+}
+</style>
+<script src=\"https://cdn.jsdelivr.net/npm/flatpickr\"></script>
+<script>
+flatpickr(\".datepicker\");
+flatpickr(\".datetimepicker\", {enableTime: true});
+flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
+</script>
+<% end %>
+<script>
+document.querySelectorAll(\"input, select\").forEach(function (inp) {
+  var origVal = getInpVal(),
+      prevVal = origVal;
+  var revert;
+  if ((revert = ((inp.tagName === \"SELECT\" && inp.nextElementSibling.nextElementSibling) ||
+       inp.nextElementSibling ||
+       inp.parentElement.nextElementSibling)) && revert.tagName.toLowerCase() === \"svg\")
+    revert.addEventListener(\"click\", function (e) {
+      if (inp.type === \"checkbox\")
+        inp.checked = origVal;
+      else
+        inp.value = origVal;
+      revert.style.display = \"none\";
+      if (inp._flatpickr)
+        inp._flatpickr.setDate(origVal);
+      else
+        inp.focus();
+    });
+  inp.addEventListener(inp.type === \"checkbox\" ? \"change\" : \"input\", function (e) {
+    if(inp.className.split(\" \").indexOf(\"check-validity\") > 0) {
+      if (inp.checkValidity()) {
+        prevVal = getInpVal();
+      } else {
+        inp.value = prevVal;
+      }
+    } else {
+      // If this is the result of changing an hour or minute, keep the calendar open.
+      // And if it was the result of selecting a date, the calendar can now close.
+      if (inp._flatpickr &&
+           // Test only for changes in the date portion of a date or datetime
+           ((giv = getInpVal()) && (giv1 = giv.split(' ')[0])) !== (prevVal && prevVal.split(' ')[0]) &&
+           giv1.indexOf(\":\") < 0 // (definitely not any part of a time thing)
+         )
+        inp._flatpickr.close();
+      prevVal = getInpVal();
+    }
+    // Show or hide the revert button
+    if (revert) revert.style.display = getInpVal() === origVal ? \"none\" : \"inline-block\";
+  });
+  function getInpVal() {
+    return inp.type === \"checkbox\" ? inp.checked : inp.value;
+  }
+});
+</script>"
               # As if it were an inline template (see #determine_template in actionview-5.2.6.2/lib/action_view/renderer/template_renderer.rb)
               keys = options.has_key?(:locals) ? options[:locals].keys : []
               handler = ActionView::Template.handler_for_extension(options[:type] || 'erb')
