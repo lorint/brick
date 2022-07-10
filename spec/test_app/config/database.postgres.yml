@@ -1,15 +1,13 @@
 test: &test
   adapter: postgresql
-  database: duty_free_test
-  username: postgres
-  password: 
+  database: brick_test
   host:     localhost
   port:     5432
 
 foo:
   <<: *test
-  database: duty_free_foo
+  database: brick_foo
 
 bar:
   <<: *test
-  database: duty_free_bar
+  database: brick_bar

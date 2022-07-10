@@ -339,12 +339,12 @@ class SetUpTestTables < (
 
     create_table :restaurant_categories do |t|
       t.string :name
-      t.references :parent, index: true, foreign_key: true
+      t.references :parent, index: true
     end
     create_table :restaurants do |t|
       t.string :name
       t.string :address
-      t.references :category, index: true, foreign_key: true
+      t.references :category, index: true
     end
 
     # custom_primary_key_records use a uuid column (string)

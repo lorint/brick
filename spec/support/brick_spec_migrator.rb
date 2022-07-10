@@ -6,10 +6,11 @@ class BrickSpecMigrator
   end
 
   def migrate
-    if ::ActiveRecord.version >= ::Gem::Version.new('6.0')
-      ::ActiveRecord::MigrationContext.new(@migrations_path, ::ActiveRecord::SchemaMigration).migrate
-    elsif ::ActiveRecord.version >= ::Gem::Version.new('5.2.0.rc1')
-      ::ActiveRecord::MigrationContext.new(@migrations_path).migrate
+    if ::ActiveRecord.const_defined?(:MigrationContext)
+      options = [@migrations_path]
+      options << ::ActiveRecord::SchemaMigration if ::ActiveRecord.version >= ::Gem::Version.new('6.0')
+      armc = ::ActiveRecord::MigrationContext.new(*options)
+      armc.migrate if armc.needs_migration?
     else
       ::ActiveRecord::Migrator.migrate(@migrations_path)
     end

@@ -140,6 +140,13 @@ module Brick
       (@relations ||= {})[ActiveRecord::Base.connection_pool.object_id] ||= Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = {} } }
     end
 
+    def apartment_multitenant
+      if @apartment_multitenant.nil?
+        @apartment_multitenant = ::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment')
+      end
+      @apartment_multitenant
+    end
+
     # If multitenancy is enabled, a list of non-tenanted "global" models
     def non_tenanted_models
       @pending_models ||= {}
@@ -447,7 +454,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
         ::Brick.relations.each do |rel_name, v|
           rel_name = rel_name.split('.').map(&:underscore)
           schema_names = rel_name[0..-2]
-          schema_names.shift if ::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') && schema_names.first == Apartment.default_schema
+          schema_names.shift if ::Brick.apartment_multitenant && schema_names.first == Apartment.default_schema
           k = rel_name.last
           unless existing_controllers.key?(controller_name = k.pluralize)
             options = {}
@@ -477,7 +484,8 @@ require 'brick/version_number'
 # Older versions of ActiveRecord would only show more serious error information from "panic" level, which is
 # a level only available in Postgres 12 and older.  This patch will allow older and newer versions of Postgres
 # to work along with fairly old versions of Rails.
-if Object.const_defined?('PG::VERSION') && ActiveRecord.version < ::Gem::Version.new('4.2.6')
+if (is_postgres = (Object.const_defined?('PG::VERSION') || Gem::Specification.find_all_by_name('pg').present?)) &&
+   ActiveRecord.version < ::Gem::Version.new('4.2.6')
   ::Brick::Util._patch_require(
     'active_record/connection_adapters/postgresql_adapter.rb', '/activerecord', ["'panic'", "'error'"]
   )
@@ -784,7 +792,8 @@ ActiveSupport.on_load(:active_record) do
 end
 
 # Do this earlier because stuff here gets mixed into JoinDependency::JoinAssociation and AssociationScope
-if ActiveRecord.version < ::Gem::Version.new('5.0') && Object.const_defined?('PG::Connection')
+if is_postgres && ActiveRecord.version < ::Gem::Version.new('5.0') # Was:  && Object.const_defined?('PG::Connection')
+  require 'pg' # For ActiveRecord < 4.2
   # Avoid pg gem deprecation warning:  "You should use PG::Connection, PG::Result, and PG::Error instead"
   PGconn = PG::Connection
   PGresult = PG::Result
