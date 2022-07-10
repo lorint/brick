@@ -112,7 +112,8 @@ module Brick
                               else
                                 hm_assoc.foreign_key
                               end
-                  if args.first == 'index'
+                  case args.first
+                  when 'index'
                     hms_columns << if hm_assoc.macro == :has_many
                                      set_ct = if skip_klass_hms.key?(assoc_name.to_sym)
                                                 'nil'
@@ -130,7 +131,7 @@ module Brick
                                    else # has_one
 "<%= obj = #{obj_name}.#{hm.first}; link_to(obj.brick_descrip, obj) if obj %>\n"
                                    end
-                  elsif args.first == 'show'
+                  when 'show', 'update'
                     hm_stuff << if hm_fk_name
                                   "<%= link_to '#{assoc_name}', #{hm_assoc.klass.name.underscore.tr('/', '_').pluralize}_path({ #{path_keys(hm_assoc, hm_fk_name, "@#{obj_name}", pk)} }) %>\n"
                                 else # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
@@ -328,7 +329,7 @@ function changeout(href, param, value, trimAfter) {
     var pathParts = hrefParts[hrefParts.length - 1].split(\"/\");
     if (value === undefined)
       // A couple possibilities if it's namespaced, starting with two parts in the path -- and then try just one
-      return [pathParts.slice(1, 3).join('/'), pathParts.slice(1, 2)];
+      return [pathParts.slice(1, 3).join('/'), pathParts.slice(1, 2)[0]];
     else
       return hrefParts[0] + \"://\" + pathParts[0] + \"/\" + value;
   }
