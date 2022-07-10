@@ -1,6 +1,6 @@
 test: &test
   adapter: postgresql
-  database: duty_free_test
+  database: brick_test
   username: postgres
   password: 
   host:     localhost
@@ -8,8 +8,8 @@ test: &test
 
 foo:
   <<: *test
-  database: duty_free_foo
+  database: brick_foo
 
 bar:
   <<: *test
-  database: duty_free_bar
+  database: brick_bar

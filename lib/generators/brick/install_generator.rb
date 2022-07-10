@@ -225,7 +225,7 @@ module Brick
 # # it wasn't originally specified.
 # Brick.schema_behavior = :namespaced
 #{Brick.config.schema_behavior ? "Brick.schema_behavior = { multitenant: { schema_to_analyse: #{
-  Brick.config.schema_behavior[:multitenant][:schema_to_analyse].inspect}" :
+  Brick.config.schema_behavior[:multitenant]&.fetch(:schema_to_analyse, nil).inspect}" :
 "# Brick.schema_behavior = { multitenant: { schema_to_analyse: 'engineering'"
 } } }
 

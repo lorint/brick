@@ -112,7 +112,8 @@ module Brick
                               else
                                 hm_assoc.foreign_key
                               end
-                  if args.first == 'index'
+                  case args.first
+                  when 'index'
                     hms_columns << if hm_assoc.macro == :has_many
                                      set_ct = if skip_klass_hms.key?(assoc_name.to_sym)
                                                 'nil'
@@ -130,7 +131,7 @@ module Brick
                                    else # has_one
 "<%= obj = #{obj_name}.#{hm.first}; link_to(obj.brick_descrip, obj) if obj %>\n"
                                    end
-                  elsif args.first == 'show'
+                  when 'show', 'update'
                     hm_stuff << if hm_fk_name
                                   "<%= link_to '#{assoc_name}', #{hm_assoc.klass.name.underscore.tr('/', '_').pluralize}_path({ #{path_keys(hm_assoc, hm_fk_name, "@#{obj_name}", pk)} }) %>\n"
                                 else # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
@@ -311,7 +312,13 @@ window.addEventListener(\"pageshow\", function() {
   });
 
   if (tblSelect) { // Always present
-    tblSelect.value = changeout(location.href)[schemaSelect ? 1 : 0];
+    var i = schemaSelect ? 1 : 0,
+        changeoutList = changeout(location.href);
+    for (; i < changeoutList.length; ++i) {
+      tblSelect.value = changeoutList[i];
+      if (tblSelect.value !== \"\") break;
+    }
+
     tblSelect.addEventListener(\"change\", function () {
       var lhr = changeout(location.href, null, this.value);
       if (brickSchema)
@@ -328,13 +335,13 @@ function changeout(href, param, value, trimAfter) {
     var pathParts = hrefParts[hrefParts.length - 1].split(\"/\");
     if (value === undefined)
       // A couple possibilities if it's namespaced, starting with two parts in the path -- and then try just one
-      return [pathParts.slice(1, 3).join('/'), pathParts.slice(1, 2)];
+      return [pathParts.slice(1, 3).join('/'), pathParts.slice(1, 2)[0]];
     else
       return hrefParts[0] + \"://\" + pathParts[0] + \"/\" + value;
   }
   if (trimAfter) {
     var pathParts = hrefParts[0].split(\"/\");
-    while (pathParts.lastIndexOf(trimAfter) != pathParts.length - 1) pathParts.pop();
+    while (pathParts.lastIndexOf(trimAfter) !== pathParts.length - 1) pathParts.pop();
     hrefParts[0] = pathParts.join(\"/\");
   }
   var params = hrefParts.length > 1 ? hrefParts[1].split(\"&\") : [];
@@ -504,8 +511,7 @@ if (headerTop) {
   <thead><tr>#{'<th></th>' if pk.present?}<%
      col_order = []
      @#{table_name}.columns.each do |col|
-       col_name = col.name
-       next if (#{(pk || []).inspect}.include?(col_name) && col.type == :integer && !bts.key?(col_name)) ||
+       next if (#{(pk || []).inspect}.include?(col_name = col.name) && col.type == :integer && !bts.key?(col_name)) ||
                ::Brick.config.metadata_columns.include?(col_name) || poly_cols.include?(col_name)
 
        col_order << col_name
@@ -518,7 +524,7 @@ if (headerTop) {
        else %><%=
          col_name %><%
        end
-  %></th><%
+    %></th><%
      end
      # Consider getting the name from the association -- h.first.name -- if a more \"friendly\" alias should be used for a screwy table name
   %>#{hms_headers.map do |h|
@@ -662,10 +668,11 @@ end
       <% when :boolean %>
         <%= f.check_box k.to_sym %>
       <% when :integer, :decimal, :float, :date, :datetime, :time, :timestamp
-         # What happens when keys are UUID?
-         # Postgres naturally uses the +uuid_generate_v4()+ function from the uuid-ossp extension
-         # If it's not yet enabled then:  enable_extension 'uuid-ossp'
-         # ActiveUUID gem created a new :uuid type %>
+        <%= val %>
+      <% when :uuid %>
+        # Postgres naturally uses the +uuid_generate_v4()+ function from the uuid-ossp extension
+        # If it's not yet enabled then:  enable_extension 'uuid-ossp'
+        # ActiveUUID gem created a new :uuid type %>
         <%= val %>
       <% when :binary, :primary_key %>
       <% end %>

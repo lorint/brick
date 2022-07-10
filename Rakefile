@@ -55,7 +55,7 @@ task prepare: [:clean] do
 end
 
 require 'rspec/core/rake_task'
-desc 'Run tests on PaperTrail with RSpec'
+desc 'Run tests on Brick with RSpec'
 task(:spec).clear
 RSpec::Core::RakeTask.new(:spec) do |t|
   # Hide list of specs
