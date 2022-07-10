@@ -1059,10 +1059,11 @@ class Object
           if is_need_params
             code << "private\n"
             code << "  def #{params_name}\n"
-            code << "    params.require(:#{singular_table_name}).permit(#{model.columns_hash.keys.map { |c| c.to_sym.inspect }.join(', ')})\n"
+            code << "    params.require(:#{require_name = model.name.underscore.tr('/', '_')
+                             }).permit(#{model.columns_hash.keys.map { |c| c.to_sym.inspect }.join(', ')})\n"
             code << "  end\n"
             self.define_method(params_name) do
-              params.require(singular_table_name.to_sym).permit(model.columns_hash.keys)
+              params.require(require_name.to_sym).permit(model.columns_hash.keys)
             end
             private params_name
             # Get column names for params from relations[model.table_name][:cols].keys
