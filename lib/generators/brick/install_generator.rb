@@ -159,6 +159,8 @@ module Brick
 # # When table names have specific prefixes automatically place them in their own module with a table_name_prefix.
 # Brick.table_name_prefixes = { 'nav_' => 'Navigation' }
 
+# # EXTRA FOREIGN KEYS AND OTHER HAS_MANY SETTINGS
+
 # # Additional table references which are used to create has_many / belongs_to associations inside auto-created
 # # models.  (You can consider these to be \"virtual foreign keys\" if you wish)...  You only have to add these
 # # in cases where your database for some reason does not have foreign key constraints defined.  Sometimes for
@@ -176,8 +178,9 @@ module Brick
 # Brick.exclude_hms = [['users', 'favourite_colour_id', 'colours']]
 
 # # Skip showing counts for these specific has_many associations when building auto-generated #index views.
-# # When there are related tables with a significant number of records, this can lessen the load on the database
-# # considerably, sometimes fixing what might appear to be an index page that just \"hangs\" for no apparent reason.
+# # When there are related tables with a significant number of records (generally 100,000 or more), this can lessen
+# # the load on the database considerably, sometimes fixing what might appear to be an index page that just \"hangs\"
+# # for no apparent reason.
 # Brick.skip_index_hms = ['User.litany_of_woes']
 
 # # By default primary tables involved in a foreign key relationship will indicate a \"has_many\" relationship pointing
@@ -199,12 +202,16 @@ module Brick
 # # Designated by <table name>.<column name>
 # Brick.not_nullables = ['users.name']
 
+# # FRIENDLY DSL
+
 # # A simple DSL is available to allow more user-friendly display of objects.  Normally a user object might be shown
 # # as its first non-metadata column, or if that is not available then something like \"User #45\" where 45 is that
 # # object's ID.  If there is no primary key then even that is not possible, so the object's .to_s method is called.
 # # To override these defaults and specify exactly what you want shown, such as first names and last names for a
 # # user, then you can use model_descrips like this, putting expressions with property references in square brackets:
 # Brick.model_descrips = { 'User' => '[profile.firstname] [profile.lastname]' }
+
+# # SINGLE TABLE INHERITANCE
 
 # # Specify STI subclasses either directly by name or as a general module prefix that should always relate to a specific
 # # parent STI class.  The prefixed :: here for these examples is mandatory.  Also having a suffixed :: means instead of
@@ -221,15 +228,19 @@ module Brick
 # Brick.sti_type_column = 'sti_type'
 # Brick.sti_type_column = { 'rails_type' => ['sales.specialoffer'] }
 
+# # POLYMORPHIC ASSOCIATIONS
+
 # # Database schema to use when analysing existing data, such as deriving a list of polymorphic classes in the case that
 # # it wasn't originally specified.
 # Brick.schema_behavior = :namespaced
-#{Brick.config.schema_behavior ? "Brick.schema_behavior = { multitenant: { schema_to_analyse: #{
-  Brick.config.schema_behavior[:multitenant][:schema_to_analyse].inspect}" :
+#{Brick.config.schema_behavior.present? ? "Brick.schema_behavior = { multitenant: { schema_to_analyse: #{
+  Brick.config.schema_behavior[:multitenant]&.fetch(:schema_to_analyse, nil).inspect}" :
 "# Brick.schema_behavior = { multitenant: { schema_to_analyse: 'engineering'"
 } } }
 
 # # Polymorphic associations are set up by providing a model name and polymorphic association name#{poly}
+
+# # DEFAULT ROOT ROUTE
 
 # # If a default route is not supplied, Brick attempts to find the most \"central\" table and wires up the default
 # # route to go to the :index action for what would be a controller for that table.  You can specify any controller

@@ -112,7 +112,8 @@ module Brick
                               else
                                 hm_assoc.foreign_key
                               end
-                  if args.first == 'index'
+                  case args.first
+                  when 'index'
                     hms_columns << if hm_assoc.macro == :has_many
                                      set_ct = if skip_klass_hms.key?(assoc_name.to_sym)
                                                 'nil'
@@ -130,7 +131,7 @@ module Brick
                                    else # has_one
 "<%= obj = #{obj_name}.#{hm.first}; link_to(obj.brick_descrip, obj) if obj %>\n"
                                    end
-                  elsif args.first == 'show'
+                  when 'show', 'update'
                     hm_stuff << if hm_fk_name
                                   "<%= link_to '#{assoc_name}', #{hm_assoc.klass.name.underscore.tr('/', '_').pluralize}_path({ #{path_keys(hm_assoc, hm_fk_name, "@#{obj_name}", pk)} }) %>\n"
                                 else # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
@@ -144,7 +145,7 @@ module Brick
               schema_options = ::Brick.db_schemas.keys.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
               # %%% If we are not auto-creating controllers (or routes) then omit by default, and if enabled anyway, such as in a development
               # environment or whatever, then get either the controllers or routes list instead
-              apartment_default_schema = ::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') && Apartment.default_schema
+              apartment_default_schema = ::Brick.apartment_multitenant && Apartment.default_schema
               table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).map do |tbl|
                                 if (tbl_parts = tbl.split('.')).first == apartment_default_schema
                                   tbl = tbl_parts.last
@@ -163,10 +164,10 @@ module Brick
 }
 
 #headerTop {
-	position: sticky;
-	top: 0px;
-	background-color: white;
-	z-index: 1;
+  position: sticky;
+  top: 0px;
+  background-color: white;
+  z-index: 1;
 }
 table {
   border-collapse: collapse;
@@ -231,12 +232,17 @@ a.big-arrow {
 .dimmed {
   background-color: #C0C0C0;
 }
-input[type=submit] {
+.orphan {
+  color: red;
+  white-space: nowrap;
+}
+
+.update {
+  position: sticky;
+  right: 1em;
+  float: right;
   background-color: #004998;
   color: #FFF;
-}
-.right {
-  text-align: right;
 }
 </style>
 <% def is_bcrypt?(val)
@@ -311,7 +317,13 @@ window.addEventListener(\"pageshow\", function() {
   });
 
   if (tblSelect) { // Always present
-    tblSelect.value = changeout(location.href)[schemaSelect ? 1 : 0];
+    var i = schemaSelect ? 1 : 0,
+        changeoutList = changeout(location.href);
+    for (; i < changeoutList.length; ++i) {
+      tblSelect.value = changeoutList[i];
+      if (tblSelect.value !== \"\") break;
+    }
+
     tblSelect.addEventListener(\"change\", function () {
       var lhr = changeout(location.href, null, this.value);
       if (brickSchema)
@@ -328,13 +340,13 @@ function changeout(href, param, value, trimAfter) {
     var pathParts = hrefParts[hrefParts.length - 1].split(\"/\");
     if (value === undefined)
       // A couple possibilities if it's namespaced, starting with two parts in the path -- and then try just one
-      return [pathParts.slice(1, 3).join('/'), pathParts.slice(1, 2)];
+      return [pathParts.slice(1, 3).join('/'), pathParts.slice(1, 2)[0]];
     else
       return hrefParts[0] + \"://\" + pathParts[0] + \"/\" + value;
   }
   if (trimAfter) {
     var pathParts = hrefParts[0].split(\"/\");
-    while (pathParts.lastIndexOf(trimAfter) != pathParts.length - 1) pathParts.pop();
+    while (pathParts.lastIndexOf(trimAfter) !== pathParts.length - 1) pathParts.pop();
     hrefParts[0] = pathParts.join(\"/\");
   }
   var params = hrefParts.length > 1 ? hrefParts[1].split(\"&\") : [];
@@ -491,7 +503,7 @@ if (headerTop) {
        k, id = @_brick_params.first
        id = id.first if id.is_a?(Array) && id.length == 1
        origin = (key_parts = k.split('.')).length == 1 ? #{model_name} : #{model_name}.reflect_on_association(key_parts.first).klass
-       if (destination_fk = Brick.relations[origin.table_name][:fks].values.find { |fk| puts fk.inspect; fk[:fk] == key_parts.last }) &&
+       if (destination_fk = Brick.relations[origin.table_name][:fks].values.find { |fk| fk[:fk] == key_parts.last }) &&
           (obj = (destination = origin.reflect_on_association(destination_fk[:assoc_name])&.klass)&.find(id)) %>
          <h3>for <%= link_to \"#{"#\{obj.brick_descrip\} (#\{destination.name\})\""}, send(\"#\{destination.name.underscore.tr('/', '_')\}_path\".to_sym, id) %></h3><%
        end
@@ -504,12 +516,11 @@ if (headerTop) {
   <thead><tr>#{'<th></th>' if pk.present?}<%
      col_order = []
      @#{table_name}.columns.each do |col|
-       col_name = col.name
-       next if (#{(pk || []).inspect}.include?(col_name) && col.type == :integer && !bts.key?(col_name)) ||
+       next if (#{(pk || []).inspect}.include?(col_name = col.name) && col.type == :integer && !bts.key?(col_name)) ||
                ::Brick.config.metadata_columns.include?(col_name) || poly_cols.include?(col_name)
 
        col_order << col_name
-    %><th<%= \" title = \\\"#\{col.comment}\\\"\".html_safe if col.respond_to?(:comment) && !col.comment.blank? %>><%
+    %><th<%= \" title=\\\"#\{col.comment}\\\"\".html_safe if col.respond_to?(:comment) && !col.comment.blank? %>><%
        if (bt = bts[col_name]) %>
          BT <%
          bt[1].each do |bt_pair| %><%=
@@ -518,7 +529,7 @@ if (headerTop) {
        else %><%=
          col_name %><%
        end
-  %></th><%
+    %></th><%
      end
      # Consider getting the name from the association -- h.first.name -- if a more \"friendly\" alias should be used for a screwy table name
   %>#{hms_headers.map do |h|
@@ -547,11 +558,11 @@ if (headerTop) {
            else
              bt_txt = (bt_class = bt[1].first.first).brick_descrip(
                # 0..62 because Postgres column names are limited to 63 characters
-               #{obj_name}, (descrips = @_brick_bt_descrip[bt.first][bt_class])[0..-2].map { |z| #{obj_name}.send(z.last[0..62]) }, (bt_id_col = descrips.last)
+               #{obj_name}, (descrips = @_brick_bt_descrip[bt.first][bt_class])[0..-2].map { |id| #{obj_name}.send(id.last[0..62]) }, (bt_id_col = descrips.last)
              )
-             bt_txt ||= \"<< Orphaned ID: #\{val} >>\" if val
-             bt_id = #{obj_name}.send(*bt_id_col) if bt_id_col&.present? %>
-          <%= bt_id ? link_to(bt_txt, send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_id)) : bt_txt %>
+             bt_txt ||= \"<span class=\\\"orphan\\\">&lt;&lt; Orphaned ID: #\{val} >></span>\".html_safe if val
+             bt_id = bt_id_col.map { |id_col| #{obj_name}.send(id_col.to_sym) } %>
+          <%= bt_id&.first ? link_to(bt_txt, send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_id)) : bt_txt %>
           <%#= Previously was:  bt_obj = bt[1].first.first.find_by(bt[2] => val); link_to(bt_obj.brick_descrip, send(\"#\{bt[1].first.first.name.underscore\}_path\".to_sym, bt_obj.send(bt[1].first.first.primary_key.to_sym))) if bt_obj %>
         <% end %>
       <% else %>
@@ -606,7 +617,7 @@ end
     <tr>
     <% next if (#{(pk || []).inspect}.include?(k) && !bts.key?(k)) ||
                ::Brick.config.metadata_columns.include?(k) %>
-    <th class=\"show-field\"<%= \" title = \\\"#\{col.comment}\\\"\".html_safe if col.respond_to?(:comment) && !col.comment.blank? %>>
+    <th class=\"show-field\"<%= \" title=\\\"#\{col.comment}\\\"\".html_safe if col.respond_to?(:comment) && !col.comment.blank? %>>
     <% has_fields = true
       if (bt = bts[k])
         # Add a final member in this array with descriptive options to be used in <select> drop-downs
@@ -650,8 +661,8 @@ end
       <%= if (bt_obj = bt_class&.find_by(bt_pair[1] => val))
             link_to('⇛', send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_obj.send(bt_class.primary_key.to_sym)), { class: 'show-arrow' })
           elsif val
-            \"Orphaned ID: #\{val}\"
-          end %>
+            \"<span class=\\\"orphan\\\">Orphaned ID: #\{val}</span>\".html_safe
+          end %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg>
     <% else case #{model_name}.column_for_attribute(k).type
       when :string, :text %>
         <% if is_bcrypt?(val) # || .readonly? %>
@@ -662,11 +673,18 @@ end
       <% when :boolean %>
         <%= f.check_box k.to_sym %>
       <% when :integer, :decimal, :float, :date, :datetime, :time, :timestamp
-         # What happens when keys are UUID?
-         # Postgres naturally uses the +uuid_generate_v4()+ function from the uuid-ossp extension
-         # If it's not yet enabled then:  enable_extension 'uuid-ossp'
-         # ActiveUUID gem created a new :uuid type %>
         <%= val %>
+      <% when :uuid %>
+        <%=
+          # Postgres naturally uses the +uuid_generate_v4()+ function from the uuid-ossp extension
+          # If it's not yet enabled then:  create extension \"uuid-ossp\";
+          # ActiveUUID gem created a new :uuid type
+          val %>
+      <% when :ltree %>
+        <%=
+          # In Postgres labels of data stored in a hierarchical tree-like structure
+          # If it's not yet enabled then:  create extension ltree;
+          val %>
       <% when :binary, :primary_key %>
       <% end %>
     <% end %>
@@ -674,7 +692,7 @@ end
     </tr>
   <% end
   if has_fields %>
-    <tr><td colspan=\"2\" class=\"right\"><%= f.submit %></td></tr>
+    <tr><td colspan=\"2\"><%= f.submit({ class: 'update' }) %></td></tr>
   <% else %>
     <tr><td colspan=\"2\">(No displayable fields)</td></tr>
   <% end %>

@@ -274,7 +274,6 @@ module ActiveRecord
             table = table.left
           end
           (_brick_chains[table._arel_table_type] ||= []) << (alias_name || table.table_alias || table.name)
-          # puts "YES! #{self.object_id}"
         end
         # rubocop:enable Style/IdenticalConditionalBranches
       when Arel::Table # Table
@@ -286,9 +285,9 @@ module ActiveRecord
         # Spin up an empty set of Brick alias name chains at the start
         @_brick_chains = {}
         # The left side is the "FROM" table
-        # names += _recurse_arel(piece.left)
         names << (this_name = [piece.left._arel_table_type, (piece.left.table_alias || piece.left.name)])
-        (_brick_chains[this_name.first] ||= []) << this_name.last
+        # # Do not currently need the root "FROM" table in our list of chains
+        # (_brick_chains[this_name.first] ||= []) << this_name.last
         # The right side is an array of all JOINs
         piece.right.each { |join| names << _recurse_arel(join) }
       end
@@ -592,7 +591,7 @@ Module.class_exec do
                # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
                # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
 
-               if (base_model = ::Brick.config.sti_namespace_prefixes&.fetch("::#{name}::", nil)&.constantize) || # Are we part of an auto-STI namespace? ...
+               if (base_model = ::Brick.config.sti_namespace_prefixes&.fetch("::#{self.name}::", nil)&.constantize) || # Are we part of an auto-STI namespace? ...
                   self != Object # ... or otherwise already in some namespace?
                  schema_name = [(singular_schema_name = name.underscore),
                                 (schema_name = singular_schema_name.pluralize),
@@ -615,7 +614,7 @@ Module.class_exec do
                               else
                                 ActiveSupport::Inflector.pluralize(singular_table_name)
                               end
-                 if ::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') &&
+                 if ::Brick.apartment_multitenant &&
                     Apartment.excluded_models.include?(table_name.singularize.camelize)
                    schema_name = Apartment.default_schema
                  end
@@ -650,17 +649,18 @@ class Object
   private
 
     def build_model(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching)
-      full_name = if (::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') && schema_name == Apartment.default_schema)
-                    relation = relations["#{schema_name}.#{matching}"]
-                    inheritable_name || model_name
-                  elsif schema_name.blank?
+      if ::Brick.apartment_multitenant &&
+         schema_name == Apartment.default_schema
+        relation = relations["#{schema_name}.#{matching}"]
+      end
+      full_name = if relation || schema_name.blank?
                     inheritable_name || model_name
                   else # Prefix the schema to the table name + prefix the schema namespace to the class name
                     schema_module = if schema_name.instance_of?(Module) # from an auto-STI namespace?
                                       schema_name
                                     else
                                       matching = "#{schema_name}.#{matching}"
-                                      (Brick.db_schemas[schema_name] ||= self.const_get(schema_name.singularize.camelize))
+                                      (Brick.db_schemas[schema_name] ||= self.const_get(schema_name.camelize))
                                     end
                     "#{schema_module&.name}::#{inheritable_name || model_name}"
                   end
@@ -827,7 +827,7 @@ class Object
                 if (inverse = assoc[:inverse])
                   inverse_assoc_name, _x = _brick_get_hm_assoc_name(relations[inverse_table], inverse)
                   has_ones = ::Brick.config.has_ones&.fetch(inverse[:alternate_name].camelize, nil)
-                  if has_ones&.key?(singular_inv_assoc_name = ActiveSupport::Inflector.singularize(inverse_assoc_name))
+                  if has_ones&.key?(singular_inv_assoc_name = ActiveSupport::Inflector.singularize(inverse_assoc_name.tr('.', '_')))
                     inverse_assoc_name = if has_ones[singular_inv_assoc_name]
                                            need_inverse_of = true
                                            has_ones[singular_inv_assoc_name]
@@ -838,7 +838,6 @@ class Object
                 end
                 :belongs_to
               else
-                # need_class_name = ActiveSupport::Inflector.singularize(assoc_name) == ActiveSupport::Inflector.singularize(table_name.underscore)
                 # Are there multiple foreign keys out to the same table?
                 assoc_name, need_class_name = _brick_get_hm_assoc_name(relation, assoc)
                 if assoc.key?(:polymorphic)
@@ -846,8 +845,8 @@ class Object
                 else
                   need_fk = "#{ActiveSupport::Inflector.singularize(assoc[:inverse][:inverse_table].split('.').last)}_id" != assoc[:fk]
                 end
-                # fks[table_name].find { |other_assoc| other_assoc.object_id != assoc.object_id && other_assoc[:assoc_name] == assoc[assoc_name] }
-                if (has_ones = ::Brick.config.has_ones&.fetch(model_name, nil))&.key?(singular_assoc_name = ActiveSupport::Inflector.singularize(assoc_name))
+                has_ones = ::Brick.config.has_ones&.fetch(full_name, nil)
+                if has_ones&.key?(singular_assoc_name = ActiveSupport::Inflector.singularize(assoc_name.tr('.', '_')))
                   assoc_name = if (custom_assoc_name = has_ones[singular_assoc_name])
                                  need_class_name = custom_assoc_name != singular_assoc_name
                                  custom_assoc_name
@@ -1059,10 +1058,11 @@ class Object
           if is_need_params
             code << "private\n"
             code << "  def #{params_name}\n"
-            code << "    params.require(:#{singular_table_name}).permit(#{model.columns_hash.keys.map { |c| c.to_sym.inspect }.join(', ')})\n"
+            code << "    params.require(:#{require_name = model.name.underscore.tr('/', '_')
+                             }).permit(#{model.columns_hash.keys.map { |c| c.to_sym.inspect }.join(', ')})\n"
             code << "  end\n"
             self.define_method(params_name) do
-              params.require(singular_table_name.to_sym).permit(model.columns_hash.keys)
+              params.require(require_name.to_sym).permit(model.columns_hash.keys)
             end
             private params_name
             # Get column names for params from relations[model.table_name][:cols].keys
@@ -1117,7 +1117,8 @@ module ActiveRecord::ConnectionHandling
       end
       # Load the initializer for the Apartment gem a little early so that if .excluded_models and
       # .default_schema are specified then we can work with non-tenanted models more appropriately
-      if Object.const_defined?('Apartment') && File.exist?(apartment_initializer = Rails.root.join('config/initializers/apartment.rb'))
+      apartment = Object.const_defined?('Apartment')
+      if apartment && File.exist?(apartment_initializer = Rails.root.join('config/initializers/apartment.rb'))
         load apartment_initializer
         apartment_excluded = Apartment.excluded_models
       end
@@ -1320,17 +1321,20 @@ module ActiveRecord::ConnectionHandling
       end
     end
 
-    apartment = Object.const_defined?('Apartment') && Apartment
     tables = []
     views = []
     relations.each do |k, v|
       name_parts = k.split('.')
+      idx = 1
+      name_parts = name_parts.map do |x|
+        ((idx += 1) < name_parts.length ? x.singularize : x).camelize
+      end
       if v.key?(:isView)
         views
       else
         name_parts.shift if apartment && name_parts.length > 1 && name_parts.first == Apartment.default_schema
         tables
-      end << name_parts.map { |x| x.singularize.camelize }.join('::')
+      end << name_parts.join('::')
     end
     unless tables.empty?
       puts "\nClasses that can be built from tables:"

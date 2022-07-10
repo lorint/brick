@@ -87,7 +87,7 @@ so very easily brought into play by editing that file.  Myriad settings are avai
   - [3.d. Tweaking For Performance](#3d-tweaking-for-performance)
   - [3.e. Using Callbacks](#3e-using-callbacks)
 - [4. Similar Gems](#10-similar-gems)
-- [Problems](#problems)
+- [Issues](#issues)
 - [Contributing](#contributing)
 - [Intellectual Property](#intellectual-property)
 
@@ -103,30 +103,61 @@ so very easily brought into play by editing that file.  Myriad settings are avai
 | 1.0            | 1-stable   | v1.x   | >= 2.3.5 | >= 4.2, < 7.2 |
 
 Brick supports all Rails versions which have been current during the past 7 years, which at
-the time of writing (July 2022) includes Rails 4.2.0 and above.  If you are using any version
-older than Rails 5.0, then you MUST have this to be the last line in boot.rb:
+the time of writing (July 2022) includes Rails 4.2.0 and above.  Rails 7.x and 5.x apps work
+staightaway with no additional changes.
 
-    require 'brick/compatibility'
-
-(Definitely try this if you end up seeing the error "undefined method `new' for
-BigDecimal:Class (NoMethodError)".)
-
-Rails 5.x apps work staightaway with no additional changes.
-
-Rails 6.x uses an interim version of Zeitwerk that is not yet compatible with The Brick, so at
-this point you must use classic mode.  It's the default for Rails 6.0, and for 6.1 you need to
-add this line in application.rb:
+Rails 6.x uses an interim version of Zeitwerk that is not yet compatible with The Brick, so for
+those versions you must use classic mode.  (This is generally the default for Rails 6.0.)  If
+you see the error "uninitialized constant _____" then you need to add this line in
+application.rb:
 
     config.autoloader = :classic
 
-In Rails >= 7.x the Zeitwerk loader is fully functional, so no compatibility issues.  As well
-this is the version of Rails which has been tested most extensively.
+In Rails 7 and later the Zeitwerk loader is fully functional, so no autoloader compatibility
+issues.  As well Rails 7.0 and 7.1 are the versions which have been tested most extensively.
 
-When used with various older versions of Rails, Brick automatically applies various
-compatibility patches.  This makes it easier to test the broad range of supported versions of
-ActiveRecord without having to mess with older versions of Ruby.  If you're using Ruby 2.7.5
-then any Rails from 4.2 up to 7.1 will work, all due to the various patches put in place as
-the gem starts up.
+When used with really old versions of Rails, 4.x and older, Brick automatically applies various
+compatibility patches so it will run under newer versions of Ruby.  This makes it easier to
+test the broad range of supported versions of ActiveRecord without having to also use older
+versions of Ruby.  If you're using Ruby 2.7.5 then any Rails from 4.2 up to 7.1 will work, all
+due to the various patches put in place as the gem starts up.  Rails 4.x has not been tested
+very extensively, and as well when using those older versions then you MUST have this to be the
+last line in boot.rb:
+
+    require 'brick/compatibility'
+
+(Definitely try this patch any time you see the error "undefined method `new' for
+BigDecimal:Class (NoMethodError)".)
+
+The Brick notices when some other gems are present and makes use of them -- most notably
+composite_primary_keys which allows very tricky databases to function.  As it stands, when
+database table and column names are not named according to Rails' conventions, The Brick does
+quite a bit to accommodate.  But to get multiple-column primary and foreign keys to work,
+then composite_primary_keys is required.  Just bundle it in and The Brick will leverage this
+gem in order to make everything work.
+
+Another notable set of compatibility is provided with the multitenancy gem Apartment.  This is
+the most popular gem for setting up multiple tenants where each one uses a different database
+schema in Postgres.  The Brick is able to recognise this configuration when you place a line
+like this in config/initializers/brick.rb:
+
+    Brick.schema_behavior = { multitenant: {} }
+
+If you provide a sample representative tenant schema that is bound to exist then it gets even
+a little smarter about things, being able to auto-recognise models being used on the has_many
+side of polymorphic associations.  For example, if globex_corp is a schema that has a good
+representation of data, then you might want to use this line in the brick initialiser:
+
+    Brick.schema_behavior = { multitenant: { schema_to_analyse: 'globex_corp' } }
+
+The way this auto-polymorphic discovery functions is by analysing all existing types in the
+_type columns of these associations.  For instance, let's say you have an images table with the
+columns `imageable_type` and `imageable_id`, and a goal to have the `Image` model get built out
+with `belongs_to :imageable, polymorphic: true`.  In that case to properly establish all the
+inverse associations of `has_many :images, as: :imageable` in each appropriate model, then
+whatever schema you choose here needs to have data present in those polymorphic columns that
+represents the full variety of models that should end up getting the `has_many` side of this
+polymorphic association.
 
 ### 1.b. Installation
 
@@ -142,7 +173,22 @@ To configure additional options, such as defining related columns that you want 
 
 Inside the generated file many options exist, and one of which is `Brick.additional_references` which defines additional foreign key associations, and even shows some suggested ones where possible.  By default these are commented out, and by un-commenting the ones you would like (or perhaps even all of them), then it is as if these foreign keys were present to provide referential integrity.  If you then start up a `rails c` you'll find that appropriate belongs_to and has_many associations are automatically fleshed out.  Even has_many :through associations are provided when possible associative tables are identified -- that is, tables having only foreign keys that refer to other tables.
 
-## Problems
+## Issues
+
+If you are using Rails 6.0 or Rails 6.1 and see:
+
+    uninitialized constant _______
+
+(Where _______ is the name of some model or controller class you're hoping to reference) then
+in your application.rb file, make sure this configuration setting is in place:
+
+    config.autoloader = :classic
+
+Every effort is given to maintain compatibility with the current version of the Rails ecosystem,
+so if you hit a snag then we'd at least like to understand the situation.  Often we'll also offer
+suggestions.  Some feature requests will be enteratined, and for things deemed to be outside of
+the scope of The Brick, an attempt to provide useful extensibility will be made such that add-ons
+can be integrated in order to work in tandem with The Brick.
 
 Please use GitHub's [issue tracker](https://github.com/lorint/brick/issues).
 
@@ -159,37 +205,57 @@ DB=sqlite bundle exec appraisal
 
 See our [contribution guidelines][5]
 
-## Setting up my MySQL
+## Setting up for PostgreSQL
 
-If you're on Ruby 2.7 or later:
-    sudo apt-get install default-libmysqlclient-dev
+You should be able to set up the test database for Postgres with:
 
-On OSX / MacOS with Homebrew:
-    brew install mysql
-    brew services start mysql
+    DB=postgres bundle exec rake prepare
+
+And run the tests with:
+
+    bundle exec appraisal ar-7.0 rspec spec
+
+## Setting up for MySQL
+
+If you're on Linux:
+```
+sudo apt-get install default-libmysqlclient-dev
+```
+
+Or on OSX / MacOS with Homebrew:
+```
+brew install mysql
+brew services start mysql
+```
 
 On an Apple Silicon machine (M1 / M2 / M3 processor) then also set this:
-    bundle config --local build.mysql2 "--with-ldflags=-L$(brew --prefix zstd)/lib"
+```
+bundle config --local build.mysql2 "--with-ldflags=-L$(brew --prefix zstd)/lib"
+```
 
 (and maybe even this if the above doesn't work out)
-    bundle config --local build.mysql2 "--with-opt-dir=$(brew --prefix openssl)" "--with-ldflags=-L$(brew --prefix zstd)/lib"
+```
+bundle config --local build.mysql2 "--with-opt-dir=$(brew --prefix openssl)" "--with-ldflags=-L$(brew --prefix zstd)/lib"
+```
 
 
-And once the service is up and running you can connect through socket /tmp/mysql.sock like this:
-    mysql -uroot
+Once the MySQL service is up and running you can connect through socket /tmp/mysql.sock like this:
+```
+mysql -uroot
+```
 
 And inside this console now create two users with various permissions (these databases do not need to yet exist).  Trade out "my_username" with your real username, such as "sally@localhost".
 
     CREATE USER my_username@localhost IDENTIFIED BY '';
-    GRANT ALL PRIVILEGES ON duty_free_test.* TO my_username@localhost;
-    GRANT ALL PRIVILEGES ON duty_free_foo.* TO my_username@localhost;
-    GRANT ALL PRIVILEGES ON duty_free_bar.* TO my_username@localhost;
+    GRANT ALL PRIVILEGES ON brick_test.* TO my_username@localhost;
+    GRANT ALL PRIVILEGES ON brick_foo.* TO my_username@localhost;
+    GRANT ALL PRIVILEGES ON brick_bar.* TO my_username@localhost;
 
     And then create the user "duty_free" who can only connect locally:
     CREATE USER duty_free@localhost IDENTIFIED BY '';
-    GRANT ALL PRIVILEGES ON duty_free_test.* TO duty_free@localhost;
-    GRANT ALL PRIVILEGES ON duty_free_foo.* TO duty_free@localhost;
-    GRANT ALL PRIVILEGES ON duty_free_bar.* TO duty_free@localhost;
+    GRANT ALL PRIVILEGES ON brick_test.* TO duty_free@localhost;
+    GRANT ALL PRIVILEGES ON brick_foo.* TO duty_free@localhost;
+    GRANT ALL PRIVILEGES ON brick_bar.* TO duty_free@localhost;
     EXIT
 
 Now you should be able to set up the test database for MySQL with:
