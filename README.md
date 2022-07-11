@@ -1,4 +1,4 @@
-# Brick gem
+# Build it faster with The Brick!
 
 ### Have an instantly-running Rails app from any existing database
 
@@ -7,6 +7,10 @@ from any existing relational database!  This gem auto-creates models, views, con
 routes, and instead of being some big pile of raw scaffolded files, they exist just in RAM.
 The beauty of this is that if you make database changes such as adding new tables or columns,
 basic functionality is immediately available without having to add any code.
+
+Probably want to have **VOLUME UP** (on the player's slider below) for the video walkthrough:
+
+https://user-images.githubusercontent.com/5301131/178191829-fe4d1966-e5d8-47e4-ad34-b4c9f6bceabc.mp4
 
 ## Documentation
 
