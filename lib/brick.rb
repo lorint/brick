@@ -168,8 +168,12 @@ module Brick
       skip_hms = {}
       associatives = hms.each_with_object({}) do |hmt, s|
         if (through = hmt.last.options[:through])
-          skip_hms[through] = nil
-          s[hmt.first] = hms[through] # End up with a hash of HMT names pointing to join-table associations
+          skip_hms[through] = nil # if hms[through]
+          # binding.pry if !hms[through]
+          # End up with a hash of HMT names pointing to join-table associations
+          # Last part was:  hmt.last.name
+          # Changed up because looking for:  hms[:issue_issue_duplicates]
+          s[hmt.first] = hms[through] # || hms["#{(opt = hmt.last.options)[:through].to_s.singularize}_#{opt[:source].to_s.pluralize}".to_sym]
         elsif hmt.last.inverse_of.nil?
           puts "SKIPPING #{hmt.last.name.inspect}"
           # %%% If we don't do this then below associative.name will find that associative is nil

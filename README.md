@@ -1,4 +1,4 @@
-# Brick gem
+# Build it faster with The Brick!
 
 ### Have an instantly-running Rails app from any existing database
 
@@ -8,43 +8,59 @@ routes, and instead of being some big pile of raw scaffolded files, they exist j
 The beauty of this is that if you make database changes such as adding new tables or columns,
 basic functionality is immediately available without having to add any code.
 
-## Documentation
+Probably want to pop some corn and have **VOLUME UP** (on the player's slider below) for this
+video walkthrough:
 
-| Version        | Documentation                                             |
-| -------------- | --------------------------------------------------------- |
+https://user-images.githubusercontent.com/5301131/178191829-fe4d1966-e5d8-47e4-ad34-b4c9f6bceabc.mp4
+
+## General Overview
+
+| Version        | Documentation                                         |
+| -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.22         | https://github.com/lorint/brick/blob/v1.0.0/README.md |
+| 1.0.46         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 You can use The Brick in several ways -- from taking a quick peek inside an existing data set,
-with full ability to navigate across associations, to easily updating and creating data,
-exporting tables or views out to CSV or Google Sheets, importing sets of data, creating a
+with full ability to navigate across associations -- to easily updating and creating data,
+exporting tables or views out to CSV or Google Sheets, importing sets of data -- creating a
 minimally-scaffolded application one file at a time, experimenting with various data layouts to
-see how functional a given database design will be, and more.
+see how functional a given database design will be -- and more.
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
-build out models if you wish, and then make your own controllers and views.  Or have The Brick
-make generic controllers and views for some resources as you fine-tune others with custom code.
-Or you could go the other way around -- you build the models, and have The Brick auto-create
-the controllers and views.  Any kind of hybrid approach is possible.  The idea is to use
-The Brick to automatically flesh out the more tedious and simple parts of your application,
-freeing up your time to focus on the more tricky bits.
+auto-build models if you wish, and then make your own controllers and views.  Or have The Brick
+auto-build controllers and views for some resources as you fine-tune others with custom code.
+Any hybrid way you want to mix and mash that is possible.  The idea is to use The Brick to
+automatically flesh out the more tedious and simple parts of your application, freeing up your
+time to focus on the more tricky bits.
 
-In terms of models, all major ActiveRecord associations can be used, including has_many and
+The default resulting pages built out offer "index" and "show" views for each model, with
+references to associated models built out as links.  The index page which lists all records for
+a given model creates just one database query in order to get records back -- no "N+1" querying
+problem common to other solutions which auto-scaffold related tables of data.  This is due to
+the intelligent way in which JOINs are added to the query, even when fields are requested which
+are multiple "hops" away from the source table.  This frees up the developer from writing many
+tricky ActiveRecord queries.
+
+On the "show" page which is built out, CRUD functionality for an individual record can be
+performed.  Date and time fields are made editable by using the very lean "flatpickr" library.
+
+In terms of models, all major ActiveRecord associations are built out, including has_many and
 belongs_to, as well as has_many :through, Single Table Inheritance (STI), and polymorphic
-associations.  Appropriate belongs_tos are built based on the foreign keys already in the
-database, and corresponding has_many associations are also built as inverses of the discovered
-belongs_tos.  From there for any tables which only have belongs_to fields, relevant
-has_many :through associations are added.  For example, if there are recipes and ingredients
-set up with an associative table like this:
+associations.  Based on the foreign keys found in the database, appropriate belongs_tos are
+built, and corresponding has_many associations as well, being inverses of the discovered
+belongs_tos.  From there, any tables which are found to only have belongs_to fields are
+considered to be "associative" (or "join") tables, and relevant has_many :through associations
+are then added.  For example, if there are recipes and ingredients set up with an associative
+table like this:
 
     Recipe --> RecipeIngredient <-- Ingredient
 
 then first there are two belongs_to associations placed in RecipeIngredient, and then two
-corresponding inverse associations -- has_manys -- one in Recipe, and one in Ingredient.
-Finally with RecipeIngredient being recognised as an associative table (as long as it has no
-other columns than those two foreign keys, recipe_id and ingredient_id, then in Recipe a HMT
-would be added:
+corresponding has_manys to go the other "inverse" direction -- one in Recipe, and one in
+Ingredient.  Finally with RecipeIngredient being recognised as an associative table (as long as
+it has no other columns than those two foreign keys, recipe_id and ingredient_id, then in
+Recipe a HMT would be added:
 
     has_many :ingredients, through: :recipe_ingredients
 
@@ -61,9 +77,10 @@ It can be provided by putting a line like this in an initialiser file:
 
     ::Brick.additional_references = [['recipe_ingredients', 'recipe_id', 'recipes']]
 
-Brick can auto-create such an initialiser file, and often infer these kinds of useful references
-to fill in the gaps for missing foreign keys.  These suggestions are left commented out initially,
-so very easily brought into play by editing that file.  Myriad settings are avaiable therein.
+Brick can auto-create such an initialiser file, and often infer these kinds of useful
+references to fill in the gaps for missing foreign keys.  These suggestions are left commented
+out initially, so very easily brought into play by editing that file.  Myriad settings are
+avaiable therein.
 
 ## Table of Contents
 
@@ -87,7 +104,7 @@ so very easily brought into play by editing that file.  Myriad settings are avai
   - [3.d. Tweaking For Performance](#3d-tweaking-for-performance)
   - [3.e. Using Callbacks](#3e-using-callbacks)
 - [4. Similar Gems](#10-similar-gems)
-- [Problems](#problems)
+- [Issues](#issues)
 - [Contributing](#contributing)
 - [Intellectual Property](#intellectual-property)
 
@@ -142,9 +159,15 @@ To configure additional options, such as defining related columns that you want 
 
 Inside the generated file many options exist, and one of which is `Brick.additional_references` which defines additional foreign key associations, and even shows some suggested ones where possible.  By default these are commented out, and by un-commenting the ones you would like (or perhaps even all of them), then it is as if these foreign keys were present to provide referential integrity.  If you then start up a `rails c` you'll find that appropriate belongs_to and has_many associations are automatically fleshed out.  Even has_many :through associations are provided when possible associative tables are identified -- that is, tables having only foreign keys that refer to other tables.
 
-## Problems
+## Issues
 
-Please use GitHub's [issue tracker](https://github.com/lorint/brick/issues).
+Every effort is given to maintain compatibility with the current version of the Rails ecosystem,
+so if you hit a snag then we'd at least like to understand the situation.  Often we'll also offer
+suggestions.  Some feature requests will be enteratined, and for things deemed to be outside of
+the scope of The Brick, an attempt to provide useful extensibility will be made such that add-ons
+can be integrated in order to work in tandem with The Brick.
+
+Please use GitHub's [issue tracker](https://github.com/lorint/brick/issues) to reach out to us.
 
 ## Contributing
 
