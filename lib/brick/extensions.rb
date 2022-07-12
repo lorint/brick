@@ -353,6 +353,7 @@ module ActiveRecord
           next if bt[2] # Polymorphic?
 
           # join_array will receive this relation name when calling #brick_parse_dsl
+          # binding.pry if bt.length > 2
           bt_descrip[bt.first] = if bt[1].is_a?(Array)
                                    bt[1].each_with_object({}) { |bt_class, s| s[bt_class] = bt_class.brick_parse_dsl(join_array, bt.first, translations, true) }
                                  else
@@ -363,7 +364,12 @@ module ActiveRecord
         hms.each do |k, hm|
           next if skip_klass_hms.key?(k)
 
-          hm_counts[k] = hm
+          if hm.macro == :has_one
+            # For our purposes a :has_one is similar enough to a :belongs_to that we can just join forces
+            bt_descrip[k] = { hm.klass => hm.klass.brick_parse_dsl(join_array, k, translations) }
+          else # Standard :has_many
+            hm_counts[k] = hm
+          end
         end
       end
 
@@ -749,10 +755,10 @@ class Object
               if assoc[:is_bt]
                 invs = invs.first # Just do the first one of what would be multiple identical polymorphic belongs_to
               else
-                invs.each { |inv| build_bt_or_hm(relations, model_name, relation, hmts, assoc, inverse_assoc_name, inv, code) }
+                invs.each { |inv| build_bt_or_hm(full_name, relations, relation, hmts, assoc, inverse_assoc_name, inv, code) }
               end
             end
-            build_bt_or_hm(relations, model_name, relation, hmts, assoc, inverse_assoc_name, invs, code) unless invs.is_a?(Array)
+            build_bt_or_hm(full_name, relations, relation, hmts, assoc, inverse_assoc_name, invs, code) unless invs.is_a?(Array)
             hmts
           end
           # # Not NULLables
@@ -804,7 +810,7 @@ class Object
       [built_model, code]
     end
 
-    def build_bt_or_hm(relations, model_name, relation, hmts, assoc, inverse_assoc_name, inverse_table, code)
+    def build_bt_or_hm(full_name, relations, relation, hmts, assoc, inverse_assoc_name, inverse_table, code)
       singular_table_name = inverse_table&.singularize
       options = {}
       macro = if assoc[:is_bt]
@@ -826,8 +832,14 @@ class Object
                 end
                 if (inverse = assoc[:inverse])
                   inverse_assoc_name, _x = _brick_get_hm_assoc_name(relations[inverse_table], inverse)
-                  has_ones = ::Brick.config.has_ones&.fetch(inverse[:alternate_name].camelize, nil)
-                  if has_ones&.key?(singular_inv_assoc_name = ActiveSupport::Inflector.singularize(inverse_assoc_name))
+                  # If it's multitenant with something like:  public.____ ...
+                  if (it_parts = inverse_table.split('.')).length > 1 &&
+                     ::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') &&
+                     it_parts.first == Apartment.default_schema
+                    it_parts.shift # ... then ditch the generic schema name
+                  end
+                  has_ones = ::Brick.config.has_ones&.fetch(it_parts.join('/').singularize.camelize, nil)
+                  if has_ones&.key?(singular_inv_assoc_name = ActiveSupport::Inflector.singularize(inverse_assoc_name.tr('.', '_')))
                     inverse_assoc_name = if has_ones[singular_inv_assoc_name]
                                            need_inverse_of = true
                                            has_ones[singular_inv_assoc_name]
