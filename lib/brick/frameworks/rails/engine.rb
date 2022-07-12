@@ -696,12 +696,15 @@ end
           elsif val
             \"<span class=\\\"orphan\\\">Orphaned ID: #\{val}</span>\".html_safe
           end %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg>
-    <% else case (col_type = #{model_name}.column_for_attribute(k).type)
+    <% else
+    html_options = {}
+    html_options[:class] = 'dimmed' unless val
+    case (col_type = #{model_name}.column_for_attribute(k).type)
       when :string, :text %>
         <% if is_bcrypt?(val) # || .readonly? %>
           <%= hide_bcrypt(val, 1000) %>
         <% else %>
-          <div class=\"wide-input\"><%= f.text_field k.to_sym %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg></div>
+          <div class=\"wide-input\"><%= f.text_field(k.to_sym, html_options) %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg></div>
         <% end %>
       <% when :boolean %>
         <%= f.check_box k.to_sym %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg>
