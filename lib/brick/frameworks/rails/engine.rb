@@ -129,7 +129,11 @@ module Brick
 "#{assoc_name}\n"
                                      end
                                    else # has_one
-"<%= obj = #{obj_name}.#{hm.first}; link_to(obj.brick_descrip, obj) if obj %>\n"
+                                     # 0..62 because Postgres column names are limited to 63 characters
+"<%= descrips = @_brick_bt_descrip[#{hm.first.inspect}][ho_class = #{hm[1].klass.name}]
+     ho_txt = ho_class.brick_descrip(#{obj_name}, descrips[0..-2].map { |id| #{obj_name}.send(id.last[0..62]) }, (ho_id_col = descrips.last))
+     ho_id = ho_id_col.map { |id_col| #{obj_name}.send(id_col.to_sym) }
+     ho_id&.first ? link_to(ho_txt, send(\"#\{ho_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, ho_id)) : ho_txt %>\n"
                                    end
                   when 'show', 'update'
                     hm_stuff << if hm_fk_name
@@ -574,11 +578,11 @@ if (headerTop) {
            else
              bt_txt = (bt_class = bt[1].first.first).brick_descrip(
                # 0..62 because Postgres column names are limited to 63 characters
-               #{obj_name}, (descrips = @_brick_bt_descrip[bt.first][bt_class])[0..-2].map { |z| #{obj_name}.send(z.last[0..62]) }, (bt_id_col = descrips.last)
+               #{obj_name}, (descrips = @_brick_bt_descrip[bt.first][bt_class])[0..-2].map { |id| #{obj_name}.send(id.last[0..62]) }, (bt_id_col = descrips.last)
              )
              bt_txt ||= \"<< Orphaned ID: #\{val} >>\" if val
-             bt_id = #{obj_name}.send(*bt_id_col) if bt_id_col&.present? %>
-          <%= bt_id ? link_to(bt_txt, send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_id)) : bt_txt %>
+             bt_id = bt_id_col.map { |id_col| #{obj_name}.send(id_col.to_sym) } if bt_id_col&.present? %>
+          <%= bt_id&.first ? link_to(bt_txt, send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_id)) : bt_txt %>
           <%#= Previously was:  bt_obj = bt[1].first.first.find_by(bt[2] => val); link_to(bt_obj.brick_descrip, send(\"#\{bt[1].first.first.name.underscore\}_path\".to_sym, bt_obj.send(bt[1].first.first.primary_key.to_sym))) if bt_obj %>
         <% end %>
       <% else %>

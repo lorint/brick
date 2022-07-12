@@ -163,7 +163,7 @@ DB=sqlite bundle exec appraisal
 
 See our [contribution guidelines][5]
 
-## Setting up my MySQL
+## Setting up for MySQL
 
 If you're on Linux:
 ```
