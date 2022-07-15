@@ -830,14 +830,14 @@ class Object
                   need_fk = "#{assoc_name}_id" != assoc[:fk]
                 end
                 if (inverse = assoc[:inverse])
-                  inverse_assoc_name, _x = _brick_get_hm_assoc_name(relations[inverse_table], inverse)
                   # If it's multitenant with something like:  public.____ ...
                   if (it_parts = inverse_table.split('.')).length > 1 &&
-                    ::Brick.apartment_multitenant &&
-                    it_parts.first == Apartment.default_schema
-                   it_parts.shift # ... then ditch the generic schema name
-                 end
-                 has_ones = ::Brick.config.has_ones&.fetch(it_parts.join('/').singularize.camelize, nil)
+                     ::Brick.apartment_multitenant &&
+                     it_parts.first == Apartment.default_schema
+                    it_parts.shift # ... then ditch the generic schema name
+                  end
+                  inverse_assoc_name, _x = _brick_get_hm_assoc_name(relations[inverse_table], inverse, it_parts.join('_').singularize)
+                  has_ones = ::Brick.config.has_ones&.fetch(it_parts.join('/').singularize.camelize, nil)
                   if has_ones&.key?(singular_inv_assoc_name = ActiveSupport::Inflector.singularize(inverse_assoc_name.tr('.', '_')))
                     inverse_assoc_name = if has_ones[singular_inv_assoc_name]
                                            need_inverse_of = true
@@ -1084,9 +1084,9 @@ class Object
       [built_controller, code]
     end
 
-    def _brick_get_hm_assoc_name(relation, hm_assoc)
+    def _brick_get_hm_assoc_name(relation, hm_assoc, source = nil)
       if (relation[:hm_counts][hm_assoc[:assoc_name]]&.> 1) &&
-         hm_assoc[:alternate_name] != hm_assoc[:inverse][:assoc_name]
+         hm_assoc[:alternate_name] != (source || name.underscore)
         plural = ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name])
         new_alt_name = (hm_assoc[:alternate_name] == name.underscore) ? "#{hm_assoc[:assoc_name].singularize}_#{plural}" : plural
         # uniq = 1
