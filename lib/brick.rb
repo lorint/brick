@@ -173,14 +173,14 @@ module Brick
       # Mark has_manys that go to an associative ("join") table so that they are skipped in the UI,
       # as well as any possible polymorphic associations
       skip_hms = {}
-      associatives = hms.each_with_object({}) do |hmt, s|
+      hms.each do |hmt|
         if (through = hmt.last.options[:through])
           skip_hms[through] = nil # if hms[through]
           # binding.pry if !hms[through]
           # End up with a hash of HMT names pointing to join-table associations
           # Last part was:  hmt.last.name
           # Changed up because looking for:  hms[:issue_issue_duplicates]
-          s[hmt.first] = hms[through] # || hms["#{(opt = hmt.last.options)[:through].to_s.singularize}_#{opt[:source].to_s.pluralize}".to_sym]
+          model._br_associatives[hmt.first] = hms[through] # || hms["#{(opt = hmt.last.options)[:through].to_s.singularize}_#{opt[:source].to_s.pluralize}".to_sym]
         elsif hmt.last.inverse_of.nil?
           puts "SKIPPING #{hmt.last.name.inspect}"
           # %%% If we don't do this then below associative.name will find that associative is nil
@@ -188,7 +188,7 @@ module Brick
         end
       end
       skip_hms.each { |k, _v| hms.delete(k) }
-      [bts, hms, associatives]
+      [bts, hms]
     end
 
     # Switches Brick auto-models on or off, for all threads
