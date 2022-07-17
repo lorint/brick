@@ -105,13 +105,26 @@ module Brick
                 hms_columns = [] # Used for 'index'
                 skip_klass_hms = ::Brick.config.skip_index_hms[model_name] || {}
                 hms_headers = hms.each_with_object([]) do |hm, s|
-                  hm_stuff = [(hm_assoc = hm.last), "H#{hm_assoc.macro == :has_one ? 'O' : 'M'}#{'T' if hm_assoc.options[:through]}", (assoc_name = hm.first)]
+                  hm_stuff = [(hm_assoc = hm.last),
+                              "H#{hm_assoc.macro == :has_one ? 'O' : 'M'}#{'T' if hm_assoc.options[:through]}",
+                              (assoc_name = hm.first)]
                   hm_fk_name = if hm_assoc.options[:through]
-                                associative = associatives[hm_assoc.name]
-                                associative && "'#{associative.name}.#{associative.foreign_key}'"
-                              else
-                                hm_assoc.foreign_key
-                              end
+                                 associative = associatives[hm.first]
+                                 tbl_nm = if hm_assoc.options[:source]
+                                            associative.klass.reflect_on_association(hm_assoc.options[:source]).inverse_of&.name
+                                          else
+                                            associative.name
+                                          end
+                                 # If there is no inverse available for the source belongs_to association, make one based on the class name
+                                 unless tbl_nm
+                                   tbl_nm = associative.class_name.underscore
+                                   tbl_nm.slice!(0) if tbl_nm[0] == ('/')
+                                   tbl_nm = tbl_nm.tr('/', '_').pluralize
+                                 end
+                                 "'#{tbl_nm}.#{associative.foreign_key}'"
+                               else
+                                 hm_assoc.foreign_key
+                               end
                   case args.first
                   when 'index'
                     hms_columns << if hm_assoc.macro == :has_many
