@@ -773,33 +773,47 @@ class Object
       end # class definition
       # Having this separate -- will this now work out better?
         built_model.class_exec do
-          hmts&.each do |hmt_fk, fks|
+          hmts&.each do |hmt_fk, hms|
             hmt_fk = hmt_fk.tr('.', '_')
-            fks.each do |fk|
-              # %%% Will not work with custom has_many name
-              through = ::Brick.config.schema_behavior[:multitenant] ? fk.first[:assoc_name] : fk.first[:inverse_table].tr('.', '_').pluralize
-              hmt_name = if fks.length > 1
-                           if fks[0].first[:inverse][:assoc_name] == fks[1].first[:inverse][:assoc_name] # Same BT names pointing back to us? (Most common scenario)
-                             "#{hmt_fk}_through_#{fk.first[:assoc_name]}"
+            hms.each do |hm|
+              # %%% Need to confirm that HMTs work when they are built from has_manys with custom names
+              through = ::Brick.config.schema_behavior[:multitenant] ? hm.first[:assoc_name] : hm.first[:inverse_table].tr('.', '_').pluralize
+              options = {}
+              hmt_name = if hms.length > 1
+                           if hms[0].first[:inverse][:assoc_name] == hms[1].first[:inverse][:assoc_name] # Same BT names pointing back to us? (Most common scenario)
+                             "#{hmt_fk}_through_#{hm.first[:assoc_name]}"
                            else # Use BT names to provide uniqueness
-                             through = fk.first[:alternate_name].pluralize
-                             singular_assoc_name = fk.first[:inverse][:assoc_name].singularize
+                             if self.name.underscore.singularize == hm.first[:alternate_name]
+                              #  Has previously been:
+                              # # If it folds back on itself then look at the other side
+                              # # (At this point just infer the source be the inverse of the first has_many that
+                              # # we find that is not ourselves.  If there are more than two then uh oh, can't
+                              # # yet handle that rare circumstance!)
+                              # other = hms.find { |hm1| hm1 != hm } # .first[:fk]
+                              # options[:source] = other.first[:inverse][:assoc_name].to_sym
+                              #  And also has been:
+                              # hm.first[:inverse][:assoc_name].to_sym
+                               options[:source] = hm.last.to_sym
+                             else
+                               through = hm.first[:alternate_name].pluralize
+                             end
+                             singular_assoc_name = hm.first[:inverse][:assoc_name].singularize
                              "#{singular_assoc_name}_#{hmt_fk}"
                            end
                          else
                            hmt_fk
                          end
-              options = { through: through.to_sym }
+              options[:through] = through.to_sym
               if relation[:fks].any? { |k, v| v[:assoc_name] == hmt_name }
-                hmt_name = "#{hmt_name.singularize}_#{fk.first[:assoc_name]}"
+                hmt_name = "#{hmt_name.singularize}_#{hm.first[:assoc_name]}"
                 # Was:
-                # options[:class_name] = fk.first[:inverse_table].singularize.camelize
-                # options[:foreign_key] = fk.first[:fk].to_sym
-                far_assoc = relations[fk.first[:inverse_table]][:fks].find { |_k, v| v[:assoc_name] == fk.last }
+                # options[:class_name] = hm.first[:inverse_table].singularize.camelize
+                # options[:foreign_key] = hm.first[:fk].to_sym
+                far_assoc = relations[hm.first[:inverse_table]][:fks].find { |_k, v| v[:assoc_name] == hm.last }
                 options[:class_name] = far_assoc.last[:inverse_table].singularize.camelize
                 options[:foreign_key] = far_assoc.last[:fk].to_sym
               end
-              options[:source] = fk.last.to_sym unless hmt_name.singularize == fk.last
+              options[:source] ||= hm.last.to_sym unless hmt_name.singularize == hm.last
               code << "  has_many :#{hmt_name}#{options.map { |opt| ", #{opt.first}: #{opt.last.inspect}" }.join}\n"
               self.send(:has_many, hmt_name.to_sym, **options)
             end
