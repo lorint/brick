@@ -47,7 +47,6 @@ end
 
 # Add left_outer_join! to Associations::JoinDependency and Relation::QueryMethods
 if ActiveRecord.version < ::Gem::Version.new('5')
-  is_add_left_outer_join = true
   ::Brick::Util._patch_require(
     'active_record/associations/join_dependency.rb', '/activerecord', # /associations
       ["def join_constraints(outer_joins)
@@ -497,11 +496,26 @@ end
 
 require 'active_record'
 require 'active_record/relation'
-require 'active_record/relation/query_methods' if is_add_left_outer_join
+# To support adding left_outer_join
+require 'active_record/relation/query_methods' if ActiveRecord.version < ::Gem::Version.new('5')
+require 'rails/railtie' if ActiveRecord.version < ::Gem::Version.new('4.2')
 
 # Rake tasks
 class Railtie < Rails::Railtie
   Dir.glob("#{File.expand_path(__dir__)}/brick/tasks/**/*.rake").each { |task| load task }
+end
+
+# Rails < 4.2 does not have env
+module Rails
+  unless respond_to?(:env)
+    def self.env
+      @_env ||= ActiveSupport::StringInquirer.new(ENV["RAILS_ENV"] || ENV["RACK_ENV"] || "development")
+    end
+
+    def self.env=(environment)
+      @_env = ActiveSupport::StringInquirer.new(environment)
+    end
+  end
 end
 
 # Major compatibility fixes for ActiveRecord < 4.2
@@ -517,6 +531,15 @@ ActiveSupport.on_load(:active_record) do
             connection.execute(send(:sanitize_sql_array, [sql] + param_array))
           end
         end
+      end
+      # ActiveRecord < 4.2 does not have default_timezone
+      # :singleton-method:
+      # Determines whether to use Time.utc (using :utc) or Time.local (using :local) when pulling
+      # dates and times from the database. This is set to :utc by default.
+      unless respond_to?(:default_timezone)
+        puts "ADDING!!! 4.w"
+        mattr_accessor :default_timezone, instance_writer: false
+        self.default_timezone = :utc
       end
     end
 
@@ -723,58 +746,60 @@ ActiveSupport.on_load(:active_record) do
         end
       end
 
-      if is_add_left_outer_join
-        # Final pieces for left_outer_joins support, which was derived from this commit:
-        # https://github.com/rails/rails/commit/3f46ef1ddab87482b730a3f53987e04308783d8b
-        module Associations
-          class JoinDependency
-            def make_left_outer_joins(parent, child)
-              tables    = child.tables
-              join_type = Arel::Nodes::OuterJoin
-              info      = make_constraints parent, child, tables, join_type
+      # Final pieces for left_outer_joins support, which was derived from this commit:
+      # https://github.com/rails/rails/commit/3f46ef1ddab87482b730a3f53987e04308783d8b
+      module Associations
+        class JoinDependency
+          def make_left_outer_joins(parent, child)
+            tables    = child.tables
+            join_type = Arel::Nodes::OuterJoin
+            info      = make_constraints parent, child, tables, join_type
 
-              [info] + child.children.flat_map { |c| make_left_outer_joins(child, c) }
+            [info] + child.children.flat_map { |c| make_left_outer_joins(child, c) }
+          end
+        end
+      end
+      module Querying
+        delegate :left_outer_joins, to: :all
+      end
+      class Relation
+        unless MULTI_VALUE_METHODS.include?(:left_outer_joins)
+          _multi_value_methods = MULTI_VALUE_METHODS + [:left_outer_joins]
+          send(:remove_const, :MULTI_VALUE_METHODS)
+          MULTI_VALUE_METHODS = _multi_value_methods
+        end
+      end
+      module QueryMethods
+        attr_writer :left_outer_joins_values
+        def left_outer_joins_values
+          @left_outer_joins_values ||= []
+        end
+
+        def left_outer_joins(*args)
+          check_if_method_has_arguments!(:left_outer_joins, args)
+
+          args.compact!
+          args.flatten!
+
+          spawn.left_outer_joins!(*args)
+        end
+
+        def left_outer_joins!(*args) # :nodoc:
+          self.left_outer_joins_values += args
+          self
+        end
+
+        def build_left_outer_joins(manager, outer_joins)
+          buckets = outer_joins.group_by do |join|
+            case join
+            when Hash, Symbol, Array
+              :association_join
+            else
+              raise ArgumentError, 'only Hash, Symbol and Array are allowed'
             end
           end
-        end
-        module Querying
-          delegate :left_outer_joins, to: :all
-        end
-        class Relation
-          MULTI_VALUE_METHODS = MULTI_VALUE_METHODS + [:left_outer_joins] unless MULTI_VALUE_METHODS.include?(:left_outer_joins)
-        end
-        module QueryMethods
-          attr_writer :left_outer_joins_values
-          def left_outer_joins_values
-            @left_outer_joins_values ||= []
-          end
 
-          def left_outer_joins(*args)
-            check_if_method_has_arguments!(:left_outer_joins, args)
-
-            args.compact!
-            args.flatten!
-
-            spawn.left_outer_joins!(*args)
-          end
-
-          def left_outer_joins!(*args) # :nodoc:
-            self.left_outer_joins_values += args
-            self
-          end
-
-          def build_left_outer_joins(manager, outer_joins)
-            buckets = outer_joins.group_by do |join|
-              case join
-              when Hash, Symbol, Array
-                :association_join
-              else
-                raise ArgumentError, 'only Hash, Symbol and Array are allowed'
-              end
-            end
-
-            build_join_query(manager, buckets, Arel::Nodes::OuterJoin)
-          end
+          build_join_query(manager, buckets, Arel::Nodes::OuterJoin)
         end
       end
       # (End of left_outer_joins support)
