@@ -6,7 +6,12 @@ Welcome to a seemingly-magical world of spinning up simple and yet well-rounded 
 from any existing relational database!  This gem auto-creates models, views, controllers, and
 routes, and instead of being some big pile of raw scaffolded files, they exist just in RAM.
 The beauty of this is that if you make database changes such as adding new tables or columns,
-basic functionality is immediately available without having to add any code.
+basic functionality is immediately available without having to add any code.  General behaviour
+around things like if lists remain read-only, or if editing is enabled then the way in which to
+render -- either inline or via a pop-up model -- can established using rules.  More refined
+behaviour can be applied on a model-by-model basis, or in the "Pro" version of the gem, at a
+container level which by default gets inherited to child models, along the same chain of
+command that the inbuilt security platform uses in the "Pro" version.
 
 Probably want to pop some corn and have **VOLUME UP** (on the player's slider below) for this
 video walkthrough:
@@ -18,7 +23,7 @@ https://user-images.githubusercontent.com/5301131/178191829-fe4d1966-e5d8-47e4-a
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.47         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.48         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 You can use The Brick in several ways -- from taking a quick peek inside an existing data set,
 with full ability to navigate across associations -- to easily updating and creating data,
@@ -43,7 +48,8 @@ are multiple "hops" away from the source table.  This frees up the developer fro
 tricky ActiveRecord queries.
 
 On the "show" page which is built out, CRUD functionality for an individual record can be
-performed.  Date and time fields are made editable by using the very lean "flatpickr" library.
+performed.  Date and time fields are made editable with pop-up calendars by using the very lean
+"flatpickr" library.
 
 In terms of models, all major ActiveRecord associations are built out, including has_many and
 belongs_to, as well as has_many :through, Single Table Inheritance (STI), and polymorphic

@@ -1441,7 +1441,7 @@ module Brick
       unless (cnstr_name = fk[5])
         # For any appended references (those that come from config), arrive upon a definitely unique constraint name
         pri_tbl = is_class ? fk[4][:class].underscore : pri_tbl
-        pri_tbl = "#{bt_assoc_name}_#{pri_tbl}" if pri_tbl.singularize != bt_assoc_name
+        pri_tbl = "#{bt_assoc_name}_#{pri_tbl}" if pri_tbl&.singularize != bt_assoc_name
         cnstr_base = cnstr_name = "(brick) #{for_tbl}_#{pri_tbl}"
         cnstr_added_num = 1
         cnstr_name = "#{cnstr_base}_#{cnstr_added_num += 1}" while bts&.key?(cnstr_name) || hms&.key?(cnstr_name)
@@ -1467,6 +1467,8 @@ module Brick
           return
         end
       end
+      return unless bts # Rails 5.0 and older can have bts end up being nil
+
       if (assoc_bt = bts[cnstr_name])
         if is_polymorphic
           # Assuming same fk (don't yet support composite keys for polymorphics)
