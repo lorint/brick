@@ -283,6 +283,11 @@ module Brick
       end
     end
 
+    # @api public
+    def order=(value)
+      Brick.config.order = value
+    end
+
     # Skip creating a has_many association for these
     # (Uses the same exact three-part format as would define an additional_reference)
     # @api public

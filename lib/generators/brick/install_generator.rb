@@ -159,6 +159,39 @@ module Brick
 # # When table names have specific prefixes automatically place them in their own module with a table_name_prefix.
 # Brick.table_name_prefixes = { 'nav_' => 'Navigation' }
 
+# # COLUMN SEQUENCING AND INCLUSION / EXCLUSION
+
+# # By default if there is a primary key present then rows in an index view are ordered by this primary key.  To
+# # use a different rule for doing ORDER BY, you can override this default ordering done by The Brick, for instance
+# # to have the rows in a contact list sorted by email:
+# Brick.order = { 'contacts' => { _brick_default: :email } }
+# # or by last name then first name:
+# Brick.order = { 'contacts' => { _brick_default: [:lastname, :firstname] } }
+# # Totally legitimate to have the default order be the name of a belongs_to or has_many association instead of an
+# # actual column name, in which case for has_many it just orders by the count of how many records are associated,
+# # and for belongs_to it's based on the primary table's DSL if any is defined (since that is what is used to
+# # calculate what is shown when a foreign table lists out related records).  If contacts relates to addresses,
+# # then this is perfectly fine:
+# Brick.order = { 'contacts' => { _brick_default: :address } }
+# # You can even have a specific custom clause used in the ORDER BY.  In this case it is recommended to include a
+# # special placeholder for the table name with the sequence \"^^^\".  Here is an example of having the default
+# # ordering happening on the \"code\" column, and also defining custom sorting to be done, in this case proper
+# # ordering if that code is stored as a dotted numeric value:
+# Brick.order = { 'document_trees' => { _brick_default: :code,
+#                                       code: \"ORDER BY STRING_TO_ARRAY(^^^.code, '.')::int[]\" } }
+
+# # Sequence of columns for each model.  This also allows you to add read-only calculated columns in the same
+# # kind of way that they can be added in the include: portion of include/exclude columns, below.
+# # Designated by { <table name> => [<column name>, <column name>] }
+# Brick.column_sequence = { 'users' => ['email', 'profile.firstname', 'profile.lastname'] }
+
+# # Specific columns to include or exclude for each model.  If there are only inclusions then only those
+# # columns show.  If there are any exclusions then all non-excluded columns are attempted to be shown,
+# # which negates the usefulness of inclusions except to add calculated column detail built from DSL.
+# # Designated by <table name>.<column name>
+# Brick.column_sequence = { 'users' =>   { include: ['email', 'profile.firstname', 'profile.lastname'] },
+#                           'profile' => { exclude: ['birthdate'] } }
+
 # # EXTRA FOREIGN KEYS AND OTHER HAS_MANY SETTINGS
 
 # # Additional table references which are used to create has_many / belongs_to associations inside auto-created
