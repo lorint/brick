@@ -221,6 +221,62 @@ module ActiveRecord
       template
     end
 
+    # belongs_to DSL descriptions
+    def self._br_bt_descrip
+      @_br_bt_descrip ||= {}
+    end
+    # has_many count definitions
+    def self._br_hm_counts
+      @_br_hm_counts ||= {}
+    end
+
+    # Search for BT, HM, and HMT DSL stuff
+    def self._brick_calculate_bts_hms(translations, join_array)
+      bts, hms, associatives = ::Brick.get_bts_and_hms(self)
+      bts.each do |_k, bt|
+        next if bt[2] # Polymorphic?
+
+        # join_array will receive this relation name when calling #brick_parse_dsl
+        _br_bt_descrip[bt.first] = if bt[1].is_a?(Array)
+                                     bt[1].each_with_object({}) { |bt_class, s| s[bt_class] = bt_class.brick_parse_dsl(join_array, bt.first, translations, true) }
+                                   else
+                                     { bt.last => bt[1].brick_parse_dsl(join_array, bt.first, translations) }
+                                   end
+      end
+      skip_klass_hms = ::Brick.config.skip_index_hms[self.name] || {}
+      hms.each do |k, hm|
+        next if skip_klass_hms.key?(k)
+
+        if hm.macro == :has_one
+          # For our purposes a :has_one is similar enough to a :belongs_to that we can just join forces
+          _br_bt_descrip[k] = { hm.klass => hm.klass.brick_parse_dsl(join_array, k, translations) }
+        else # Standard :has_many
+          _br_hm_counts[k] = hm
+        end
+      end
+    end
+
+    def self._brick_calculate_ordering(ordering, is_do_txt = true)
+      quoted_table_name = table_name.split('.').map { |x| "\"#{x}\"" }.join('.')
+      order_by_txt = [] if is_do_txt
+      ordering = [ordering] if ordering && !ordering.is_a?(Array)
+      order_by = ordering&.map do |ord_part| # %%% If a term is also used as an eqi-condition in the WHERE clause, it can be omitted from ORDER BY
+                   case ord_part
+                   when String
+                     ord_expr = ord_part.gsub('^^^', quoted_table_name)
+                     order_by_txt&.<<("Arel.sql(#{ord_expr})")
+                     Arel.sql(ord_expr)
+                   else # Expecting only Symbol
+                     ord_part = "_br_#{ord_part}_ct" if _br_hm_counts.key?(ord_part)
+                     # Retain any reference to a bt_descrip as being a symbol
+                     # Was:  "#{quoted_table_name}.\"#{ord_part}\""
+                     order_by_txt&.<<(_br_bt_descrip.key?(ord_part) ? ord_part : ord_part.inspect)
+                     ord_part
+                   end
+                 end
+      [order_by, order_by_txt]
+    end
+
   private
 
     def self._brick_get_fks
@@ -310,13 +366,12 @@ module ActiveRecord
       end
     end
 
-    def brick_select(params, selects = nil, bt_descrip = {}, hm_counts = {}, join_array = ::Brick::JoinArray.new
-      # , is_add_bts, is_add_hms
-    )
-      is_add_bts = is_add_hms = true
+    def brick_select(params, selects = nil, order_by = nil, translations = {}, join_array = ::Brick::JoinArray.new)
       is_distinct = nil
       wheres = {}
       params.each do |k, v|
+        next if ['_brick_schema', '_brick_order'].include?(k)
+
         case (ks = k.split('.')).length
         when 1
           next unless klass._brick_get_fks.include?(k)
@@ -345,33 +400,6 @@ module ActiveRecord
         end
       end
 
-      # Search for BT, HM, and HMT DSL stuff
-      translations = {}
-      if is_add_bts || is_add_hms
-        bts, hms, associatives = ::Brick.get_bts_and_hms(klass)
-        bts.each do |_k, bt|
-          next if bt[2] # Polymorphic?
-
-          # join_array will receive this relation name when calling #brick_parse_dsl
-          bt_descrip[bt.first] = if bt[1].is_a?(Array)
-                                   bt[1].each_with_object({}) { |bt_class, s| s[bt_class] = bt_class.brick_parse_dsl(join_array, bt.first, translations, true) }
-                                 else
-                                   { bt.last => bt[1].brick_parse_dsl(join_array, bt.first, translations) }
-                                 end
-        end
-        skip_klass_hms = ::Brick.config.skip_index_hms[klass.name] || {}
-        hms.each do |k, hm|
-          next if skip_klass_hms.key?(k)
-
-          if hm.macro == :has_one
-            # For our purposes a :has_one is similar enough to a :belongs_to that we can just join forces
-            bt_descrip[k] = { hm.klass => hm.klass.brick_parse_dsl(join_array, k, translations) }
-          else # Standard :has_many
-            hm_counts[k] = hm
-          end
-        end
-      end
-
       if join_array.present?
         left_outer_joins!(join_array)
         # Without working from a duplicate, touching the AREL ast tree sets the @arel instance variable, which causes the relation to be immutable.
@@ -380,7 +408,7 @@ module ActiveRecord
         chains = rel_dupe._brick_chains
         id_for_tables = Hash.new { |h, k| h[k] = [] }
         field_tbl_names = Hash.new { |h, k| h[k] = {} }
-        bt_columns = bt_descrip.each_with_object([]) do |v, s|
+        bt_columns = klass._br_bt_descrip.each_with_object([]) do |v, s|
           v.last.each do |k1, v1| # k1 is class, v1 is array of columns to snag
             next if chains[k1].nil?
 
@@ -416,7 +444,7 @@ module ActiveRecord
         end
       end
       # Add derived table JOIN for the has_many counts
-      hm_counts.each do |k, hm|
+      klass._br_hm_counts.each do |k, hm|
         associative = nil
         count_column = if hm.options[:through]
                          fk_col = (associative = associatives[hm.name])&.foreign_key
@@ -450,12 +478,31 @@ JOIN (SELECT #{selects.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}
         joins!("#{join_clause} ON #{on_clause.join(' AND ')}")
       end
       where!(wheres) unless wheres.empty?
+      # Must parse the order_by and see if there are any symbols which refer to BT associations
+      # as they must be expanded to find the corresponding _br_model__column naming for each.
+      if order_by.present?
+        final_order_by = *order_by.each_with_object([]) do |v, s|
+          if v.is_a?(Symbol)
+            # Add the ordered series of columns derived from the BT based on its DSL
+            if (bt_cols = klass._br_bt_descrip[v])
+              bt_cols.values.each do |v1|
+                v1.each { |v2| s << v2.last if v2.length > 1 }
+              end
+            else
+              s << v
+            end
+          else # String stuff just comes straight through
+            s << v
+          end
+        end
+        order!(*final_order_by)
+      end
       limit!(1000) # Don't want to get too carried away just yet
       wheres unless wheres.empty? # Return the specific parameters that we did use
     end
 
   private
-
+  
     def shift_or_first(ary)
       ary.length > 1 ? ary.shift : ary.first
     end
@@ -926,21 +973,26 @@ class Object
         (namespace || Object).const_set(class_name.to_sym, new_controller_class)
 
         # Brick-specific pages
-        if plural_class_name == 'BrickGem'
+        case plural_class_name
+        when 'BrickGem'
           self.define_method :orphans do
             instance_variable_set(:@orphans, ::Brick.find_orphans(::Brick.set_db_schema(params)))
           end
           return [new_controller_class, code + ' # BrickGem controller']
+        when 'BrickSwagger'
+          is_swagger = true # if request.format == :json)
         end
 
-        unless (is_swagger = plural_class_name == 'BrickSwagger') # && request.format == :json)
-          code << "  def index\n"
-          code << "    @#{table_name} = #{model.name}#{pk&.present? ? ".order(#{pk.inspect})" : '.all'}\n"
-          code << "    @#{table_name}.brick_select(params)\n"
-          code << "  end\n"
-        end
         self.protect_from_forgery unless: -> { self.request.format.js? }
         self.define_method :index do
+          # We do all of this now so that bt_descrip and hm_counts are available on the model early in case the user
+          # wants to do an ORDER BY based on any of that
+          translations = {}
+          join_array = ::Brick::JoinArray.new
+          is_add_bts = is_add_hms = true
+          # This builds out bt_descrip and hm_counts on the model
+          model._brick_calculate_bts_hms(translations, join_array) if is_add_bts || is_add_hms
+
           if is_swagger
             json = { 'openapi': '3.0.1', 'info': { 'title': 'API V1', 'version': 'v1' },
                      'servers': [
@@ -990,6 +1042,32 @@ class Object
             render inline: json.to_json, content_type: request.format
             return
           end
+
+          # Normal (non-swagger) request
+
+          # %%% Allow params to define which columns to use for order_by
+          ordering = if (order_tbl = ::Brick.config.order[table_name])
+                       case (order_default = order_tbl[:_brick_default])
+                       when Array
+                         order_default.map { |od_part| order_tbl[od_part] || od_part }
+                       when Symbol
+                         order_tbl[order_default] || order_default
+                       else
+                         pk
+                       end
+                     else
+                       pk # If it's not a custom ORDER BY, just use the key
+                     end
+          order_by, order_by_txt = model._brick_calculate_ordering(ordering)
+          if (order_params = params['_brick_order']&.split(',')&.map(&:to_sym)) # Overriding the default by providing a querystring param?
+            order_by, _ = model._brick_calculate_ordering(order_params, true) # Don't do the txt part
+          end
+
+          code << "  def index\n"
+          code << "    @#{table_name} = #{model.name}#{pk&.present? ? ".order(#{order_by_txt.join(', ')})" : '.all'}\n"
+          code << "    @#{table_name}.brick_select(params)\n"
+          code << "  end\n"
+
           ::Brick.set_db_schema(params)
           if request.format == :csv # Asking for a template?
             require 'csv'
@@ -1003,19 +1081,16 @@ class Object
             return
           end
 
-          quoted_table_name = model.table_name.split('.').map { |x| "\"#{x}\"" }.join('.')
-          order = pk.each_with_object([]) { |pk_part, s| s << "#{quoted_table_name}.\"#{pk_part}\"" }
-          ar_relation = order.present? ? model.order("#{order.join(', ')}") : model.all
-          @_brick_params = ar_relation.brick_select(params, (selects = []), (bt_descrip = {}), (hm_counts = {}), (join_array = ::Brick::JoinArray.new))
+          @_brick_params = (ar_relation = model.all).brick_select(params, (selects = []), order_by, translations, join_array)
           # %%% Add custom HM count columns
           # %%% What happens when the PK is composite?
-          counts = hm_counts.each_with_object([]) { |v, s| s << "_br_#{v.first}._ct_ AS _br_#{v.first}_ct" }
+          counts = model._br_hm_counts.each_with_object([]) { |v, s| s << "_br_#{v.first}._ct_ AS _br_#{v.first}_ct" }
           instance_variable_set("@#{table_name}".to_sym, ar_relation.dup._select!(*selects, *counts))
           if namespace && (idx = lookup_context.prefixes.index(table_name))
             lookup_context.prefixes[idx] = "#{namespace.name.underscore}/#{lookup_context.prefixes[idx]}"
           end
-          @_brick_bt_descrip = bt_descrip
-          @_brick_hm_counts = hm_counts
+          @_brick_bt_descrip = model._br_bt_descrip
+          @_brick_hm_counts = model._br_hm_counts
           @_brick_join_array = join_array
         end
 

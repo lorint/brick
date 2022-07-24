@@ -33,6 +33,9 @@ module Brick
         # Additional references (virtual foreign keys)
         ::Brick.additional_references = app.config.brick.fetch(:additional_references, nil)
 
+        # When table names have specific prefixes, automatically place them in their own module with a table_name_prefix.
+        ::Brick.order = app.config.brick.fetch(:order, {})
+
         # Skip creating a has_many association for these
         ::Brick.exclude_hms = app.config.brick.fetch(:exclude_hms, nil)
 
@@ -198,6 +201,9 @@ table thead tr th, table tr th {
   background-color: #009879;
   color: #fff;
   text-align: left;
+}
+#headerTop th:hover, #headerTop th:hover {
+  background-color: #18B090;
 }
 table thead tr th a, table tr th a {
   color: #80FFB8;
@@ -547,30 +553,33 @@ if (headerTop) {
 <br>
 <table id=\"headerTop\">
 <table id=\"#{table_name}\">
-  <thead><tr>#{'<th></th>' if pk.present?}<%
+  <thead><tr>#{"<th x-order=\"#{pk.join(',')}\"></th>" if pk.present?}<%
      col_order = []
      @#{table_name}.columns.each do |col|
        next if (#{(pk || []).inspect}.include?(col_name = col.name) && col.type == :integer && !bts.key?(col_name)) ||
                ::Brick.config.metadata_columns.include?(col_name) || poly_cols.include?(col_name)
 
        col_order << col_name
-    %><th<%= \" title=\\\"#\{col.comment}\\\"\".html_safe if col.respond_to?(:comment) && !col.comment.blank? %>><%
+    %><th<%= \" title=\\\"#\{col.comment}\\\"\".html_safe if col.respond_to?(:comment) && !col.comment.blank? %><%
        if (bt = bts[col_name]) %>
-         BT <%
+         <%= \" x-order=\\\"#\{bt.first}\\\"\".html_safe if true # Currently we always allow click to sort
+         %>>BT <%
          bt[1].each do |bt_pair| %><%=
            bt_pair.first.bt_link(bt.first) %> <%
          end %><%
-       else %><%=
-         col_name %><%
+       else %><%= \" x-order=\\\"#\{col_name}\\\"\".html_safe if true # Currently we always allow click to sort
+         %>><%= col_name %><%
        end
     %></th><%
      end
      # Consider getting the name from the association -- h.first.name -- if a more \"friendly\" alias should be used for a screwy table name
   %>#{hms_headers.map do |h|
+        # Currently we always allow click to sort
+        "<th#{" x-order=\"#{h.first.name}\"" if true}>" +
         if h.first.options[:through] && !h.first.through_reflection
-    "<th>#{h[1]} #{h[2]} %></th>" # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
+    "#{h[1]} #{h[2]} %></th>" # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
         else
-    "<th>#{h[1]} <%= link_to('#{h[2]}', #{h.first.klass.name.underscore.tr('/', '_').pluralize}_path) %></th>"
+    "#{h[1]} <%= link_to('#{h[2]}', #{h.first.klass.name.underscore.tr('/', '_').pluralize}_path) %></th>"
         end
       end.join
   }</tr></thead>
@@ -794,6 +803,13 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 </script>
 <% end %>
 <script>
+<% # Make column headers sort when clicked
+   # %%% Create a smart javascript routine which can do this client-side %>
+[... document.getElementsByTagName(\"TH\")].forEach(function (th) {
+  th.addEventListener(\"click\", function (e) {
+    location.href = changeout(location.href, \"_brick_order\", this.getAttribute(\"x-order\"));
+  });
+});
 document.querySelectorAll(\"input, select\").forEach(function (inp) {
   var origVal = getInpVal(),
       prevVal = origVal;

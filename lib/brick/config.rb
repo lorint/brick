@@ -190,6 +190,30 @@ module Brick
       @mutex.synchronize { @table_name_prefixes = value }
     end
 
+    def order
+      @mutex.synchronize { @order || {} }
+    end
+
+    # Get something like:
+    # Override how code sorts with:
+    #   { 'on_call_list' => { code: "ORDER BY STRING_TO_ARRAY(code, '.')::int[]" } }
+    # Specify default thing to order_by with:
+    #   { 'on_call_list' => { _brick_default: [:last_name, :first_name] } }
+    #   { 'on_call_list' => { _brick_default: :sequence } }
+    def order=(orders)
+      @mutex.synchronize do
+        case (brick_default = orders.fetch(:_brick_default, nil))
+        when NilClass
+          orders[:_brick_default] = orders.keys.reject { |k| k == :_brick_default }.first
+        when String
+          orders[:_brick_default] = [brick_default.to_sym]
+        when Symbol
+          orders[:_brick_default] = [brick_default]
+        end
+        @order = orders
+      end
+    end
+
     def metadata_columns
       @mutex.synchronize { @metadata_columns }
     end
