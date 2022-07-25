@@ -166,12 +166,12 @@ module Brick
               # %%% If we are not auto-creating controllers (or routes) then omit by default, and if enabled anyway, such as in a development
               # environment or whatever, then get either the controllers or routes list instead
               apartment_default_schema = ::Brick.apartment_multitenant && Apartment.default_schema
-              table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).map do |tbl|
+              table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).each_with_object({}) do |tbl, s|
                                 if (tbl_parts = tbl.split('.')).first == apartment_default_schema
                                   tbl = tbl_parts.last
                                 end
-                                tbl
-                              end.sort.each_with_object(+'') do |v, s|
+                                s[tbl] = nil
+                              end.keys.sort.each_with_object(+'') do |v, s|
                                 s << "<option value=\"#{v.underscore.gsub('.', '/').pluralize}\">#{v}</option>"
                               end.html_safe
               table_options << '<option value="brick_orphans">(Orphans)</option>'.html_safe if is_orphans

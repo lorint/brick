@@ -414,6 +414,7 @@ module ActiveRecord
         chains = rel_dupe._brick_chains
         id_for_tables = Hash.new { |h, k| h[k] = [] }
         field_tbl_names = Hash.new { |h, k| h[k] = {} }
+        used_col_aliases = {} # Used to make sure there is not a name clash
         bt_columns = klass._br_bt_descrip.each_with_object([]) do |v, s|
           v.last.each do |k1, v1| # k1 is class, v1 is array of columns to snag
             next if chains[k1].nil?
@@ -425,7 +426,12 @@ module ActiveRecord
 
               # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
               is_xml = is_distinct && Brick.relations[sel_col.first.table_name]&.[](:cols)&.[](sel_col.last)&.first&.start_with?('xml')
-              selects << "\"#{field_tbl_name}\".\"#{sel_col.last}\"#{'::text' if is_xml} AS \"#{(col_alias = "_brfk_#{v.first}__#{sel_col.last}")}\""
+              # If it's not unique then also include the belongs_to association name before the column name
+              if used_col_aliases.key?(col_alias = "_brfk_#{v.first}__#{sel_col.last}")
+                col_alias = "_brfk_#{v.first}__#{v1[idx][-2..-1].map(&:to_s).join('__')}"
+              end
+              selects << "\"#{field_tbl_name}\".\"#{sel_col.last}\"#{'::text' if is_xml} AS \"#{col_alias}\""
+              used_col_aliases[col_alias] = nil
               v1[idx] << col_alias
             end
 
