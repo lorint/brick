@@ -4,7 +4,7 @@ test: &test
   database: brick_test
   collation: utf8mb4_unicode_ci
   pool: 5
-  username: duty_free
+  username: brick
   password:
   host: localhost
 

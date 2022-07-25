@@ -58,7 +58,9 @@ module Brick
             def template_exists?(*args, **options)
               (::Brick.config.add_orphans && args.first == 'orphans') ||
               _brick_template_exists?(*args, **options) ||
-              set_brick_model(args)
+              # Do not auto-create a template when it's searching for an application.html.erb, which comes in like:  ["edit", ["games", "application"]]
+              ((args[1].length == 1 || args[1][-1] != 'application') &&
+               set_brick_model(args))
             end
 
             def set_brick_model(find_args)
@@ -166,16 +168,19 @@ module Brick
               # %%% If we are not auto-creating controllers (or routes) then omit by default, and if enabled anyway, such as in a development
               # environment or whatever, then get either the controllers or routes list instead
               apartment_default_schema = ::Brick.apartment_multitenant && Apartment.default_schema
-              table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).map do |tbl|
+              table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).each_with_object({}) do |tbl, s|
                                 if (tbl_parts = tbl.split('.')).first == apartment_default_schema
                                   tbl = tbl_parts.last
                                 end
-                                tbl
-                              end.sort.each_with_object(+'') do |v, s|
+                                s[tbl] = nil
+                              end.keys.sort.each_with_object(+'') do |v, s|
                                 s << "<option value=\"#{v.underscore.gsub('.', '/').pluralize}\">#{v}</option>"
                               end.html_safe
               table_options << '<option value="brick_orphans">(Orphans)</option>'.html_safe if is_orphans
               css = +"<style>
+h1, h3 {
+  margin-bottom: 0;
+}
 #dropper {
   background-color: #eee;
 }
@@ -197,19 +202,19 @@ table {
   box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
 }
 
-table thead tr th, table tr th {
+tr th {
   background-color: #009879;
   color: #fff;
   text-align: left;
 }
-#headerTop th:hover, #headerTop th:hover {
+#headerTop tr th:hover {
   background-color: #18B090;
 }
-table thead tr th a, table tr th a {
+tr th a {
   color: #80FFB8;
 }
 
-table th, table td {
+tr th, tr td {
   padding: 0.2em 0.5em;
 }
 
@@ -283,8 +288,8 @@ input+svg.revert {
   color: #FFF;
 }
 </style>
-<% is_includes_dates = nil
 
+<% is_includes_dates = nil
 def is_bcrypt?(val)
   val.is_a?(String) && val.length == 60 && val.start_with?('$2a$')
 end
@@ -459,8 +464,8 @@ if (headerTop) {
     });
     btnImport.addEventListener(\"click\", function () {
       fetch(changeout(<%= #{path_obj_name}_path(-1, format: :csv).inspect.html_safe %>, \"_brick_schema\", brickSchema), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'text/tab-separated-values' },
+        method: \"PATCH\",
+        headers: { \"Content-Type\": \"text/tab-separated-values\" },
         body: droppedTSV
       }).then(function (tsvResponse) {
         btnImport.style.display = \"none\";
@@ -538,6 +543,7 @@ if (headerTop) {
    if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %><%=
      description %><br><%
    end
+   # FILTER PARAMETERS
    if @_brick_params&.present? %>
   <% if @_brick_params.length == 1 # %%% Does not yet work with composite keys
        k, id = @_brick_params.first
@@ -550,7 +556,6 @@ if (headerTop) {
      end %>
   (<%= link_to 'See all #{model_plural.split('::').last}', #{path_obj_name.pluralize}_path %>)
 <% end %>
-<br>
 <table id=\"headerTop\">
 <table id=\"#{table_name}\">
   <thead><tr>#{"<th x-order=\"#{pk.join(',')}\"></th>" if pk.present?}<%
@@ -590,14 +595,13 @@ if (headerTop) {
     <td><%= link_to '⇛', #{path_obj_name}_path(#{obj_pk}), { class: 'big-arrow' } %></td>" if obj_pk}
     <% col_order.each do |col_name|
          val = #{obj_name}.attributes[col_name] %>
-      <td>
-      <% if (bt = bts[col_name]) %>
-        <% if bt[2] # Polymorphic?
+      <td><%
+         if (bt = bts[col_name])
+           if bt[2] # Polymorphic?
              bt_class = #{obj_name}.send(\"#\{bt.first\}_type\")
              base_class = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class.name.underscore
              poly_id = #{obj_name}.send(\"#\{bt.first\}_id\")
-             %><%= link_to(\"#\{bt_class\} ##\{poly_id\}\",
-                           send(\"#\{base_class\}_path\".to_sym, poly_id)) if poly_id %><%
+             %><%= link_to(\"#\{bt_class\} ##\{poly_id\}\", send(\"#\{base_class\}_path\".to_sym, poly_id)) if poly_id %><%
            else
              bt_txt = (bt_class = bt[1].first.first).brick_descrip(
                # 0..62 because Postgres column names are limited to 63 characters
@@ -606,12 +610,11 @@ if (headerTop) {
              bt_txt ||= \"<span class=\\\"orphan\\\">&lt;&lt; Orphaned ID: #\{val} >></span>\".html_safe if val
              bt_id = bt_id_col.map { |id_col| #{obj_name}.send(id_col.to_sym) } %>
           <%= bt_id&.first ? link_to(bt_txt, send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_id)) : bt_txt %>
-          <%#= Previously was:  bt_obj = bt[1].first.first.find_by(bt[2] => val); link_to(bt_obj.brick_descrip, send(\"#\{bt[1].first.first.name.underscore\}_path\".to_sym, bt_obj.send(bt[1].first.first.primary_key.to_sym))) if bt_obj %>
-        <% end %>
-      <% else %>
-        <%= hide_bcrypt(val) %>
-      <% end %>
-      </td>
+        <% end
+         else
+      %><%= hide_bcrypt(val) %><%
+         end
+    %></td>
     <% end %>
     #{hms_columns.each_with_object(+'') { |hm_col, s| s << "<td>#{hm_col}</td>" }}
   </tr>

@@ -414,6 +414,7 @@ module ActiveRecord
         chains = rel_dupe._brick_chains
         id_for_tables = Hash.new { |h, k| h[k] = [] }
         field_tbl_names = Hash.new { |h, k| h[k] = {} }
+        used_col_aliases = {} # Used to make sure there is not a name clash
         bt_columns = klass._br_bt_descrip.each_with_object([]) do |v, s|
           v.last.each do |k1, v1| # k1 is class, v1 is array of columns to snag
             next if chains[k1].nil?
@@ -425,7 +426,12 @@ module ActiveRecord
 
               # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
               is_xml = is_distinct && Brick.relations[sel_col.first.table_name]&.[](:cols)&.[](sel_col.last)&.first&.start_with?('xml')
-              selects << "\"#{field_tbl_name}\".\"#{sel_col.last}\"#{'::text' if is_xml} AS \"#{(col_alias = "_brfk_#{v.first}__#{sel_col.last}")}\""
+              # If it's not unique then also include the belongs_to association name before the column name
+              if used_col_aliases.key?(col_alias = "_brfk_#{v.first}__#{sel_col.last}")
+                col_alias = "_brfk_#{v.first}__#{v1[idx][-2..-1].map(&:to_s).join('__')}"
+              end
+              selects << "\"#{field_tbl_name}\".\"#{sel_col.last}\"#{'::text' if is_xml} AS \"#{col_alias}\""
+              used_col_aliases[col_alias] = nil
               v1[idx] << col_alias
             end
 
@@ -541,12 +547,23 @@ JOIN (SELECT #{selects.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}
                               this_module.const_set(module_name.to_sym, Module.new)
                             end
             end
-            if this_module.const_defined?(class_name = module_prefixes.last.to_sym)
-              this_module.const_get(class_name)
-            else
-              # Build STI subclass and place it into the namespace module
-              this_module.const_set(class_name, klass = Class.new(self))
-              klass
+            begin
+              if this_module.const_defined?(class_name = module_prefixes.last.to_sym)
+                this_module.const_get(class_name)
+              else
+                # Build STI subclass and place it into the namespace module
+                this_module.const_set(class_name, klass = Class.new(self))
+                klass
+              end
+            rescue NameError => err
+              if column_names.include?(inheritance_column)
+                puts "Table #{table_name} has column #{inheritance_column} which ActiveRecord expects to use as its special inheritance column."
+                puts "Unfortunately the value \"#{type_name}\" does not seem to refer to a valid type name, greatly confusing matters.  If that column is intended to be used for data and not STI, consider putting this line into your Brick initializer so that only for this table that column will not clash with ActiveRecord:"
+                puts "  Brick.sti_type_column = { 'rails_#{inheritance_column}' => ['#{table_name}'] }"
+                self
+              else
+                raise
+              end
             end
           end
         end
@@ -836,15 +853,15 @@ class Object
                              "#{hmt_fk}_through_#{hm.first[:assoc_name]}"
                            else # Use BT names to provide uniqueness
                              if self.name.underscore.singularize == hm.first[:alternate_name]
-                              #  Has previously been:
-                              # # If it folds back on itself then look at the other side
-                              # # (At this point just infer the source be the inverse of the first has_many that
-                              # # we find that is not ourselves.  If there are more than two then uh oh, can't
-                              # # yet handle that rare circumstance!)
-                              # other = hms.find { |hm1| hm1 != hm } # .first[:fk]
-                              # options[:source] = other.first[:inverse][:assoc_name].to_sym
-                              #  And also has been:
-                              # hm.first[:inverse][:assoc_name].to_sym
+                               #  Has previously been:
+                               # # If it folds back on itself then look at the other side
+                               # # (At this point just infer the source be the inverse of the first has_many that
+                               # # we find that is not ourselves.  If there are more than two then uh oh, can't
+                               # # yet handle that rare circumstance!)
+                               # other = hms.find { |hm1| hm1 != hm } # .first[:fk]
+                               # options[:source] = other.first[:inverse][:assoc_name].to_sym
+                               #  And also has been:
+                               # hm.first[:inverse][:assoc_name].to_sym
                                options[:source] = hm.last.to_sym
                              else
                                through = hm.first[:alternate_name].pluralize
@@ -1102,9 +1119,7 @@ class Object
         is_pk_string = nil
         if (pk_col = model&.primary_key)
           code << "  def show\n"
-          code << (find_by_id = "    id = params[:id]&.split(/[\\/,_]/)
-    id = id.first if id.is_a?(Array) && id.length == 1
-    @#{singular_table_name} = #{model.name}.find(id)\n")
+          code << "    #{find_by_name = "find_#{singular_table_name}"}\n"
           code << "  end\n"
           self.define_method :show do
             ::Brick.set_db_schema(params)
@@ -1115,25 +1130,47 @@ class Object
                    params[:id]&.split(/[\/,_]/)
                  end
             id = id.first if id.is_a?(Array) && id.length == 1
-            instance_variable_set("@#{singular_table_name}".to_sym, model.find(id))
+            instance_variable_set("@#{singular_table_name}".to_sym, find_obj)
           end
         end
 
         # By default, views get marked as read-only
-        unless is_swagger # model.readonly # (relation = relations[model.table_name]).key?(:isView)
-          code << "  # (Define :new, :create)\n"
+        # unless model.readonly # (relation = relations[model.table_name]).key?(:isView)
+          code << "  def new\n"
+          code << "    @#{singular_table_name} = #{model.name}.new\n"
+          code << "  end\n"
+          self.define_method :new do
+            ::Brick.set_db_schema(params)
+            instance_variable_set("@#{singular_table_name}".to_sym, model.new)
+          end
 
-          if model.primary_key
+          params_name_sym = (params_name = "#{singular_table_name}_params").to_sym
+
+          code << "  def create\n"
+          code << "    @#{singular_table_name} = #{model.name}.create(#{params_name})\n"
+          code << "  end\n"
+          self.define_method :create do
+            ::Brick.set_db_schema(params)
+            instance_variable_set("@#{singular_table_name}".to_sym,
+                                  model.send(:create, send(params_name_sym)))
+          end
+
+          if pk_col
             # if (schema = ::Brick.config.schema_behavior[:multitenant]&.fetch(:schema_to_analyse, nil)) && ::Brick.db_schemas&.include?(schema)
             #   ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema)
             # end
 
             is_need_params = true
-            # code << "  # (Define :edit, and :destroy)\n"
+            code << "  def edit\n"
+            code << "    #{find_by_name}\n"
+            code << "  end\n"
+            self.define_method :edit do
+              ::Brick.set_db_schema(params)
+              instance_variable_set("@#{singular_table_name}".to_sym, find_obj)
+            end
+
             code << "  def update\n"
-            code << find_by_id
-            params_name = "#{singular_table_name}_params"
-            code << "    @#{singular_table_name}.update(#{params_name})\n"
+            code << "    #{find_by_name}.update(#{params_name})\n"
             code << "  end\n"
             self.define_method :update do
               ::Brick.set_db_schema(params)
@@ -1152,27 +1189,50 @@ class Object
               #   return
               end
 
+              instance_variable_set("@#{singular_table_name}".to_sym, (obj = find_obj))
+              obj.send(:update, send(params_name_sym))
+            end
+
+            code << "  def destroy\n"
+            code << "    #{find_by_name}.destroy\n"
+            code << "  end\n"
+            self.define_method :destroy do
+              ::Brick.set_db_schema(params)
+              instance_variable_set("@#{singular_table_name}".to_sym, find_obj.send(:destroy))
+            end
+          end
+
+          code << "private\n" if pk_col || is_need_params
+
+          if pk_col
+            code << "  def find_#{singular_table_name}
+    id = params[:id]&.split(/[\\/,_]/)
+    @#{singular_table_name} = #{model.name}.find(id.is_a?(Array) && id.length == 1 ? id.first : id)
+  end\n"
+            self.define_method :find_obj do
               id = is_pk_string ? params[:id] : params[:id]&.split(/[\/,_]/)
-              id = id.first if id.is_a?(Array) && id.length == 1
-              instance_variable_set("@#{singular_table_name}".to_sym, (obj = model.find(id)))
-              obj = obj.first if obj.is_a?(Array)
-              obj.send(:update, send(params_name = params_name.to_sym))
+              model.find(id.is_a?(Array) && id.length == 1 ? id.first : id)
             end
           end
 
           if is_need_params
-            code << "private\n"
             code << "  def #{params_name}\n"
+            permits = model.columns_hash.keys.map(&:to_sym)
+            permits_txt = permits.map(&:inspect) +
+                          model.reflect_on_all_associations.select { |assoc| assoc.macro == :has_many && assoc.options[:through] }.map do |assoc|
+                            permits << { "#{assoc.name.to_s.singularize}_ids".to_sym => [] }
+                            "#{assoc.name.to_s.singularize}_ids: []"
+                          end
             code << "    params.require(:#{require_name = model.name.underscore.tr('/', '_')
-                             }).permit(#{model.columns_hash.keys.map { |c| c.to_sym.inspect }.join(', ')})\n"
+                             }).permit(#{permits_txt.join(', ')})\n"
             code << "  end\n"
             self.define_method(params_name) do
-              params.require(require_name.to_sym).permit(model.columns_hash.keys)
+              params.require(require_name.to_sym).permit(permits)
             end
             private params_name
             # Get column names for params from relations[model.table_name][:cols].keys
           end
-        end
+        # end
         code << "end # #{namespace_name}#{class_name}\n\n"
       end # class definition
       [built_controller, code]
