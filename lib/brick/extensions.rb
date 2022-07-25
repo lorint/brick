@@ -414,6 +414,7 @@ module ActiveRecord
         chains = rel_dupe._brick_chains
         id_for_tables = Hash.new { |h, k| h[k] = [] }
         field_tbl_names = Hash.new { |h, k| h[k] = {} }
+        used_col_aliases = {} # Used to make sure there is not a name clash
         bt_columns = klass._br_bt_descrip.each_with_object([]) do |v, s|
           v.last.each do |k1, v1| # k1 is class, v1 is array of columns to snag
             next if chains[k1].nil?
@@ -425,7 +426,12 @@ module ActiveRecord
 
               # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
               is_xml = is_distinct && Brick.relations[sel_col.first.table_name]&.[](:cols)&.[](sel_col.last)&.first&.start_with?('xml')
-              selects << "\"#{field_tbl_name}\".\"#{sel_col.last}\"#{'::text' if is_xml} AS \"#{(col_alias = "_brfk_#{v.first}__#{sel_col.last}")}\""
+              # If it's not unique then also include the belongs_to association name before the column name
+              if used_col_aliases.key?(col_alias = "_brfk_#{v.first}__#{sel_col.last}")
+                col_alias = "_brfk_#{v.first}__#{v1[idx][-2..-1].map(&:to_s).join('__')}"
+              end
+              selects << "\"#{field_tbl_name}\".\"#{sel_col.last}\"#{'::text' if is_xml} AS \"#{col_alias}\""
+              used_col_aliases[col_alias] = nil
               v1[idx] << col_alias
             end
 
@@ -541,12 +547,23 @@ JOIN (SELECT #{selects.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}
                               this_module.const_set(module_name.to_sym, Module.new)
                             end
             end
-            if this_module.const_defined?(class_name = module_prefixes.last.to_sym)
-              this_module.const_get(class_name)
-            else
-              # Build STI subclass and place it into the namespace module
-              this_module.const_set(class_name, klass = Class.new(self))
-              klass
+            begin
+              if this_module.const_defined?(class_name = module_prefixes.last.to_sym)
+                this_module.const_get(class_name)
+              else
+                # Build STI subclass and place it into the namespace module
+                this_module.const_set(class_name, klass = Class.new(self))
+                klass
+              end
+            rescue NameError => err
+              if column_names.include?(inheritance_column)
+                puts "Table #{table_name} has column #{inheritance_column} which ActiveRecord expects to use as its special inheritance column."
+                puts "Unfortunately the value \"#{type_name}\" does not seem to refer to a valid type name, greatly confusing matters.  If that column is intended to be used for data and not STI, consider putting this line into your Brick initializer so that only for this table that column will not clash with ActiveRecord:"
+                puts "  Brick.sti_type_column = { 'rails_#{inheritance_column}' => ['#{table_name}'] }"
+                self
+              else
+                raise
+              end
             end
           end
         end
@@ -836,15 +853,15 @@ class Object
                              "#{hmt_fk}_through_#{hm.first[:assoc_name]}"
                            else # Use BT names to provide uniqueness
                              if self.name.underscore.singularize == hm.first[:alternate_name]
-                              #  Has previously been:
-                              # # If it folds back on itself then look at the other side
-                              # # (At this point just infer the source be the inverse of the first has_many that
-                              # # we find that is not ourselves.  If there are more than two then uh oh, can't
-                              # # yet handle that rare circumstance!)
-                              # other = hms.find { |hm1| hm1 != hm } # .first[:fk]
-                              # options[:source] = other.first[:inverse][:assoc_name].to_sym
-                              #  And also has been:
-                              # hm.first[:inverse][:assoc_name].to_sym
+                               #  Has previously been:
+                               # # If it folds back on itself then look at the other side
+                               # # (At this point just infer the source be the inverse of the first has_many that
+                               # # we find that is not ourselves.  If there are more than two then uh oh, can't
+                               # # yet handle that rare circumstance!)
+                               # other = hms.find { |hm1| hm1 != hm } # .first[:fk]
+                               # options[:source] = other.first[:inverse][:assoc_name].to_sym
+                               #  And also has been:
+                               # hm.first[:inverse][:assoc_name].to_sym
                                options[:source] = hm.last.to_sym
                              else
                                through = hm.first[:alternate_name].pluralize
@@ -1129,7 +1146,17 @@ class Object
             # end
 
             is_need_params = true
-            # code << "  # (Define :edit, and :destroy)\n"
+            # code << "  # (Define :destroy)\n"
+            code << "  def edit\n"
+            code << find_by_id
+            code << "  end\n"
+            self.define_method :edit do
+              ::Brick.set_db_schema(params)
+              id = is_pk_string ? params[:id] : params[:id]&.split(/[\/,_]/)
+              id = id.first if id.is_a?(Array) && id.length == 1
+              instance_variable_set("@#{singular_table_name}".to_sym, model.find(id))
+            end
+
             code << "  def update\n"
             code << find_by_id
             params_name = "#{singular_table_name}_params"
@@ -1163,8 +1190,12 @@ class Object
           if is_need_params
             code << "private\n"
             code << "  def #{params_name}\n"
+            permits = model.columns_hash.keys.map { |c| c.to_sym.inspect } +
+                      model.reflect_on_all_associations.each_with_object([]) do |assoc, s|
+                        s << "#{assoc.name.to_s.singularize}_ids: []" if assoc.macro == :has_many && assoc.options[:through]
+                      end
             code << "    params.require(:#{require_name = model.name.underscore.tr('/', '_')
-                             }).permit(#{model.columns_hash.keys.map { |c| c.to_sym.inspect }.join(', ')})\n"
+                             }).permit(#{permits.join(', ')})\n"
             code << "  end\n"
             self.define_method(params_name) do
               params.require(require_name.to_sym).permit(model.columns_hash.keys)
