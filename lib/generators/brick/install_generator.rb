@@ -7,13 +7,13 @@ module Brick
   class InstallGenerator < ::Rails::Generators::Base
     # include ::Rails::Generators::Migration
 
-    source_root File.expand_path('templates', __dir__)
-    class_option(
-      :with_changes,
-      type: :boolean,
-      default: false,
-      desc: 'Store changeset (diff) with each version'
-    )
+    # source_root File.expand_path('templates', __dir__)
+    # class_option(
+    #   :with_changes,
+    #   type: :boolean,
+    #   default: false,
+    #   desc: 'Store changeset (diff) with each version'
+    # )
 
     desc 'Generates an initializer file for configuring Brick'
 

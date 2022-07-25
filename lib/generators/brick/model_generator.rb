@@ -59,7 +59,6 @@ module Brick
         end
       end
       models.each do |m| # Find longest name in the list for future use to show lists on the right side of the screen
-        # Strangely this can't be inlined since it assigns to "len"
         if longest_length < (len = m.name.length)
           longest_length = len
         end
