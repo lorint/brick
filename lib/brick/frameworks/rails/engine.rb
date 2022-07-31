@@ -133,25 +133,21 @@ module Brick
                   case args.first
                   when 'index'
                     hms_columns << if hm_assoc.macro == :has_many
-                                     set_ct = if skip_klass_hms.key?(assoc_name.to_sym)
-                                                'nil'
-                                              else
-                                                # Postgres column names are limited to 63 characters
-                                                attrib_name = "_br_#{assoc_name}_ct"[0..62]
-                                                "#{obj_name}.#{attrib_name} || 0"
-                                              end
                                      if hm_fk_name
-"<%= ct = #{set_ct}
-     link_to \"#\{ct || 'View'\} #{assoc_name}\", #{hm_assoc.klass.name.underscore.tr('/', '_').pluralize}_path({ #{path_keys(hm_assoc, hm_fk_name, obj_name, pk)} }) unless ct&.zero? %>\n"
+                                       set_ct = if skip_klass_hms.key?(assoc_name.to_sym)
+                                                   'nil'
+                                                 else
+                                                   # Postgres column names are limited to 63 characters
+                                                   attrib_name = "_br_#{assoc_name}_ct"[0..62]
+                                                   "#{obj_name}.#{attrib_name} || 0"
+                                                 end
+                                       "#{hm_assoc.name}: [#{assoc_name.inspect}, #{set_ct}, #{path_keys(hm_assoc, hm_fk_name, obj_name, pk)}]"
                                      else # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
-"#{assoc_name}\n"
+                                       "#{hm_assoc.name}: [#{assoc_name.inspect}]"
                                      end
                                    else # has_one
                                      # 0..62 because Postgres column names are limited to 63 characters
-"<%= descrips = @_brick_bt_descrip[#{hm.first.inspect}][ho_class = #{hm[1].klass.name}]
-     ho_txt = ho_class.brick_descrip(#{obj_name}, descrips[0..-2].map { |id| #{obj_name}.send(id.last[0..62]) }, (ho_id_col = descrips.last))
-     ho_id = ho_id_col.map { |id_col| #{obj_name}.send(id_col.to_sym) }
-     ho_id&.first ? link_to(ho_txt, send(\"#\{ho_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, ho_id)) : ho_txt %>\n"
+                                     "#{hm_assoc.name}: [#{assoc_name.inspect}, nil, #{path_keys(hm_assoc, hm_fk_name, obj_name, pk)}]"
                                    end
                   when 'show', 'update'
                     hm_stuff << if hm_fk_name
@@ -285,8 +281,8 @@ input+svg.revert {
   color: #FFF;
 }
 </style>
-<% is_includes_dates = nil
 
+<% is_includes_dates = nil
 def is_bcrypt?(val)
   val.is_a?(String) && val.length == 60 && val.start_with?('$2a$')
 end
@@ -555,46 +551,46 @@ if (headerTop) {
 <br>
 <table id=\"headerTop\">
 <table id=\"#{table_name}\">
-  <thead><tr>#{"<th x-order=\"#{pk.join(',')}\"></th>" if pk.present?}<%
+  <thead><tr>#{"<th x-order=\"#{pk.join(',')}\"></th>" if pk.present?}<%=
      col_order = []
-     @#{table_name}.columns.each do |col|
-       next if (#{(pk || []).inspect}.include?(col_name = col.name) && col.type == :integer && !bts.key?(col_name)) ||
-               ::Brick.config.metadata_columns.include?(col_name) || poly_cols.include?(col_name)
-
-       col_order << col_name
-    %><th<%= \" title=\\\"#\{col.comment}\\\"\".html_safe if col.respond_to?(:comment) && !col.comment.blank? %><%
-       if (bt = bts[col_name]) %>
-         <%= \" x-order=\\\"#\{bt.first}\\\"\".html_safe unless bt[2] # Allow sorting any BT except polymorphics
-         %>>BT <%
-         bt[1].each do |bt_pair| %><%=
-           bt_pair.first.bt_link(bt.first) %> <%
-         end %><%
-       else %><%= \" x-order=\\\"#\{col_name}\\\"\".html_safe if true # Currently we always allow click to sort
-         %>><%= col_name %><%
-       end
-    %></th><%
-     end
      # Consider getting the name from the association -- h.first.name -- if a more \"friendly\" alias should be used for a screwy table name
-  %>#{hms_headers.map do |h|
-        # Currently we always allow click to sort
-        "<th#{" x-order=\"#{h.first.name}\"" if true}>" +
-        if h.first.options[:through] && !h.first.through_reflection
-    "#{h[1]} #{h[2]} %></th>" # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
-        else
-    "#{h[1]} <%= link_to('#{h[2]}', #{h.first.klass.name.underscore.tr('/', '_').pluralize}_path) %></th>"
-        end
-      end.join
-  }</tr></thead>
+     hms_hdrs = {#{hms_headers.map do |hm|
+                    "#{hm.first.name}: [#{hm.first.name.inspect}, #{(hm.first.options[:through] && !hm.first.through_reflection).inspect}, #{hm.first.klass.name}, #{hm[1].inspect}, #{hm[2].inspect}]"
+                  end.join(', ')}}
+     (@#{table_name}.columns + hms_hdrs.values).each_with_object(+'') do |col, s|
+       if col.is_a?(ActiveRecord::ConnectionAdapters::Column)
+         next if (#{(pk || []).inspect}.include?(col_name = col.name) && col.type == :integer && !bts.key?(col_name)) ||
+                 ::Brick.config.metadata_columns.include?(col_name) || poly_cols.include?(col_name)
 
+         col_order << col_name
+         s << if (bt = bts[col_name])
+                \"<th#\{' x-order=\"' + bt.first.to_s + '\"' unless bt[2]}>BT \" + # Allow sorting any BT except polymorphics
+                bt[1].map { |bt_pair| bt_pair.first.bt_link(bt.first) }.join(' ')
+              else
+                # Currently we always allow click to sort on non-BT columns
+                \"<th#\{' x-order=\"' + col_name + '\"' if true}>#\{col_name}\"
+              end + '</th>'
+       else # Currently we always allow click to sort on all HM columns (col is the hm array)
+         col_order << col.first # hm.name
+         s << \"<th#\{' x-order=\"' + col.first.to_s + '\"' if true}>\"
+         s << if col[1]
+                \"#\{col[3]} #\{col[4]}\" # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
+              else
+                \"#\{col[3]} #\{link_to(col[4], send(\"#\{col[2].name.underscore.tr('/', '_').pluralize}_path\"))}\"
+              end + '</th>'
+       end
+     end.html_safe
+  %></tr></thead>
   <tbody>
-  <% @#{table_name}.each do |#{obj_name}| %>
+  <% @#{table_name}.each do |#{obj_name}|
+       hms_cols = {#{hms_columns.join(', ')}} %>
   <tr>#{"
     <td><%= link_to '⇛', #{path_obj_name}_path(#{obj_pk}), { class: 'big-arrow' } %></td>" if obj_pk}
     <% col_order.each do |col_name|
          val = #{obj_name}.attributes[col_name] %>
-      <td>
-      <% if (bt = bts[col_name]) %>
-        <% if bt[2] # Polymorphic?
+      <td><%
+         if (bt = bts[col_name])
+           if bt[2] # Polymorphic?
              bt_class = #{obj_name}.send(\"#\{bt.first\}_type\")
              base_class = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class.name.underscore
              poly_id = #{obj_name}.send(\"#\{bt.first\}_id\")
@@ -610,12 +606,26 @@ if (headerTop) {
           <%= bt_id&.first ? link_to(bt_txt, send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_id)) : bt_txt %>
           <%#= Previously was:  bt_obj = bt[1].first.first.find_by(bt[2] => val); link_to(bt_obj.brick_descrip, send(\"#\{bt[1].first.first.name.underscore\}_path\".to_sym, bt_obj.send(bt[1].first.first.primary_key.to_sym))) if bt_obj %>
         <% end %>
-      <% else %>
-        <%= hide_bcrypt(val) %>
-      <% end %>
-      </td>
+      <% elsif (hms_col = hms_cols[col_name])
+           if hms_col.length == 1 %>
+         <%= hms_col.first %>
+        <% else
+             klass = (col = hms_hdrs[col_name])[2]
+             txt = if col[3] == 'HO'
+                     descrips = @_brick_bt_descrip[col_name][klass]
+                     ho_txt = klass.brick_descrip(#{obj_name}, descrips[0..-2].map { |id| #{obj_name}.send(id.last[0..62]) }, (ho_id_col = descrips.last))
+                     ho_id = ho_id_col.map { |id_col| #{obj_name}.send(id_col.to_sym) }
+                     ho_id&.first ? link_to(ho_txt, send(\"#\{klass.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, ho_id)) : ho_txt
+                   else
+                     \"#\{hms_col[1] || 'View'\} #\{hms_col.first}\"
+                   end %>
+         <%= link_to txt, send(\"#\{klass.name.underscore.tr('/', '_').pluralize}_path\".to_sym, hms_col[2]) unless hms_col[1]&.zero? %>
+        <% end %>
+      <% else
+      %><%= hide_bcrypt(val) %><%
+         end
+    %></td>
     <% end %>
-    #{hms_columns.each_with_object(+'') { |hm_col, s| s << "<td>#{hm_col}</td>" }}
   </tr>
   <% end %>
   </tbody>
