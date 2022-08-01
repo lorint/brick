@@ -614,6 +614,8 @@ Module.class_exec do
       return possible
     end
     class_name = args.first.to_s
+    # self.name is nil when a model name is requested in an .erb file
+    base_module = (self < ActiveRecord::Migration || !self.name) ? Object : self
     # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
     # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
     # that is, checking #qualified_name_for with:  from_mod, const_name
@@ -621,14 +623,17 @@ Module.class_exec do
     # path_suffix = ActiveSupport::Dependencies.qualified_name_for(Object, args.first).underscore
     # return self._brick_const_missing(*args) if ActiveSupport::Dependencies.search_for_file(path_suffix)
     # If the file really exists, go and snag it:
-    if !(is_found = ActiveSupport::Dependencies.search_for_file(class_name.underscore)) && (filepath = (self.name || class_name)&.split('::'))
-      filepath = (filepath[0..-2] + [class_name]).join('/').underscore + '.rb'
-    end
-    if is_found
-      return self._brick_const_missing(*args)
-    # elsif ActiveSupport::Dependencies.search_for_file(filepath) # Last-ditch effort to pick this thing up before we fill in the gaps on our own
-    #   my_const = parent.const_missing(class_name) # ends up having:  MyModule::MyClass
-    #   return my_const
+    if ActiveSupport::Dependencies.search_for_file(class_name.underscore)
+      return base_module._brick_const_missing(*args)
+      # elsif ActiveSupport::Dependencies.search_for_file(filepath) # Last-ditch effort to pick this thing up before we fill in the gaps on our own
+      #   my_const = parent.const_missing(class_name) # ends up having:  MyModule::MyClass
+      #   return my_const
+    else
+      filepath = base_module.name&.split('::')&.[](0..-2) unless base_module == Object
+      filepath = ((filepath || []) + [class_name]).join('/').underscore + '.rb'
+      if ActiveSupport::Dependencies.search_for_file(filepath) # Last-ditch effort to pick this thing up before we fill in the gaps on our own
+        return base_module._brick_const_missing(*args)
+      end
     end
 
     relations = ::Brick.relations
@@ -647,7 +652,7 @@ Module.class_exec do
                  Object.send(:build_controller, self, class_name, plural_class_name, model, relations)
                end
              elsif (::Brick.enable_models? || ::Brick.enable_controllers?) && # Schema match?
-                   self == Object && # %%% This works for Person::Person -- but also limits us to not being able to allow more than one level of namespacing
+                   base_module == Object && # %%% This works for Person::Person -- but also limits us to not being able to allow more than one level of namespacing
                    (schema_name = [(singular_table_name = class_name.underscore),
                                    (table_name = singular_table_name.pluralize),
                                    class_name,
@@ -655,7 +660,7 @@ Module.class_exec do
                                   (::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}::") && class_name))
                # Build out a module for the schema if it's namespaced
                # schema_name = schema_name.camelize
-               self.const_set(schema_name.to_sym, (built_module = Module.new))
+               base_module.const_set(schema_name.to_sym, (built_module = Module.new))
 
                [built_module, "module #{schema_name}; end\n"]
                #  # %%% Perhaps an option to use the first module just as schema, and additional modules as namespace with a table name prefix applied
@@ -665,8 +670,8 @@ Module.class_exec do
                # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
                # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
 
-               if (base_model = ::Brick.config.sti_namespace_prefixes&.fetch("::#{self.name}::", nil)&.constantize) || # Are we part of an auto-STI namespace? ...
-                  self != Object # ... or otherwise already in some namespace?
+               if (base_model = ::Brick.config.sti_namespace_prefixes&.fetch("::#{base_module.name}::", nil)&.constantize) || # Are we part of an auto-STI namespace? ...
+                  base_module != Object # ... or otherwise already in some namespace?
                  schema_name = [(singular_schema_name = name.underscore),
                                 (schema_name = singular_schema_name.pluralize),
                                 name,
@@ -679,7 +684,7 @@ Module.class_exec do
                if base_model
                  schema_name = name.underscore # For the auto-STI namespace models
                  table_name = base_model.table_name
-                 Object.send(:build_model, self, inheritable_name, model_name, singular_table_name, table_name, relations, table_name)
+                 Object.send(:build_model, base_module, inheritable_name, model_name, singular_table_name, table_name, relations, table_name)
                else
                  # Adjust for STI if we know of a base model for the requested model name
                  # %%% Does not yet work with namespaced model names.  Perhaps prefix with plural_class_name when doing the lookups here.
@@ -704,15 +709,15 @@ Module.class_exec do
       built_class
     elsif ::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}") && !schema_name
 #         module_prefixes = type_name.split('::')
-#         path = self.name.split('::')[0..-2] + []
+#         path = base_module.name.split('::')[0..-2] + []
 #         module_prefixes.unshift('') unless module_prefixes.first.blank?
 #         candidate_file = Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb')
-      self._brick_const_missing(*args)
-    # elsif self != Object
+      base_module._brick_const_missing(*args)
+    # elsif base_module != Object
     #   module_parent.const_missing(*args)
     else
-      puts "MISSING! #{self.name} #{args.inspect} #{table_name}"
-      self._brick_const_missing(*args)
+      puts "MISSING! #{base_module.name} #{args.inspect} #{table_name}"
+      base_module._brick_const_missing(*args)
     end
   end
 end
