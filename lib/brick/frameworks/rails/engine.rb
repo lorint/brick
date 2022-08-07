@@ -204,8 +204,30 @@ tr th {
   color: #fff;
   text-align: left;
 }
+#headerTop tr th {
+  position: relative;
+}
+#headerTop tr th .exclude {
+  position: absolute;
+  display: none;
+  top: 0;
+  right: 0;
+}
 #headerTop tr th:hover {
   background-color: #18B090;
+}
+#exclusions {
+  font-size: 0.7em;
+}
+#exclusions div {
+  border: 1px solid blue;
+  display: inline-block;
+  cursor: copy;
+}
+#headerTop tr th:hover .exclude {
+  display: inline;
+  cursor: pointer;
+  color: red;
 }
 tr th a {
   color: #80FFB8;
@@ -419,14 +441,37 @@ function setHeaderSizes() {
     for (var i = 0; i < row.childNodes.length; ++i) {
       node = row.childNodes[i];
       if (node.nodeType === 1) {
-        var style = tr.childNodes[i].style;
-        style.minWidth = style.maxWidth = getComputedStyle(node).width;
+        var th = tr.childNodes[i];
+        th.style.minWidth = th.style.maxWidth = getComputedStyle(node).width;
+        if (#{pk&.present? ? 'i > 0' : 'true'}) {
+          // Add <span> at the end
+          var span = document.createElement(\"SPAN\");
+          span.className = \"exclude\";
+          span.innerHTML = \"X\";
+          span.addEventListener(\"click\", function (e) {
+            e.stopPropagation();
+            doFetch(\"POST\", {_brick_exclude: this.parentElement.getAttribute(\"x-order\")});
+          });
+          th.appendChild(span);
+        }
       }
     }
     if (isEmpty) headerTop.appendChild(tr);
   }
   grid.style.marginTop = \"-\" + getComputedStyle(headerTop).height;
   // console.log(\"end\");
+}
+function doFetch(method, payload, success) {
+  payload.authenticity_token = <%= session[:_csrf_token].inspect.html_safe %>;
+  if (!success) {
+    success = function (p) {p.text().then(function (response) {
+      var result = JSON.parse(response).result;
+      if (result) location.href = location.href;
+    });};
+  }
+  var options = {method: method, headers: {\"Content-Type\": \"application/json\"}};
+  if (payload) options.body = JSON.stringify(payload);
+  return fetch(location.href, options).then(success);
 }
 if (headerTop) {
   setHeaderSizes();
@@ -553,6 +598,21 @@ if (headerTop) {
        end
      end %>
   (<%= link_to 'See all #{model_plural.split('::').last}', #{path_obj_name.pluralize}_path %>)
+<% end
+   # COLUMN EXCLUSIONS
+   if @_brick_excl&.present? %>
+  <div id=\"exclusions\">Excluded columns:
+  <% @_brick_excl.each do |excl| %>
+    <div class=\"colExclusion\"><%= excl %></div>
+  <% end %>
+  </div>
+  <script>
+    [... document.getElementsByClassName(\"colExclusion\")].forEach(function (excl) {
+      excl.addEventListener(\"click\", function () {
+        doFetch(\"POST\", {_brick_unexclude: this.innerHTML});
+      });
+    });
+  </script>
 <% end %>
 <table id=\"headerTop\">
 <table id=\"#{table_name}\">

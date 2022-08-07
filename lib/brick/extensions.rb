@@ -1116,6 +1116,11 @@ class Object
           if namespace && (idx = lookup_context.prefixes.index(table_name))
             lookup_context.prefixes[idx] = "#{namespace.name.underscore}/#{lookup_context.prefixes[idx]}"
           end
+          @_brick_excl = session[:_brick_exclude]&.split(',')&.each_with_object([]) do |excl, s|
+                           if (excl_parts = excl.split('.')).first == table_name
+                             s << excl_parts.last
+                           end
+                         end
           @_brick_bt_descrip = model._br_bt_descrip
           @_brick_hm_counts = model._br_hm_counts
           @_brick_join_array = join_array
@@ -1156,8 +1161,20 @@ class Object
           code << "  end\n"
           self.define_method :create do
             ::Brick.set_db_schema(params)
-            instance_variable_set("@#{singular_table_name}".to_sym,
-                                  model.send(:create, send(params_name_sym)))
+            if (is_json = request.content_type == 'application/json') && (col = params['_brick_exclude'])
+              session[:_brick_exclude] = ((session[:_brick_exclude]&.split(',') || []) + ["#{table_name}.#{col}"]).join(',')
+              render json: { result: ::Brick.exclude_column(table_name, col) }
+            elsif is_json && (col = params['_brick_unexclude'])
+              if (excls = ((session[:_brick_exclude]&.split(',') || []) - ["#{table_name}.#{col}"]).join(',')).empty?
+                session.delete(:_brick_exclude)
+              else
+                session[:_brick_exclude] = excls
+              end
+              render json: { result: ::Brick.unexclude_column(table_name, col) }
+            else
+              instance_variable_set("@#{singular_table_name}".to_sym,
+                                    model.send(:create, send(params_name_sym)))
+            end
           end
 
           if pk_col
