@@ -190,6 +190,15 @@ module Brick
       [bts, hms]
     end
 
+    def exclude_column(table, col)
+      puts "Excluding #{table}.#{col}"
+      true
+    end
+    def unexclude_column(table, col)
+      puts "Unexcluding #{table}.#{col}"
+      true
+    end
+
     # Switches Brick auto-models on or off, for all threads
     # @api public
     def enable_models=(value)
