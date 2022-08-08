@@ -23,7 +23,7 @@ https://user-images.githubusercontent.com/5301131/178191829-fe4d1966-e5d8-47e4-a
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.53         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.54         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 You can use The Brick in several ways -- from taking a quick peek inside an existing data set,
 with full ability to navigate across associations -- to easily updating and creating data,
@@ -83,6 +83,10 @@ It can be provided by putting a line like this in an initialiser file:
 
     ::Brick.additional_references = [['recipe_ingredients', 'recipe_id', 'recipes']]
 
+If you'd like to have a set of migration files built out from an existing database, that can be
+done by running the generator `bin/rails g brick:migrations`.  More detail is found below under
+the section "Autogenerate Migration Files".
+
 Brick can auto-create such an initialiser file, and often infer these kinds of useful
 references to fill in the gaps for missing foreign keys.  These suggestions are left commented
 out initially, so very easily brought into play by editing that file.  Myriad settings are
@@ -98,7 +102,8 @@ avaiable therein.
   - [1.c. Generating Templates](#1c-generating-templates)
   - [1.d. Exporting Data](#1d-exporting-data)
   - [1.e. Using rails g df_export](#1e-using-rails-g-df-export)
-  - [1.f. Importing Data](#1e-importing-data)
+  - [1.f. Importing Data](#1f-importing-data)
+  - [1.g. Autogenerate Migration Files](#1g-autogenerate-migration-files)
 - [2. More Fancy Exports](#2-limiting-what-is-versioned-and-when)
   - [2.a. Simplify Column Names Using Aliases](#2a-simplify-column-names-using-aliases)
   - [2.b. Filtering the Rows to Export](#2b-filtering-the-rows-to-export)
@@ -195,6 +200,16 @@ To configure additional options, such as defining related columns that you want 
     bin/rails g brick:install
 
 Inside the generated file many options exist, and one of which is `Brick.additional_references` which defines additional foreign key associations, and even shows some suggested ones where possible.  By default these are commented out, and by un-commenting the ones you would like (or perhaps even all of them), then it is as if these foreign keys were present to provide referential integrity.  If you then start up a `rails c` you'll find that appropriate belongs_to and has_many associations are automatically fleshed out.  Even has_many :through associations are provided when possible associative tables are identified -- that is, tables having only foreign keys that refer to other tables.
+
+### 1.g. Autogenerate Migration Files
+
+If you'd like to have a set of migration files built out from an existing database, that can be done by running this generator:
+
+    bin/rails g brick:migrations
+
+First a table picker comes up where you choose which table(s) you wish to build migrations for -- by default all the tables are chosen. (Use the arrow keys and spacebar to select and deselect items in the list), then press ENTER and new migration files for each individual table in your database are built out either in db/migrate, or if that folder already has .rb files then the destination becomes tmp/brick_migrations.
+
+After successful file generation, the `schema_migrations` table is updated to have appropriate numerical `version` entries, one for each file which was generated.  This is so that after generating, you don't end up seeing the "Migrations are pending" error later.
 
 ## Issues
 
