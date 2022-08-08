@@ -1289,7 +1289,10 @@ module ActiveRecord::ConnectionHandling
   alias _brick_establish_connection establish_connection
   def establish_connection(*args)
     conn = _brick_establish_connection(*args)
-    _brick_reflect_tables
+    begin
+      _brick_reflect_tables
+    rescue ActiveRecord::NoDatabaseError
+    end
     conn
   end
 
