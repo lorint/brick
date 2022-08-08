@@ -44,6 +44,7 @@ module Brick
         return
       end
 
+      key_type = (ActiveRecord.version < ::Gem::Version.new('5.1') ? 'integer' : 'bigint')
       is_4x_rails = ActiveRecord.version < ::Gem::Version.new('5.0')
       ar_version = "[#{ActiveRecord.version.segments[0..1].join('.')}]" unless is_4x_rails
       default_mig_path = (mig_path = ActiveRecord::Migrator.migrations_paths.first || "#{::Rails.root}/db/migrate")
@@ -100,40 +101,100 @@ module Brick
         fringe.each do |tbl|
           next unless (relation = ::Brick.relations.fetch(tbl, nil))&.fetch(:cols, nil)&.present?
 
-          pkey_cols = ::Brick.relations[chosen.first][:pkey].values.flatten
+          pkey_cols = (rpk = relation[:pkey].values.flatten) & (arpk = [ActiveRecord::Base.primary_key].flatten)
+          # In case things aren't as standard
+          if pkey_cols.empty?
+            pkey_cols = if rpk.empty? && relation[:cols][arpk.first]&.first == key_type
+                          arpk
+                        elsif rpk.first
+                          rpk
+                        end
+          end
+          schema = if (tbl_parts = tbl.split('.')).length > 1
+                     if tbl_parts.first == 'public'
+                       tbl_parts.shift
+                       nil
+                     else
+                       tbl_parts.first
+                     end
+                   end
           # %%% For the moment we're skipping polymorphics
           fkey_cols = relation[:fks].values.select { |assoc| assoc[:is_bt] && !assoc[:polymorphic] }
-          mig = +"class Create#{table_name = tbl.camelize} < ActiveRecord::Migration#{ar_version}\n"
-          # %%% Support missing foreign key (by adding:  ,id: false)
-          # also bigint / uuid / other non-standard data type for primary key
-          mig << "  def change\n    create_table :#{tbl} do |t|\n"
+          mig = +"class Create#{(full_table_name = tbl_parts.join('_')).camelize} < ActiveRecord::Migration#{ar_version}\n"
+          # Support missing primary key (by adding:  ,id: false)
+          # also integer / uuid / other non-standard data types for primary key
+          id_option = unless (pkey_col_first = relation[:cols][pkey_cols&.first]&.first) == key_type
+                        unless pkey_cols&.present?
+                          ', id: false'
+                        else
+                          case pkey_col_first
+                          when 'integer'
+                            ', id: :serial'
+                          when 'bigint'
+                            ', id: :bigserial'
+                          else
+                            ", id: :#{SQL_TYPES[pkey_col_first] || pkey_col_first}" # Something like:  id: :integer, primary_key: :businessentityid
+                          end + (pkey_cols.first ? ", primary_key: :#{pkey_cols.first}" : '')
+                        end
+                      end
+          # Refer to this table name as a symbol or dotted string as appropriate
+          tbl = tbl_parts.length == 1 ? ":#{tbl_parts.first}" : "'#{tbl}'"
+          mig << "  def change\n    return unless reverting? || !table_exists?(#{tbl})\n\n"
+          mig << "    create_schema :#{schema} unless schema_exists?(:#{schema})\n" if schema
+          mig << "    create_table #{tbl}#{id_option} do |t|\n"
           possible_ts = [] # Track possible generic timestamps
+          add_fks = [] # Track foreign keys to add after table creation
           relation[:cols].each do |col, col_type|
-            next if pkey_cols.include?(col)
+            next if !id_option&.end_with?('id: false') && pkey_cols.include?(col)
 
             # See if there are generic timestamps
             if (sql_type = SQL_TYPES[col_type.first]) == 'timestamp' &&
                ['created_at','updated_at'].include?(col)
-              possible_ts << col
+              possible_ts << [col, !col_type[3]]
               next
             end
 
             sql_type ||= col_type.first
+            suffix = col_type[3] ? +', null: false' : +''
             # Determine if this column is used as part of a foreign key
             if fk = fkey_cols.find { |assoc| col == assoc[:fk] }
-              mig << "      t.references :#{fk[:assoc_name]}#{", type: #{sql_type}" unless sql_type == 'integer'}\n"
+              to_table = fk[:inverse_table].split('.')
+              to_table = to_table.length == 1 ? ":#{to_table.first}" : "'#{fk[:inverse_table]}'"
+              if fk[:fk] != "#{fk[:assoc_name].singularize}_id" # Need to do our own foreign_key tricks, not use references?
+                column = fk[:fk]
+                mig << "      t.#{sql_type} :#{column}#{suffix}\n"
+                add_fks << [to_table, column, ::Brick.relations[fk[:inverse_table]]]
+              else
+                suffix << ", type: :#{sql_type}" unless sql_type == key_type
+                mig << "      t.references :#{fk[:assoc_name]}#{suffix}, foreign_key: { to_table: #{to_table} }\n"
+              end
             else
-              mig << emit_column(sql_type, col)
+              mig << emit_column(sql_type, col, suffix)
             end
           end
-          if possible_ts.length == 2 # Both created_at and updated_at
+          if possible_ts.length == 2 && # Both created_at and updated_at
+             # Rails 5 and later timestamps default to NOT NULL
+             (possible_ts.first.last == is_4x_rails && possible_ts.last.last == is_4x_rails)
             mig << "\n      t.timestamps\n"
-          else # Just one or the other
-            possible_ts.each { |ts| emit_column('timestamp', ts) }
+          else # Just one or the other, or a nullability mismatch
+            possible_ts.each { |ts| emit_column('timestamp', ts.first, nil) }
           end
-          mig << "    end\n  end\nend\n"
+          mig << "    end\n"
+          add_fks.each do |add_fk|
+            is_commented = false
+            # add_fk[2] holds the inverse relation
+            unless (pk = add_fk[2][:pkey].values.flatten&.first)
+              is_commented = true
+              mig << "    # (Unable to create relationship because primary key is missing on table #{add_fk[0]})\n"
+              # No official PK, but if coincidentally there's a column of the same name, take a chance on it
+              pk = (add_fk[2][:cols].key?(add_fk[1]) && add_fk[1]) || '???'
+            end
+            #                                                            to_table               column
+            mig << "    #{'# ' if is_commented}add_foreign_key #{tbl}, #{add_fk[0]}, column: :#{add_fk[1]}, primary_key: :#{pk}\n"
+          end
+          mig << "  end\nend\n"
           current_mig_time += 1.minute
-          File.open("#{mig_path}/#{current_mig_time.strftime('%Y%m%d%H%M00')}_create_#{tbl}.rb", "w") { |f| f.write mig }
+          File.open("#{mig_path}/#{current_mig_time.strftime('%Y%m%d%H%M00')}_create_#{full_table_name}.rb", "w") { |f| f.write mig }
         end
         done.concat(fringe)
         chosen -= done
@@ -160,8 +221,8 @@ module Brick
 
   private
 
-    def emit_column(type, name)
-      "      t.#{type.start_with?('numeric') ? 'decimal' : type} :#{name}\n"
+    def emit_column(type, name, suffix)
+      "      t.#{type.start_with?('numeric') ? 'decimal' : type} :#{name}#{suffix}\n"
     end
   end
 end
