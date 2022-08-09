@@ -87,6 +87,8 @@ module Brick
       done = []
       fks = {}
       stuck = {}
+      indexes = {} # Track index names to make sure things are unique
+      versions = [] # Resulting versions to be used when updating the schema_migrations table
       # Start by making migrations for fringe tables (those with no foreign keys).
       # Continue layer by layer, creating migrations for tables that reference ones already done, until
       # no more migrations can be created.  (At that point hopefully all tables are accounted for.)
@@ -135,9 +137,23 @@ module Brick
                           else
                             ", id: :#{SQL_TYPES[pkey_col_first] || pkey_col_first}" # Something like:  id: :integer, primary_key: :businessentityid
                           end +
-                            (pkey_cols.first ? ", primary_key: :#{pkey_cols.first}" : '')
+                            (pkey_cols.first ? ", primary_key: :#{pkey_cols.first}" : '') +
+                            (!is_4x_rails && (comment = relation&.fetch(:description, nil))&.present? ? ", comment: #{comment.inspect}" : '')
                         end
                       end
+          # Find the ActiveRecord class in order to see if the columns have comments
+          unless is_4x_rails
+            klass = begin
+                      tbl.tr('.', '/').singularize.camelize.constantize
+                    rescue StandardError
+                    end
+            if klass
+              unless ActiveRecord::Migration.table_exists?(klass.table_name)
+                puts "WARNING: Unable to locate table #{klass.table_name} (for #{klass.name})."
+                klass = nil
+              end
+            end
+          end
           # Refer to this table name as a symbol or dotted string as appropriate
           tbl_code = tbl_parts.length == 1 ? ":#{tbl_parts.first}" : "'#{tbl}'"
           mig << "  def change\n    return unless reverting? || !table_exists?(#{tbl_code})\n\n"
@@ -157,6 +173,9 @@ module Brick
 
             sql_type ||= col_type.first
             suffix = col_type[3] ? +', null: false' : +''
+            if !is_4x_rails && klass && (comment = klass.columns_hash.fetch(col, nil)&.comment)&.present?
+              suffix << ", comment: #{comment.inspect}"
+            end
             # Determine if this column is used as part of a foreign key
             if fk = fkey_cols.find { |assoc| col == assoc[:fk] }
               to_table = fk[:inverse_table].split('.')
@@ -167,6 +186,18 @@ module Brick
                 add_fks << [to_table, column, ::Brick.relations[fk[:inverse_table]]]
               else
                 suffix << ", type: :#{sql_type}" unless sql_type == key_type
+                # Will the resulting default index name be longer than what Postgres allows?  (63 characters)
+                if (idx_name = ActiveRecord::Base.connection.index_name(tbl, {column: col})).length > 63
+                  # Try to find a shorter name that hasn't been used yet
+                  unless indexes.key?(shorter = idx_name[0..62]) ||
+                         indexes.key?(shorter = idx_name.tr('_', '')[0..62]) ||
+                         indexes.key?(shorter = idx_name.tr('aeio', '')[0..62])
+                    puts "Unable to easily find unique name for index #{idx_name} that is shorter than 64 characters,"
+                    puts "so have resorted to this GUID-based identifier: #{shorter = "#{tbl[0..25]}_#{::SecureRandom.uuid}"}."
+                  end
+                  suffix << ", index: { name: '#{shorter || idx_name}' }"
+                  indexes[shorter || idx_name] = nil
+                end
                 mig << "      t.references :#{fk[:assoc_name]}#{suffix}, foreign_key: { to_table: #{to_table} }\n"
               end
             else
@@ -195,7 +226,8 @@ module Brick
           end
           mig << "  end\nend\n"
           current_mig_time += 1.minute
-          File.open("#{mig_path}/#{current_mig_time.strftime('%Y%m%d%H%M00')}_create_#{full_table_name}.rb", "w") { |f| f.write mig }
+          versions << (version = current_mig_time.strftime('%Y%m%d%H%M00'))
+          File.open("#{mig_path}/#{version}_create_#{full_table_name}.rb", "w") { |f| f.write mig }
         end
         done.concat(fringe)
         chosen -= done
@@ -217,6 +249,10 @@ module Brick
           ".  Here's the top 5 blockers" if stuck_sorted.length > 5
         }:"
         pp stuck_sorted[0..4]
+      else # Successful, and now we can update the schema_migrations table accordingly
+        ActiveRecord::Base.execute_sql("INSERT INTO #{ActiveRecord::Base.schema_migrations_table_name} (version) VALUES #{
+          versions.map { |version| "('#{version}')" }.join(', ')
+        }")
       end
     end
 
