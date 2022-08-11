@@ -41,11 +41,14 @@ module Brick
       key_type = (ActiveRecord.version < ::Gem::Version.new('5.1') ? 'integer' : 'bigint')
       is_4x_rails = ActiveRecord.version < ::Gem::Version.new('5.0')
       ar_version = "[#{ActiveRecord.version.segments[0..1].join('.')}]" unless is_4x_rails
-      default_mig_path = (mig_path = ActiveRecord::Migrator.migrations_paths.first || "#{::Rails.root}/db/migrate")
-      if Dir.exist?(mig_path)
+      is_insert_versions = true
+      is_delete_versions = false
+      versions_to_delete_or_append = nil
+      if Dir.exist?(mig_path = ActiveRecord::Migrator.migrations_paths.first || "#{::Rails.root}/db/migrate")
         if Dir["#{mig_path}/**/*.rb"].present?
           puts "WARNING: migrations folder #{mig_path} appears to already have ruby files present."
           mig_path2 = "#{::Rails.root}/tmp/brick_migrations"
+          is_insert_versions = false unless mig_path == mig_path2
           if Dir.exist?(mig_path2)
             if Dir["#{mig_path2}/**/*.rb"].present?
               puts "As well, temporary folder #{mig_path2} also has ruby files present."
@@ -53,10 +56,15 @@ module Brick
               mig_path2 = gets_list(list: ['Cancel operation!', "Append migration files into #{mig_path} anyway", mig_path, mig_path2])
               return if mig_path2.start_with?('Cancel')
 
+              existing_mig_files = Dir["#{mig_path2}/**/*.rb"]
+              if (is_insert_versions = mig_path == mig_path2)
+                versions_to_delete_or_append = existing_mig_files.map { |ver| ver.split('/').last.split('_').first }
+              end
               if mig_path2.start_with?('Append migration files into ')
                 mig_path2 = mig_path
               else
-                Dir["#{mig_path2}/**/*.rb"].each { |rb| File.delete(rb) }
+                is_delete_versions = true
+                existing_mig_files.each { |rb| File.delete(rb) }
               end
             else
               puts "Using temporary folder #{mig_path2} for created migration files.\n\n"
@@ -82,6 +90,9 @@ module Brick
       fks = {}
       stuck = {}
       indexes = {} # Track index names to make sure things are unique
+      built_schemas = {} # Track all built schemas so we can place an appropriate drop_schema command only in the first
+                         # migration in which that schema is referenced, thereby allowing rollbacks to function properly.
+      versions_to_create = [] # Resulting versions to be used when updating the schema_migrations table
       # Start by making migrations for fringe tables (those with no foreign keys).
       # Continue layer by layer, creating migrations for tables that reference ones already done, until
       # no more migrations can be created.  (At that point hopefully all tables are accounted for.)
@@ -106,7 +117,7 @@ module Brick
                         end
           end
           schema = if (tbl_parts = tbl.split('.')).length > 1
-                     if tbl_parts.first == 'public'
+                     if tbl_parts.first == (::Brick.default_schema || 'public')
                        tbl_parts.shift
                        nil
                      else
@@ -150,7 +161,7 @@ module Brick
           # Refer to this table name as a symbol or dotted string as appropriate
           tbl_code = tbl_parts.length == 1 ? ":#{tbl_parts.first}" : "'#{tbl}'"
           mig << "  def change\n    return unless reverting? || !table_exists?(#{tbl_code})\n\n"
-          mig << "    create_schema :#{schema} unless schema_exists?(:#{schema})\n" if schema
+          mig << "    create_schema :#{schema} unless reverting? || schema_exists?(:#{schema})\n" if schema
           mig << "    create_table #{tbl_code}#{id_option} do |t|\n"
           possible_ts = [] # Track possible generic timestamps
           add_fks = [] # Track foreign keys to add after table creation
@@ -215,9 +226,14 @@ module Brick
             #                                                            to_table               column
             mig << "    #{'# ' if is_commented}add_foreign_key #{tbl_code}, #{add_fk[0]}, column: :#{add_fk[1]}, primary_key: :#{pk}\n"
           end
+          unless built_schemas.key?(schema)
+            mig << "    drop_schema :#{schema} if reverting? && schema_exists?(:#{schema})\n"
+            built_schemas[schema] = nil
+          end
           mig << "  end\nend\n"
           current_mig_time += 1.minute
-          File.open("#{mig_path}/#{current_mig_time.strftime('%Y%m%d%H%M00')}_create_#{full_table_name}.rb", "w") { |f| f.write mig }
+          versions_to_create << (version = current_mig_time.strftime('%Y%m%d%H%M00')).split('_').first
+          File.open("#{mig_path}/#{version}_create_#{full_table_name}.rb", "w") { |f| f.write mig }
         end
         done.concat(fringe)
         chosen -= done
@@ -239,6 +255,24 @@ module Brick
           ".  Here's the top 5 blockers" if stuck_sorted.length > 5
         }:"
         pp stuck_sorted[0..4]
+      else # Successful, and now we can update the schema_migrations table accordingly
+        unless ActiveRecord::Migration.table_exists?(ActiveRecord::Base.schema_migrations_table_name)
+          ActiveRecord::SchemaMigration.create_table
+        end
+        # Remove to_delete - to_create
+        if ((versions_to_delete_or_append ||= []) - versions_to_create).present? && is_delete_versions
+          ActiveRecord::Base.execute_sql("DELETE FROM #{
+            ActiveRecord::Base.schema_migrations_table_name} WHERE version IN (#{
+            (versions_to_delete_or_append - versions_to_create).map { |vtd| "'#{vtd}'" }.join(', ')}
+          )")
+        end
+        # Add to_create - to_delete
+        if is_insert_versions && ((versions_to_create ||= []) - versions_to_delete_or_append).present?
+          ActiveRecord::Base.execute_sql("INSERT INTO #{
+            ActiveRecord::Base.schema_migrations_table_name} (version) VALUES #{
+            (versions_to_create - versions_to_delete_or_append).map { |vtc| "('#{vtc}')" }.join(', ')
+          }")
+        end
       end
     end
 
