@@ -127,10 +127,13 @@ module Brick
           # %%% For the moment we're skipping polymorphics
           fkey_cols = relation[:fks].values.select { |assoc| assoc[:is_bt] && !assoc[:polymorphic] }
           mig = +"class Create#{(full_table_name = tbl_parts.join('_')).camelize} < ActiveRecord::Migration#{ar_version}\n"
+          # If the primary key is also used as a foreign key, will need to do  id: false  and then build out
+          # a column definition which includes :primary_key -- %%% also using a data type of bigserial or serial
+          # if this one has come in as bigint or integer.
+          pk_is_also_fk = fkey_cols.any? { |assoc| pkey_cols&.first == assoc[:fk] } ? pkey_cols&.first : nil
           # Support missing primary key (by adding:  ,id: false)
-          # also integer / uuid / other non-standard data types for primary key
-          id_option = unless (pkey_col_first = relation[:cols][pkey_cols&.first]&.first) == key_type
-                        unless pkey_cols&.present?
+          id_option = if pk_is_also_fk || (pkey_col_first = relation[:cols][pkey_cols&.first]&.first) != key_type
+                        if pk_is_also_fk || !pkey_cols&.present?
                           ', id: false'
                         else
                           case pkey_col_first
@@ -214,6 +217,7 @@ module Brick
             possible_ts.each { |ts| emit_column('timestamp', ts.first, nil) }
           end
           mig << "    end\n"
+          mig << "    execute('ALTER TABLE #{tbl} ADD PRIMARY KEY (#{pk_is_also_fk});')\n" if pk_is_also_fk
           add_fks.each do |add_fk|
             is_commented = false
             # add_fk[2] holds the inverse relation
