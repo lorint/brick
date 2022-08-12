@@ -84,8 +84,13 @@ module Brick
 
       # Generate a list of tables that can be chosen
       chosen = gets_list(list: tables, chosen: tables.dup)
+      schemas = chosen.each_with_object({}) do |v, s|
+        if (v_parts = v.split('.')).length > 1
+          s[v_parts.first] = nil unless [::Brick.default_schema, 'public'].include?(v_parts.first)
+        end
+      end
       # Start the timestamps back the same number of minutes from now as expected number of migrations to create
-      current_mig_time = Time.now - chosen.length.minutes
+      current_mig_time = Time.now - (schemas.length + chosen.length).minutes
       done = []
       fks = {}
       stuck = {}
@@ -124,9 +129,14 @@ module Brick
                        tbl_parts.first
                      end
                    end
+          unless schema.blank? || built_schemas.key?(schema)
+            mig = +"  def change\n    create_schema(:#{schema}) unless schema_exists?(:#{schema})\n  end\n"
+            migration_file_write(mig_path, "create_db_schema_#{schema}", current_mig_time += 1.minute, ar_version, mig)
+            built_schemas[schema] = nil
+          end
+
           # %%% For the moment we're skipping polymorphics
           fkey_cols = relation[:fks].values.select { |assoc| assoc[:is_bt] && !assoc[:polymorphic] }
-          mig = +"class Create#{(full_table_name = tbl_parts.join('_')).camelize} < ActiveRecord::Migration#{ar_version}\n"
           # If the primary key is also used as a foreign key, will need to do  id: false  and then build out
           # a column definition which includes :primary_key -- %%% also using a data type of bigserial or serial
           # if this one has come in as bigint or integer.
@@ -163,8 +173,7 @@ module Brick
           end
           # Refer to this table name as a symbol or dotted string as appropriate
           tbl_code = tbl_parts.length == 1 ? ":#{tbl_parts.first}" : "'#{tbl}'"
-          mig << "  def change\n    return unless reverting? || !table_exists?(#{tbl_code})\n\n"
-          mig << "    create_schema :#{schema} unless reverting? || schema_exists?(:#{schema})\n" if schema
+          mig = +"  def change\n    return unless reverting? || !table_exists?(#{tbl_code})\n\n"
           mig << "    create_table #{tbl_code}#{id_option} do |t|\n"
           possible_ts = [] # Track possible generic timestamps
           add_fks = [] # Track foreign keys to add after table creation
@@ -234,8 +243,8 @@ module Brick
             #                                                                 to_table               column
             mig << "    #{'# ' if is_commented}add_foreign_key #{tbl_code}, #{add_fk[0]}, column: :#{add_fk[1]}, primary_key: :#{pk}\n"
           end
-          mig << "  end\nend\n"
-          versions_to_create << migration_file_write(mig_path, "create_#{full_table_name}", current_mig_time += 1.minute, mig)
+          mig << "  end\n"
+          versions_to_create << migration_file_write(mig_path, "create_#{tbl_parts.join('_')}", current_mig_time += 1.minute, ar_version, mig)
         end
         done.concat(fringe)
         chosen -= done
@@ -285,8 +294,12 @@ module Brick
       "      t.#{type.start_with?('numeric') ? 'decimal' : type} :#{name}#{suffix}\n"
     end
 
-    def migration_file_write(mig_path, name, current_mig_time, mig)
-      File.open("#{mig_path}/#{version = current_mig_time.strftime('%Y%m%d%H%M00')}_#{name}.rb", "w") { |f| f.write mig }
+    def migration_file_write(mig_path, name, current_mig_time, ar_version, mig)
+      File.open("#{mig_path}/#{version = current_mig_time.strftime('%Y%m%d%H%M00')}_#{name}.rb", "w") do |f|
+        f.write "class #{name.camelize} < ActiveRecord::Migration#{ar_version}\n"
+        f.write mig
+        f.write "end\n"
+      end
       version
     end
   end
