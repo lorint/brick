@@ -230,6 +230,11 @@ module Brick
       @mutex.synchronize { @not_nullables = columns }
     end
 
+    # Add status page showing all resources and what files have been built out for them
+    def add_status
+      true
+    end
+
     # Add a special page to show references to non-existent records ("orphans")
     def add_orphans
       true

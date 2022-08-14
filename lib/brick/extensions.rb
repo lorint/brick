@@ -646,7 +646,7 @@ Module.class_exec do
                full_class_name << "::#{self.name}" unless self == Object
                full_class_name << "::#{plural_class_name.underscore.singularize.camelize}"
                if (plural_class_name == 'BrickSwagger' ||
-                  (::Brick.config.add_orphans && plural_class_name == 'BrickGem') ||
+                  ((::Brick.config.add_status || ::Brick.config.add_orphans) && plural_class_name == 'BrickGem') ||
                   model = self.const_get(full_class_name))
                  # if it's a controller and no match or a model doesn't really use the same table name, eager load all models and try to find a model class of the right name.
                  Object.send(:build_controller, self, class_name, plural_class_name, model, relations)
@@ -1003,6 +1003,9 @@ class Object
         # Brick-specific pages
         case plural_class_name
         when 'BrickGem'
+          self.define_method :status do
+            instance_variable_set(:@resources, ::Brick.get_status_of_resources)
+          end
           self.define_method :orphans do
             instance_variable_set(:@orphans, ::Brick.find_orphans(::Brick.set_db_schema(params)))
           end
@@ -1679,6 +1682,59 @@ module Brick
         hm_counts[fk[1]] = hm_counts.fetch(fk[1]) { 0 } + 1
       end
       assoc_bt[:inverse] = assoc_hm
+    end
+
+    # Identify built out routes, migrations, models,
+    # (and also soon controllers and views!)
+    # for each resource
+    def get_status_of_resources
+      rails_root = ::Rails.root.to_s
+      migrations = if Dir.exist?(mig_path = ActiveRecord::Migrator.migrations_paths.first || "#{rails_root}/db/migrate")
+                     Dir["#{mig_path}/**/*.rb"].each_with_object(Hash.new { |h, k| h[k] = [] }) do |v, s|
+                       File.read(v).split("\n").each do |line|
+                         # For all non-commented lines, look for any that have "create_table", "alter_table", or "drop_table"
+                         if !line.lstrip.start_with?('#') &&
+                            (idx = (line.index('create_table ') || line.index('create_table('))&.+(13)) ||
+                            (idx = (line.index('alter_table ') || line.index('alter_table('))&.+(12)) ||
+                            (idx = (line.index('drop_table ') || line.index('drop_table('))&.+(11))
+                           tbl = line[idx..-1].match(/([:'"\w\.]+)/)&.captures&.first
+                           if tbl
+                             s[tbl.tr(':\'"', '').pluralize] << v
+                             break
+                           end
+                         end
+                       end
+                     end
+                   end
+      if ::ActiveSupport.version < ::Gem::Version.new('6') ||
+         ::Rails.configuration.instance_variable_get(:@autoloader) == :classic
+        Rails.configuration.eager_load_namespaces.select { |ns| ns < Rails::Application }.each(&:eager_load!)
+      else
+        Zeitwerk::Loader.eager_load_all
+      end
+      abstract_activerecord_bases = ActiveRecord::Base.descendants.select { |ar| ar.abstract_class? }.map(&:name)
+      # abstract_activerecord_bases << ActiveRecord::Base
+      models = if Dir.exist?(model_path = "#{rails_root}/app/models")
+                 Dir["#{model_path}/**/*.rb"].each_with_object({}) do |v, s|
+                   File.read(v).split("\n").each do |line|
+                     # For all non-commented lines, look for any that start with "class " and also "< ApplicationRecord"
+                     if line.lstrip.start_with?('class') && (idx = line.index('class'))
+                       model = line[idx + 5..-1].match(/[\s:]+([\w:]+)/)&.captures&.first
+                       if model && abstract_activerecord_bases.exclude?(model)
+                         klass = begin
+                                   model.constantize
+                                 rescue
+                                 end
+                         s[model.underscore.tr('/', '.').pluralize] = [
+                           v.start_with?(rails_root) ? v[rails_root.length + 1..-1] : v,
+                           klass
+                         ]
+                       end
+                     end
+                   end
+                 end
+               end
+      ::Brick.relations.keys.map { |v| [(r = v.pluralize), (model = models[r])&.last&.table_name || v, migrations&.fetch(r, nil), model&.first] }
     end
 
     # Locate orphaned records
