@@ -667,45 +667,11 @@ Module.class_exec do
              elsif ::Brick.enable_models?
                # Custom inheritable Brick base model?
                class_name = (inheritable_name = class_name)[5..-1] if class_name.start_with?('Brick')
-               # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
-               # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
-
-               if (base_model = ::Brick.config.sti_namespace_prefixes&.fetch("::#{base_module.name}::", nil)&.constantize) || # Are we part of an auto-STI namespace? ...
-                  base_module != Object # ... or otherwise already in some namespace?
-                 schema_name = [(singular_schema_name = name.underscore),
-                                (schema_name = singular_schema_name.pluralize),
-                                name,
-                                name.pluralize].find { |s| Brick.db_schemas.include?(s) }
-               end
-               plural_class_name = ActiveSupport::Inflector.pluralize(model_name = class_name)
-               # If it's namespaced then we turn the first part into what would be a schema name
-               singular_table_name = ActiveSupport::Inflector.underscore(model_name).gsub('/', '.')
-
-               if base_model
-                 schema_name = name.underscore # For the auto-STI namespace models
-                 table_name = base_model.table_name
-                 Object.send(:build_model, base_module, inheritable_name, model_name, singular_table_name, table_name, relations, table_name)
-               else
-                 # Adjust for STI if we know of a base model for the requested model name
-                 # %%% Does not yet work with namespaced model names.  Perhaps prefix with plural_class_name when doing the lookups here.
-                 table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil) || ::Brick.existing_stis[model_name]&.constantize)
-                                base_model.table_name
-                              else
-                                ActiveSupport::Inflector.pluralize(singular_table_name)
-                              end
-                 if ::Brick.apartment_multitenant &&
-                    Apartment.excluded_models.include?(table_name.singularize.camelize)
-                   schema_name = Apartment.default_schema
-                 end
-                 # Maybe, just maybe there's a database table that will satisfy this need
-                 if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
-                   Object.send(:build_model, schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching)
-                 end
-               end
+               Object.send(:build_model, relations, base_module, name, class_name, inheritable_name)
              end
     if result
       built_class, code = result
-      puts "\n#{code}"
+      puts "\n#{code}\n"
       built_class
     elsif ::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}") && !schema_name
 #         module_prefixes = type_name.split('::')
@@ -727,7 +693,42 @@ class Object
 
   private
 
-    def build_model(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching)
+    def build_model(relations, base_module, base_name, class_name, inheritable_name = nil)
+      if (base_model = ::Brick.config.sti_namespace_prefixes&.fetch("::#{base_module.name}::", nil)&.constantize) || # Are we part of an auto-STI namespace? ...
+         base_module != Object # ... or otherwise already in some namespace?
+        schema_name = [(singular_schema_name = base_name.underscore),
+                       (schema_name = singular_schema_name.pluralize),
+                       base_name,
+                       base_name.pluralize].find { |s| Brick.db_schemas.include?(s) }
+      end
+      plural_class_name = ActiveSupport::Inflector.pluralize(model_name = class_name)
+      # If it's namespaced then we turn the first part into what would be a schema name
+      singular_table_name = ActiveSupport::Inflector.underscore(model_name).gsub('/', '.')
+
+      if base_model
+        schema_name = base_name.underscore # For the auto-STI namespace models
+        table_name = base_model.table_name
+        build_model_worker(base_module, inheritable_name, model_name, singular_table_name, table_name, relations, table_name)
+      else
+        # Adjust for STI if we know of a base model for the requested model name
+        # %%% Does not yet work with namespaced model names.  Perhaps prefix with plural_class_name when doing the lookups here.
+        table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil) || ::Brick.existing_stis[model_name]&.constantize)
+                       base_model.table_name
+                     else
+                       ActiveSupport::Inflector.pluralize(singular_table_name)
+                     end
+        if ::Brick.apartment_multitenant &&
+           Apartment.excluded_models.include?(table_name.singularize.camelize)
+          schema_name = Apartment.default_schema
+        end
+        # Maybe, just maybe there's a database table that will satisfy this need
+        if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
+          build_model_worker(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching)
+        end
+      end
+    end
+
+    def build_model_worker(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching)
       if ::Brick.apartment_multitenant &&
          schema_name == Apartment.default_schema
         relation = relations["#{schema_name}.#{matching}"]
@@ -893,7 +894,7 @@ class Object
             end
           end
         end
-        code << "end # model #{full_name}\n\n"
+        code << "end # model #{full_name}\n"
       [built_model, code]
     end
 
@@ -1255,7 +1256,7 @@ class Object
             # Get column names for params from relations[model.table_name][:cols].keys
           end
         # end
-        code << "end # #{namespace_name}#{class_name}\n\n"
+        code << "end # #{namespace_name}#{class_name}\n"
       end # class definition
       [built_controller, code]
     end
