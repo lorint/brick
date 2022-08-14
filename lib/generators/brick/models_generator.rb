@@ -6,63 +6,72 @@ require 'fancy_gets'
 
 module Brick
   # Auto-generates models, controllers, or views
-  class ModelGenerator < ::Rails::Generators::Base
+  class ModelsGenerator < ::Rails::Generators::Base
     include FancyGets
     # include ::Rails::Generators::Migration
 
-    # # source_root File.expand_path('templates', __dir__)
-    # class_option(
-    #   :with_changes,
-    #   type: :boolean,
-    #   default: false,
-    #   desc: 'Add IMPORT_TEMPLATE to model'
-    # )
-
     desc 'Auto-generates models, controllers, or views.'
 
-    def brick_model
-      # %%% If Apartment is active, ask which schema they want
+    def brick_models
+      # %%% If Apartment is active and there's no schema_to_analyse, ask which schema they want
 
       # Load all models
-      Rails.configuration.eager_load_namespaces.select { |ns| ns < Rails::Application }.each(&:eager_load!)
+      if ::ActiveSupport.version < ::Gem::Version.new('6') ||
+        ::Rails.configuration.instance_variable_get(:@autoloader) == :classic
+        Rails.configuration.eager_load_namespaces.select { |ns| ns < Rails::Application }.each(&:eager_load!)
+      else
+        Zeitwerk::Loader.eager_load_all
+      end
 
       # Generate a list of viable models that can be chosen
       longest_length = 0
       model_info = Hash.new { |h, k| h[k] = {} }
       tableless = Hash.new { |h, k| h[k] = [] }
-      models = ActiveRecord::Base.descendants.reject do |m|
-        trouble = if m.abstract_class?
-                    true
-                  elsif !m.table_exists?
-                    tableless[m.table_name] << m.name
-                    ' (No Table)'
-                  else
-                    this_f_keys = (model_info[m][:f_keys] = m.reflect_on_all_associations.select { |a| a.macro == :belongs_to }) || []
-                    column_names = (model_info[m][:column_names] = m.columns.map(&:name) - [m.primary_key, 'created_at', 'updated_at', 'deleted_at'] - this_f_keys.map(&:foreign_key))
-                    if column_names.empty? && this_f_keys && !this_f_keys.empty?
-                      fk_message = ", although #{this_f_keys.length} foreign keys"
-                      " (No columns#{fk_message})"
-                    end
-                  end
-        # puts "#{m.name}#{trouble}" if trouble&.is_a?(String)
-        trouble
+      existing_models = ActiveRecord::Base.descendants.reject do |m|
+        m.abstract_class? || !m.table_exists? || ::Brick.relations.key?(m.table_name)
       end
+      models = ::Brick.relations.keys.map do |tbl|
+        tbl_parts = tbl.split('.')
+        tbl_parts.shift if [::Brick.default_schema, 'public'].include?(tbl_parts.first)
+        tbl_parts[-1] = tbl_parts[-1].singularize
+        tbl_parts.join('/').camelize
+      end - existing_models.map(&:name)
       models.sort! do |a, b| # Sort first to separate namespaced stuff from the rest, then alphabetically
-        is_a_namespaced = a.name.include?('::')
-        is_b_namespaced = b.name.include?('::')
+        is_a_namespaced = a.include?('::')
+        is_b_namespaced = b.include?('::')
         if is_a_namespaced && !is_b_namespaced
           1
         elsif !is_a_namespaced && is_b_namespaced
           -1
         else
-          a.name <=> b.name
+          a <=> b
         end
       end
       models.each do |m| # Find longest name in the list for future use to show lists on the right side of the screen
-        if longest_length < (len = m.name.length)
+        if longest_length < (len = m.length)
           longest_length = len
         end
       end
+      chosen = gets_list(list: models, chosen: models.dup)
+      relations = ::Brick.relations
+      chosen.each do |model_name|
+        # %%% If we're in a schema then make sure the module file exists
+        base_module = if (model_parts = model_name.split('::')).length > 1
+                        "::#{model_parts.first}".constantize
+                      else
+                        Object
+                      end
+        _built_model, code = Object.send(:build_model, relations, base_module, base_module.name, model_parts.last)
+        path = ['models']
+        path.concat(model_parts.map(&:underscore))
+        dir = +"#{::Rails.root}/app"
+        path[0..-2].each do |path_part|
+          dir << "/#{path_part}"
+          Dir.mkdir(dir) unless Dir.exists?(dir)
+        end
+        File.open("#{dir}/#{path.last}.rb", 'w') { |f| f.write code } unless code.blank?
+      end
+      puts "\n*** Created #{chosen.length} model files under app/models ***"
     end
 
   private
