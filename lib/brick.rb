@@ -484,6 +484,9 @@ In config/initializers/brick.rb appropriate entries would look something like:
               send(:resources, controller_name.to_sym, **options)
             end
           end
+          if ::Brick.config.add_status && instance_variable_get(:@set).named_routes.names.exclude?(:brick_status)
+            get('/brick_status', to: 'brick_gem#status', as: 'brick_status')
+          end
           if ::Brick.config.add_orphans && instance_variable_get(:@set).named_routes.names.exclude?(:brick_orphans)
             get('/brick_orphans', to: 'brick_gem#orphans', as: 'brick_orphans')
           end

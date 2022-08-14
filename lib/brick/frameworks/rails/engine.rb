@@ -56,6 +56,7 @@ module Brick
             # Used by Rails 5.0 and above
             alias :_brick_template_exists? :template_exists?
             def template_exists?(*args, **options)
+              (::Brick.config.add_status && args.first == 'status') ||
               (::Brick.config.add_orphans && args.first == 'orphans') ||
               _brick_template_exists?(*args, **options) ||
               # Do not auto-create a template when it's searching for an application.html.erb, which comes in like:  ["edit", ["games", "application"]]
@@ -96,11 +97,12 @@ module Brick
                        @_brick_model ||
                        (ActionView.version < ::Gem::Version.new('5.0') && args[1].is_a?(Array) ? set_brick_model(args) : nil)
                      )&.name) ||
+                     (is_status = ::Brick.config.add_status && args[0..1] == ['status', ['brick_gem']]) ||
                      (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']])
                 return _brick_find_template(*args, **options)
               end
 
-              unless is_orphans
+              unless is_status || is_orphans
                 pk = @_brick_model._brick_primary_key(::Brick.relations.fetch(model_name, nil))
                 obj_name = model_name.split('::').last.underscore
                 path_obj_name = model_name.underscore.tr('/', '_')
@@ -708,6 +710,53 @@ if (headerTop) {
 
 #{"<hr><%= link_to \"New #{obj_name}\", new_#{path_obj_name}_path %>" unless @_brick_model.is_view?}
 #{script}"
+
+                       when 'status'
+# Status page - list of all resources and 5 things they do or don't have present, and what is turned on and off
+# Must load all models, and then find what table names are represented
+# Easily could be multiple files involved (STI for instance)
++"#{css}
+<p style=\"color: green\"><%= notice %></p>#{"
+<select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
+<select id=\"tbl\">#{table_options}</select>
+<h1>Status</h1>
+<table id=\"status\"><thead><tr>
+  <th>Resource</th>
+  <th>Table</th>
+  <th>Migration</th>
+  <th>Model</th>
+  <th>Route</th>
+  <th>Controller</th>
+  <th>Views</th>
+</tr></thead>
+<tbody>
+<% # (listing in schema.rb)
+   # Solid colour if file or route entry is present
+  @resources.each do |r|
+  %>
+  <tr>
+  <td><%= link_to(r[0], \"/#\{r[0].tr('.', '/')}\") %></td>
+  <td<%= if r[1]
+           ' class=\"orphan\"' unless ::Brick.relations.key?(r[1])
+         else
+           ' class=\"dimmed\"'
+         end&.html_safe %>><%= # Table
+          r[1] %></td>
+  <td<%= ' class=\"dimmed\"'.html_safe unless r[2] %>><%= # Migration
+          r[2]&.join('<br>')&.html_safe %></td>
+  <td<%= ' class=\"dimmed\"'.html_safe unless r[3] %>><%= # Model
+          r[3] %></td>
+  <td<%= ' class=\"dimmed\"'.html_safe unless r[4] %>><%= # Route
+               %></td>
+  <td<%= ' class=\"dimmed\"'.html_safe unless r[5] %>><%= # Controller
+               %></td>
+  <td<%= ' class=\"dimmed\"'.html_safe unless r[6] %>><%= # Views
+               %></td>
+  <tr>
+<% end %>
+</tbody><table>
+#{script}"
+
                        when 'orphans'
                          if is_orphans
 +"#{css}
