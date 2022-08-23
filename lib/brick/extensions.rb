@@ -1460,7 +1460,9 @@ module ActiveRecord::ConnectionHandling
             INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu2
               ON kcu2.CONSTRAINT_CATALOG = rc.UNIQUE_CONSTRAINT_CATALOG
               AND kcu2.CONSTRAINT_SCHEMA = rc.UNIQUE_CONSTRAINT_SCHEMA
-              AND kcu2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME
+              AND kcu2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME#{"
+              AND kcu2.TABLE_NAME = kcu1.REFERENCED_TABLE_NAME
+              AND kcu2.COLUMN_NAME = kcu1.REFERENCED_COLUMN_NAME" unless is_postgres }
               AND kcu2.ORDINAL_POSITION = kcu1.ORDINAL_POSITION#{"
           WHERE kcu1.CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }"
           # AND kcu2.TABLE_NAME = ?;", Apartment::Tenant.current, table_name
