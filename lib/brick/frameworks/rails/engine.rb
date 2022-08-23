@@ -150,7 +150,6 @@ module Brick
                                    ", nil, #{path_keys(hm_assoc, hm_fk_name, obj_name, pk)}"
                                  end
                     hm_entry << ']'
-                    puts hm_entry
                     hms_columns << hm_entry
                   when 'show', 'update'
                     hm_stuff << if hm_fk_name
@@ -615,8 +614,9 @@ if (headerTop) {
       });
     });
   </script>
-<% end %>
-<table id=\"headerTop\">
+<% end
+
+%><table id=\"headerTop\">
 <table id=\"#{table_name}\">
   <thead><tr>#{"<th x-order=\"#{pk.join(',')}\"></th>" if pk.present?}<%=
      # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
