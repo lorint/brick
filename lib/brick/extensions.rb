@@ -1460,7 +1460,9 @@ module ActiveRecord::ConnectionHandling
             INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu2
               ON kcu2.CONSTRAINT_CATALOG = rc.UNIQUE_CONSTRAINT_CATALOG
               AND kcu2.CONSTRAINT_SCHEMA = rc.UNIQUE_CONSTRAINT_SCHEMA
-              AND kcu2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME
+              AND kcu2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME#{"
+              AND kcu2.TABLE_NAME = kcu1.REFERENCED_TABLE_NAME
+              AND kcu2.COLUMN_NAME = kcu1.REFERENCED_COLUMN_NAME" unless is_postgres }
               AND kcu2.ORDINAL_POSITION = kcu1.ORDINAL_POSITION#{"
           WHERE kcu1.CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }"
           # AND kcu2.TABLE_NAME = ?;", Apartment::Tenant.current, table_name
@@ -1540,8 +1542,8 @@ module ActiveRecord::ConnectionHandling
         ON kcu.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
         AND kcu.TABLE_NAME = tc.TABLE_NAME
         AND kcu.CONSTRAINT_NAME = tc.constraint_name
-    WHERE t.table_schema NOT IN ('information_schema', #{
-         is_postgres ? "'pg_catalog'" : "'mysql', 'performance_schema', 'sys'"})#{"
+    WHERE t.table_schema #{
+         is_postgres ? "NOT IN ('information_schema', 'pg_catalog')" : "= '#{ActiveRecord::Base.connection.current_database.tr("'", "''")}'"}#{"
       AND t.table_schema = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }
   --          AND t.table_type IN ('VIEW') -- 'BASE TABLE', 'FOREIGN TABLE'
       AND t.table_name NOT IN ('pg_stat_statements', ?, ?)
