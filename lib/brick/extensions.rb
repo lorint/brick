@@ -373,6 +373,7 @@ module ActiveRecord
     end
 
     def brick_select(params, selects = nil, order_by = nil, translations = {}, join_array = ::Brick::JoinArray.new)
+      is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2'
       is_distinct = nil
       wheres = {}
       params.each do |k, v|
@@ -397,12 +398,14 @@ module ActiveRecord
       if selects&.empty? # Default to all columns
         tbl_no_schema = table.name.split('.').last
         columns.each do |col|
-          if (col_name = col.name) == 'class'
-            col_alias = ' AS _class'
-          end
-          # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
-          cast_as_text = '::text' if is_distinct && Brick.relations[klass.table_name]&.[](:cols)&.[](col.name)&.first&.start_with?('xml')
-          selects << "\"#{tbl_no_schema}\".\"#{col_name}\"#{cast_as_text}#{col_alias}"
+          col_alias = ' AS _class' if (col_name = col.name) == 'class'
+          selects << if is_mysql
+                       "`#{tbl_no_schema}`.`#{col_name}`#{col_alias}"
+                     else
+                       # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
+                       cast_as_text = '::text' if is_distinct && Brick.relations[klass.table_name]&.[](:cols)&.[](col.name)&.first&.start_with?('xml')
+                       "\"#{tbl_no_schema}\".\"#{col_name}\"#{cast_as_text}#{col_alias}"
+                     end
         end
       end
 
@@ -430,7 +433,11 @@ module ActiveRecord
               if used_col_aliases.key?(col_alias = "_brfk_#{v.first}__#{sel_col.last}")
                 col_alias = "_brfk_#{v.first}__#{v1[idx][-2..-1].map(&:to_s).join('__')}"
               end
-              selects << "\"#{field_tbl_name}\".\"#{sel_col.last}\"#{'::text' if is_xml} AS \"#{col_alias}\""
+              selects << if is_mysql
+                           "`#{field_tbl_name}`.`#{sel_col.last}` AS `#{col_alias}`"
+                         else
+                           "\"#{field_tbl_name}\".\"#{sel_col.last}\"#{'::text' if is_xml} AS \"#{col_alias}\""
+                         end
               used_col_aliases[col_alias] = nil
               v1[idx] << col_alias
             end
@@ -439,7 +446,11 @@ module ActiveRecord
               # Accommodate composite primary key by allowing id_col to come in as an array
               ((id_col = k1.primary_key).is_a?(Array) ? id_col : [id_col]).each do |id_part|
                 id_for_tables[v.first] << if id_part
-                                            selects << "#{"\"#{tbl_name}\".\"#{id_part}\""} AS \"#{(id_alias = "_brfk_#{v.first}__#{id_part}")}\""
+                                            selects << if is_mysql
+                                                         "#{"`#{tbl_name}`.`#{id_part}`"} AS `#{(id_alias = "_brfk_#{v.first}__#{id_part}")}`"
+                                                       else
+                                                         "#{"\"#{tbl_name}\".\"#{id_part}\""} AS \"#{(id_alias = "_brfk_#{v.first}__#{id_part}")}\""
+                                                       end
                                             id_alias
                                           end
               end
@@ -990,6 +1001,17 @@ class Object
       self.send(macro, assoc_name, **options)
     end
 
+    def default_ordering(table_name, pk)
+      case (order_tbl = ::Brick.config.order[table_name]) && (order_default = order_tbl[:_brick_default])
+      when Array
+        order_default.map { |od_part| order_tbl[od_part] || od_part }
+      when Symbol
+        order_tbl[order_default] || order_default
+      else
+        pk.map(&:to_sym) # If it's not a custom ORDER BY, just use the key
+      end
+    end
+
     def build_controller(namespace, class_name, plural_class_name, model, relations)
       table_name = ActiveSupport::Inflector.underscore(plural_class_name)
       singular_table_name = ActiveSupport::Inflector.singularize(table_name)
@@ -1077,27 +1099,9 @@ class Object
           # Normal (non-swagger) request
 
           # %%% Allow params to define which columns to use for order_by
-          ordering = if (order_tbl = ::Brick.config.order[table_name])
-                       case (order_default = order_tbl[:_brick_default])
-                       when Array
-                         order_default.map { |od_part| order_tbl[od_part] || od_part }
-                       when Symbol
-                         order_tbl[order_default] || order_default
-                       else
-                         pk
-                       end
-                     else
-                       pk # If it's not a custom ORDER BY, just use the key
-                     end
-          order_by, order_by_txt = model._brick_calculate_ordering(ordering)
-          if (order_params = params['_brick_order']&.split(',')&.map(&:to_sym)) # Overriding the default by providing a querystring param?
-            order_by, _ = model._brick_calculate_ordering(order_params, true) # Don't do the txt part
-          end
-
-          code << "  def index\n"
-          code << "    @#{table_name} = #{model.name}#{pk&.present? ? ".order(#{order_by_txt.join(', ')})" : '.all'}\n"
-          code << "    @#{table_name}.brick_select(params)\n"
-          code << "  end\n"
+          # Overriding the default by providing a querystring param?
+          ordering = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
+          order_by, _ = model._brick_calculate_ordering(ordering, true) # Don't do the txt part
 
           ::Brick.set_db_schema(params)
           if request.format == :csv # Asking for a template?
@@ -1129,6 +1133,12 @@ class Object
           @_brick_hm_counts = model._br_hm_counts
           @_brick_join_array = join_array
         end
+
+        _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk))
+        code << "  def index\n"
+        code << "    @#{table_name} = #{model.name}#{pk&.present? ? ".order(#{order_by_txt.join(', ')})" : '.all'}\n"
+        code << "    @#{table_name}.brick_select(params)\n"
+        code << "  end\n"
 
         is_pk_string = nil
         if (pk_col = model&.primary_key)
@@ -1316,7 +1326,7 @@ module ActiveRecord::ConnectionHandling
         load apartment_initializer
         apartment_excluded = Apartment.excluded_models
       end
-      # Only for Postgres?  (Doesn't work in sqlite3)
+      # Only for Postgres  (Doesn't work in sqlite3 or MySQL)
       # puts ActiveRecord::Base.execute_sql("SELECT current_setting('SEARCH_PATH')").to_a.inspect
 
       is_postgres = nil
@@ -1351,7 +1361,7 @@ module ActiveRecord::ConnectionHandling
         puts "Unfamiliar with connection adapter #{ActiveRecord::Base.connection.adapter_name}"
       end
 
-      ::Brick.db_schemas ||= []
+      ::Brick.db_schemas ||= {}
 
       if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
         if (possible_schema = ::Brick.config.schema_behavior&.[](:multitenant)&.[](:schema_to_analyse))
@@ -1367,41 +1377,11 @@ module ActiveRecord::ConnectionHandling
       # %%% Retrieve internal ActiveRecord table names like this:
       # ActiveRecord::Base.internal_metadata_table_name, ActiveRecord::Base.schema_migrations_table_name
       # For if it's not SQLite -- so this is the Postgres and MySQL version
-      sql ||= "SELECT t.table_schema AS schema, t.table_name AS relation_name, t.table_type,#{"
-          pg_catalog.obj_description((t.table_schema || '.' || t.table_name)::regclass, 'pg_class') AS table_description," if is_postgres}
-          c.column_name, c.data_type,
-          COALESCE(c.character_maximum_length, c.numeric_precision) AS max_length,
-          tc.constraint_type AS const, kcu.constraint_name AS \"key\",
-          c.is_nullable
-        FROM INFORMATION_SCHEMA.tables AS t
-          LEFT OUTER JOIN INFORMATION_SCHEMA.columns AS c ON t.table_schema = c.table_schema
-            AND t.table_name = c.table_name
-          LEFT OUTER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu ON
-            -- ON kcu.CONSTRAINT_CATALOG = t.table_catalog AND
-            kcu.CONSTRAINT_SCHEMA = c.table_schema
-            AND kcu.TABLE_NAME = c.table_name
-            AND kcu.position_in_unique_constraint IS NULL
-            AND kcu.ordinal_position = c.ordinal_position
-          LEFT OUTER JOIN INFORMATION_SCHEMA.table_constraints AS tc
-            ON kcu.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
-            AND kcu.TABLE_NAME = tc.TABLE_NAME
-            AND kcu.CONSTRAINT_NAME = tc.constraint_name
-        WHERE t.table_schema NOT IN ('information_schema', 'pg_catalog')#{"
-          AND t.table_schema = COALESCE(current_setting('SEARCH_PATH'), 'public')" if schema }
-  --          AND t.table_type IN ('VIEW') -- 'BASE TABLE', 'FOREIGN TABLE'
-          AND t.table_name NOT IN ('pg_stat_statements', ?, ?)
-        ORDER BY 1, t.table_type DESC, c.ordinal_position"
       measures = []
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'SQLite' # These bring back a hash for each row because the query uses column aliases
         # schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-        ar_smtn = if ActiveRecord::Base.respond_to?(:schema_migrations_table_name)
-                    ActiveRecord::Base.schema_migrations_table_name
-                  else
-                    'schema_migrations'
-                  end
-        ar_imtn = ActiveRecord.version >= ::Gem::Version.new('5.0') ? ActiveRecord::Base.internal_metadata_table_name : ''
-        ActiveRecord::Base.execute_sql(sql, ar_smtn, ar_imtn).each do |r|
+        ActiveRecord::Base.retrieve_schema_and_tables(sql, is_postgres, schema).each do |r|
           # If Apartment gem lists the table as being associated with a non-tenanted model then use whatever it thinks
           # is the default schema, usually 'public'.
           schema_name = if ::Brick.config.schema_behavior[:multitenant]
@@ -1428,23 +1408,23 @@ module ActiveRecord::ConnectionHandling
           # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
         end
       else # MySQL2 acts a little differently, bringing back an array for each row
-        ActiveRecord::Base.execute_sql(sql).each do |r|
-          relation = relations[(relation_name = r[0])] # here relation represents a table or view from the database
-          relation[:isView] = true if r[1] == 'VIEW' # table_type
-          col_name = r[2]
-          key = case r[5] # constraint type
+        ActiveRecord::Base.retrieve_schema_and_tables(sql).each do |r|
+          relation = relations[(relation_name = r[1])] # here relation represents a table or view from the database
+          relation[:isView] = true if r[2] == 'VIEW' # table_type
+          col_name = r[3]
+          key = case r[6] # constraint type
                 when 'PRIMARY KEY'
                   # key
-                  relation[:pkey][r[6] || relation_name] ||= []
+                  relation[:pkey][r[7] || relation_name] ||= []
                 when 'UNIQUE'
-                  relation[:ukeys][r[6] || "#{relation_name}.#{col_name}"] ||= []
+                  relation[:ukeys][r[7] || "#{relation_name}.#{col_name}"] ||= []
                   # key = (relation[:ukeys] = Hash.new { |h, k| h[k] = [] }) if key.is_a?(Array)
                   # key[r['key']]
                 end
           key << col_name if key
           cols = relation[:cols] # relation.fetch(:cols) { relation[:cols] = [] }
           # 'data_type', 'max_length'
-          cols[col_name] = [r[3], r[4], measures&.include?(col_name)]
+          cols[col_name] = [r[4], r[5], measures&.include?(col_name)]
           # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
         end
       end
@@ -1482,7 +1462,7 @@ module ActiveRecord::ConnectionHandling
               AND kcu2.CONSTRAINT_SCHEMA = rc.UNIQUE_CONSTRAINT_SCHEMA
               AND kcu2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME
               AND kcu2.ORDINAL_POSITION = kcu1.ORDINAL_POSITION#{"
-          WHERE kcu1.CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if schema }"
+          WHERE kcu1.CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }"
           # AND kcu2.TABLE_NAME = ?;", Apartment::Tenant.current, table_name
       when 'SQLite'
         sql = "SELECT m.name, fkl.\"from\", fkl.\"table\", m.name || '_' || fkl.\"from\" AS constraint_name
@@ -1498,12 +1478,14 @@ module ActiveRecord::ConnectionHandling
           # Multitenancy makes things a little more general overall, except for non-tenanted tables
           if apartment_excluded&.include?(fk[1].singularize.camelize)
             fk[0] = Apartment.default_schema
-          elsif fk[0] == 'public' || (is_multitenant && fk[0] == schema)
+          elsif is_postgres && (fk[0] == 'public' || (is_multitenant && fk[0] == schema)) ||
+                !is_postgres && ['mysql', 'performance_schema', 'sys'].exclude?(fk[0])
             fk[0] = nil
           end
           if apartment_excluded&.include?(fk[4].singularize.camelize)
             fk[3] = Apartment.default_schema
-          elsif fk[3] == 'public' || (is_multitenant && fk[3] == schema)
+          elsif is_postgres && (fk[3] == 'public' || (is_multitenant && fk[3] == schema)) ||
+                !is_postgres && ['mysql', 'performance_schema', 'sys'].exclude?(fk[3])
             fk[3] = nil
           end
           ::Brick._add_bt_and_hm(fk, relations)
@@ -1536,6 +1518,43 @@ module ActiveRecord::ConnectionHandling
     end
 
     ::Brick.load_additional_references if initializer_loaded
+  end
+
+  def retrieve_schema_and_tables(sql = nil, is_postgres = nil, schema = nil)
+    sql ||= "SELECT t.table_schema AS \"schema\", t.table_name AS relation_name, t.table_type,#{"
+      pg_catalog.obj_description((t.table_schema || '.' || t.table_name)::regclass, 'pg_class') AS table_description," if is_postgres}
+      c.column_name, c.data_type,
+      COALESCE(c.character_maximum_length, c.numeric_precision) AS max_length,
+      tc.constraint_type AS const, kcu.constraint_name AS \"key\",
+      c.is_nullable
+    FROM INFORMATION_SCHEMA.tables AS t
+      LEFT OUTER JOIN INFORMATION_SCHEMA.columns AS c ON t.table_schema = c.table_schema
+        AND t.table_name = c.table_name
+      LEFT OUTER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu ON
+        -- ON kcu.CONSTRAINT_CATALOG = t.table_catalog AND
+        kcu.CONSTRAINT_SCHEMA = c.table_schema
+        AND kcu.TABLE_NAME = c.table_name
+        AND kcu.position_in_unique_constraint IS NULL
+        AND kcu.ordinal_position = c.ordinal_position
+      LEFT OUTER JOIN INFORMATION_SCHEMA.table_constraints AS tc
+        ON kcu.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+        AND kcu.TABLE_NAME = tc.TABLE_NAME
+        AND kcu.CONSTRAINT_NAME = tc.constraint_name
+    WHERE t.table_schema #{is_postgres ?
+        "NOT IN ('information_schema', 'pg_catalog')"
+        :
+        "= '#{ActiveRecord::Base.connection.current_database.tr("'", "''")}'"}#{"
+      AND t.table_schema = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }
+  --          AND t.table_type IN ('VIEW') -- 'BASE TABLE', 'FOREIGN TABLE'
+      AND t.table_name NOT IN ('pg_stat_statements', ?, ?)
+    ORDER BY 1, t.table_type DESC, 2, c.ordinal_position"
+    ar_smtn = if ActiveRecord::Base.respond_to?(:schema_migrations_table_name)
+                ActiveRecord::Base.schema_migrations_table_name
+              else
+                'schema_migrations'
+              end
+    ar_imtn = ActiveRecord.version >= ::Gem::Version.new('5.0') ? ActiveRecord::Base.internal_metadata_table_name : ''
+    ActiveRecord::Base.execute_sql(sql, ar_smtn, ar_imtn)
   end
 end
 

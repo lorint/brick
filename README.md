@@ -16,14 +16,14 @@ command that the inbuilt security platform uses in the "Pro" version.
 Probably want to pop some corn and have **VOLUME UP** (on the player's slider below) for this
 video walkthrough:
 
-https://user-images.githubusercontent.com/5301131/178191829-fe4d1966-e5d8-47e4-ad34-b4c9f6bceabc.mp4
+https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9f99-412a03cb2cb1.mp4
 
 ## General Overview
 
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.59         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.60         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 You can use The Brick in several ways -- from taking a quick peek inside an existing data set,
 with full ability to navigate across associations -- to easily updating and creating data,
