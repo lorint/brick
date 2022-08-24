@@ -47,7 +47,10 @@ module Brick
       end
 
       # After we're initialized and before running the rest of stuff, put our configuration in place
-      ActiveSupport.on_load(:after_initialize) do
+      ActiveSupport.on_load(:after_initialize) do |app|
+        assets_path = File.expand_path("#{__dir__}/../../../../vendor/assets")
+        (app.config.assets.precompile ||= []) << "#{assets_path}/images/brick_erd.png"
+        (app.config.assets.paths ||= []) << assets_path
         # ====================================
         # Dynamically create generic templates
         # ====================================
@@ -181,6 +184,28 @@ module Brick
 h1, h3 {
   margin-bottom: 0;
 }
+#imgErd {
+  background-image:url(/assets/brick_erd.png);
+  background-size: 100% 100%;
+  width: 2.2em;
+  height: 2.2em;
+  cursor: pointer;
+}
+#mermaidErd {
+  position: relative;
+  display: none;
+}
+#mermaidErd .exclude {
+  position: absolute;
+  color: red;
+  top: 0;
+  right: 0;
+  cursor: pointer;
+}
+.relatedModel {
+  cursor: pointer;
+}
+
 #dropper {
   background-color: #eee;
 }
@@ -602,7 +627,10 @@ if (headerTop) {
 <p style=\"color: green\"><%= notice %></p>#{"
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
-<h1>#{model_plural = model_name.pluralize}</h1>#{template_link}<%
+<table id=\"resourceName\"><tr>
+  <td><h1>#{model_plural = model_name.pluralize}</h1></td>
+  <td id=\"imgErd\" title=\"Show ERD\"></td>
+</tr></table>#{template_link}<%
    if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %><%=
      description %><br><%
    end
@@ -633,6 +661,36 @@ if (headerTop) {
       });
     });
   </script>
+<% end
+   if true # @_brick_erd
+%><div id=\"mermaidErd\" class=\"mermaid\">
+erDiagram
+<% model_short_name = #{@_brick_model.name.split('::').last.inspect}
+   callbacks = {}
+   @_brick_bt_descrip.each do |bt|
+     bt_full_name = bt[1].first.first.name
+     callbacks[bt_name = bt_full_name.split('::').last] = bt_full_name
+    %>  <%= \"#\{model_short_name} #\{'||'}--#\{
+        'o{'} #\{bt_name} : \\\"#\{
+        bt.first unless bt.first.to_s == bt[1].first.first.name.underscore.singularize.tr('/', '_')
+        }\\\"\".html_safe %>
+<% end %>
+<% @_brick_hm_counts.each do |hm|
+     hm_full_name = hm.last.klass.name
+     callbacks[hm_name = hm_full_name.split('::').last] = hm_full_name
+    %>  <%= \"#\{model_short_name} #\{'}o'}--#\{
+        '||'} #\{hm_name} : \\\"#\{
+        hm.first unless hm.first.to_s == hm_full_name.underscore.pluralize.tr('/', '_')
+        }\\\"\".html_safe %>
+<% end %>
+<% callbacks.keys.each do |cb|
+ %>  <%= cb %> {
+    int id
+  }
+<% end
+ # callback < %= cb_k % > erdClick
+ %>
+</div>
 <% end
 
 %><table id=\"headerTop\"></table>
@@ -971,7 +1029,62 @@ flatpickr(\".datetimepicker\", {enableTime: true});
 flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 </script>
 <% end %>
+
+<% if true # @_brick_erd
+%>
 <script>
+  var imgErd = document.getElementById(\"imgErd\");
+  var mermaidErd = document.getElementById(\"mermaidErd\");
+  var mermaidCode;
+  var cbs = {<%= callbacks.map { |k, v| \"#\{k}: \\\"#\{v.underscore.pluralize}\\\"\" }.join(', ').html_safe %>};
+  if (imgErd) imgErd.addEventListener(\"click\", showErd);
+  function showErd() {
+    imgErd.style.display = \"none\";
+    mermaidErd.style.display = \"inline-block\";
+    if (mermaidCode) return; // Cut it short if we've already rendered the diagram
+
+    mermaidCode = document.createElement(\"SCRIPT\");
+    mermaidCode.setAttribute(\"src\", \"https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js\");
+    mermaidCode.addEventListener(\"load\", function () {
+      mermaid.initialize({
+        startOnLoad: true,
+        securityLevel: \"loose\",
+        mermaid: {callback: function(objId) {
+          var svg = document.getElementById(objId);
+          svg.removeAttribute(\"width\");
+          var cb;
+          for(cb in cbs) {
+            var gErd = svg.getElementById(cb);
+            gErd.setAttribute(\"class\", \"relatedModel\");
+            gErd.addEventListener(\"click\",
+              function (evt) {
+                location.href = changeout(changeout(location.href, -1, cbs[this.id]), \"_brick_erd\", \"1\");
+              }
+            );
+          }
+        }}
+      });
+      mermaid.contentLoaded();
+      // Add <span> at the end
+      var span = document.createElement(\"SPAN\");
+      span.className = \"exclude\";
+      span.innerHTML = \"X\";
+      span.addEventListener(\"click\", function (e) {
+        e.stopPropagation();
+        imgErd.style.display = \"table-cell\";
+        mermaidErd.style.display = \"none\";
+        window.history.pushState({}, '', changeout(location.href, '_brick_erd', null));
+      });
+      mermaidErd.appendChild(span);
+    });
+    document.body.appendChild(mermaidCode);
+  }
+  <%= \"  showErd();\n\" if (@_brick_erd || 0) > 0
+%></script>
+
+<% end
+
+%><script>
 <% # Make column headers sort when clicked
    # %%% Create a smart javascript routine which can do this client-side %>
 [... document.getElementsByTagName(\"TH\")].forEach(function (th) {
