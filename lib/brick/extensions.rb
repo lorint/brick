@@ -1135,6 +1135,7 @@ class Object
           @_brick_bt_descrip = model._br_bt_descrip
           @_brick_hm_counts = model._br_hm_counts
           @_brick_join_array = join_array
+          @_brick_erd = params['_brick_erd']&.to_i
         end
 
         _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk))
