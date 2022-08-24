@@ -21,7 +21,7 @@ module Brick
                   'timestamp with time zone' => 'timestamp',
                   'time without time zone' => 'time',
                   'time with time zone' => 'time',
-                  'double precision' => 'float', # might work with 'double'
+                  'double precision' => 'float',
                   'smallint' => 'integer' } # %%% Need to put in "limit: 2"
     # (Still need to find what "inet" and "json" data types map to.)
 
