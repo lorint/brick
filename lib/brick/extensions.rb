@@ -257,7 +257,7 @@ module ActiveRecord
           # For our purposes a :has_one is similar enough to a :belongs_to that we can just join forces
           _br_bt_descrip[k] = { hm.klass => hm.klass.brick_parse_dsl(join_array, k, translations) }
         else # Standard :has_many
-          _br_hm_counts[k] = hm
+          _br_hm_counts[k] = hm unless hm.options[:through] && !_br_associatives.fetch(hm.name, nil)
         end
       end
     end
@@ -398,7 +398,7 @@ module ActiveRecord
       if selects&.empty? # Default to all columns
         tbl_no_schema = table.name.split('.').last
         columns.each do |col|
-          col_alias = ' AS _class' if (col_name = col.name) == 'class'
+          col_alias = " AS _#{col.name}" if (col_name = col.name) == 'class'
           selects << if is_mysql
                        "`#{tbl_no_schema}`.`#{col_name}`#{col_alias}"
                      else
@@ -656,9 +656,12 @@ Module.class_exec do
                full_class_name = +''
                full_class_name << "::#{self.name}" unless self == Object
                full_class_name << "::#{plural_class_name.underscore.singularize.camelize}"
-               if (plural_class_name == 'BrickSwagger' ||
-                  ((::Brick.config.add_status || ::Brick.config.add_orphans) && plural_class_name == 'BrickGem') ||
-                  model = self.const_get(full_class_name))
+               if plural_class_name == 'BrickSwagger' ||
+                  (
+                    (::Brick.config.add_status || ::Brick.config.add_orphans) &&
+                    plural_class_name == 'BrickGem'
+                  ) ||
+                  model = self.const_get(full_class_name)
                  # if it's a controller and no match or a model doesn't really use the same table name, eager load all models and try to find a model class of the right name.
                  Object.send(:build_controller, self, class_name, plural_class_name, model, relations)
                end
@@ -1594,6 +1597,8 @@ module Brick
                           "#{bt_assoc_name}_bt"
                         end
       end
+      bt_assoc_name = "_#{bt_assoc_name}" if bt_assoc_name == 'attribute'
+
       # %%% Temporary schema patch
       for_tbl = fk[1]
       apartment = Object.const_defined?('Apartment') && Apartment
