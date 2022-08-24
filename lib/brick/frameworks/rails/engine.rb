@@ -115,7 +115,9 @@ module Brick
                   hm_stuff = [(hm_assoc = hm.last),
                               "H#{hm_assoc.macro == :has_one ? 'O' : 'M'}#{'T' if hm_assoc.options[:through]}",
                               (assoc_name = hm.first)]
-                  hm_fk_name = if hm_assoc.options[:through]
+                  hm_fk_name = if (through = hm_assoc.options[:through])
+                                 next unless @_brick_model.instance_methods.include?(through)
+
                                  associative = @_brick_model._br_associatives[hm.first]
                                  tbl_nm = if hm_assoc.options[:source]
                                             associative.klass.reflect_on_association(hm_assoc.options[:source]).inverse_of&.name
@@ -196,6 +198,8 @@ table {
   border-collapse: collapse;
   font-size: 0.9em;
   font-family: sans-serif;
+}
+table.shadow {
   min-width: 400px;
   box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
 }
@@ -213,6 +217,7 @@ tr th {
   display: none;
   top: 0;
   right: 0;
+  cursor: pointer;
 }
 #headerTop tr th:hover {
   background-color: #18B090;
@@ -245,7 +250,7 @@ tr th, tr td {
   color: #80B8D2;
 }
 
-table tbody tr {
+table.shadow tbody tr {
   border-bottom: thin solid #dddddd;
 }
 
@@ -253,7 +258,7 @@ table tbody tr:nth-of-type(even) {
   background-color: #f3f3f3;
 }
 
-table tbody tr:last-of-type {
+table.shadow tbody tr:last-of-type {
   border-bottom: 2px solid #009879;
 }
 
@@ -326,6 +331,28 @@ def hide_bcrypt(val, max_len = 200)
       val.force_encoding('UTF-8') unless val.encoding.name == 'UTF-8'
     end
     val
+  end
+end
+def display_value(col_type, val)
+  case col_type
+  when 'geometry'
+    if Object.const_defined?('RGeo')
+      @is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2' if @is_mysql.nil?
+      if @is_mysql
+        # MySQL's \"Internal Geometry Format\" is like WKB, but with an initial 4 bytes that indicates the SRID.
+        srid = val[0..3].unpack('I')
+        val = val[4..-1]
+      end
+      RGeo::WKRep::WKBParser.new.parse(val)
+    else
+      '(Add RGeo gem to parse geometry detail)'
+    end
+  else
+    if col_type
+      hide_bcrypt(val)
+    else
+      '?'
+    end
   end
 end %>"
 
@@ -401,25 +428,28 @@ window.addEventListener(\"pageshow\", function() {
 
 function changeout(href, param, value, trimAfter) {
   var hrefParts = href.split(\"?\");
-  if (param === undefined || param === null) {
+  var params = hrefParts.length > 1 ? hrefParts[1].split(\"&\") : [];
+  if (param === undefined || param === null || param === -1) {
     hrefParts = hrefParts[0].split(\"://\");
     var pathParts = hrefParts[hrefParts.length - 1].split(\"/\");
     if (value === undefined)
       // A couple possibilities if it's namespaced, starting with two parts in the path -- and then try just one
       return [pathParts.slice(1, 3).join('/'), pathParts.slice(1, 2)[0]];
-    else
-      return hrefParts[0] + \"://\" + pathParts[0] + \"/\" + value;
+    else {
+      var queryString = param ? \"?\" + params.join(\"&\") : \"\";
+      return hrefParts[0] + \"://\" + pathParts[0] + \"/\" + value + queryString;
+    }
   }
   if (trimAfter) {
     var pathParts = hrefParts[0].split(\"/\");
     while (pathParts.lastIndexOf(trimAfter) !== pathParts.length - 1) pathParts.pop();
     hrefParts[0] = pathParts.join(\"/\");
   }
-  var params = hrefParts.length > 1 ? hrefParts[1].split(\"&\") : [];
-  params = params.reduce(function (s, v) { var parts = v.split(\"=\"); s[parts[0]] = parts[1]; return s; }, {});
+  params = params.reduce(function (s, v) { var parts = v.split(\"=\"); if (parts[1]) s[parts[0]] = parts[1]; return s; }, {});
   if (value === undefined) return params[param];
   params[param] = value;
-  return hrefParts[0] + \"?\" + Object.keys(params).reduce(function (s, v) { s.push(v + \"=\" + params[v]); return s; }, []).join(\"&\");
+  var finalParams = Object.keys(params).reduce(function (s, v) { if (params[v]) s.push(v + \"=\" + params[v]); return s; }, []).join(\"&\");
+  return hrefParts[0] + (finalParams.length > 0 ? \"?\" + finalParams : \"\");
 }
 
 // Snag first TR for sticky header
@@ -616,8 +646,8 @@ if (headerTop) {
   </script>
 <% end
 
-%><table id=\"headerTop\">
-<table id=\"#{table_name}\">
+%><table id=\"headerTop\"></table>
+<table id=\"#{table_name}\" class=\"shadow\">
   <thead><tr>#{"<th x-order=\"#{pk.join(',')}\"></th>" if pk.present?}<%=
      # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
      cols = {#{hms_keys = []
@@ -683,7 +713,7 @@ if (headerTop) {
         <% end
          elsif (hms_col = hms_cols[col_name])
            if hms_col.length == 1 %>
-         <%= hms_col.first %>
+        <%=  hms_col.first %>
         <% else
              klass = (col = cols[col_name])[1]
              txt = if col[2] == 'HO'
@@ -696,8 +726,8 @@ if (headerTop) {
                    end %>
          <%= link_to txt, send(\"#\{klass.name.underscore.tr('/', '_').pluralize}_path\".to_sym, hms_col[2]) unless hms_col[1]&.zero? %>
         <% end
-         elsif cols.key?(col_name)
-      %><%= hide_bcrypt(val) %><%
+         elsif (col = cols[col_name])
+    %><%=  display_value(col&.type || col&.sql_type, val) %><%
          else # Bad column name!
       %>?<%
          end
@@ -720,7 +750,7 @@ if (headerTop) {
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
 <h1>Status</h1>
-<table id=\"status\"><thead><tr>
+<table id=\"status\" class=\"shadow\"><thead><tr>
   <th>Resource</th>
   <th>Table</th>
   <th>Migration</th>
@@ -754,7 +784,7 @@ if (headerTop) {
                %></td>
   <tr>
 <% end %>
-</tbody><table>
+</tbody></table>
 #{script}"
 
                        when 'orphans'
@@ -796,7 +826,7 @@ end
     # path_options << { '_brick_schema':  } if
     # url = send(:#{model_name.underscore}_path, obj.#{pk})
     form_for(obj.becomes(#{model_name})) do |f| %>
-  <table>
+  <table class=\"shadow\">
   <% has_fields = false
     @#{obj_name}.attributes.each do |k, val|
       col = #{model_name}.columns_hash[k] %>
@@ -853,7 +883,7 @@ end
     <% else
     html_options = {}
     html_options[:class] = 'dimmed' unless val
-    case (col_type = #{model_name}.column_for_attribute(k).type)
+    case (col_type = col.type || col.sql_type)
       when :string, :text %>
         <% if is_bcrypt?(val) # || .readonly? %>
           <%= hide_bcrypt(val, 1000) %>
@@ -883,6 +913,8 @@ end
           # If it's not yet enabled then:  create extension ltree;
           val %>
       <% when :binary, :primary_key %>
+      <% else %>
+        <%= display_value(col_type, val) %>
       <% end %>
     <% end %>
     </td>
@@ -903,7 +935,7 @@ end
     if (pk = hm.first.klass.primary_key)
       hm_singular_name = (hm_name = hm.first.name.to_s).singularize.underscore
       obj_pk = (pk.is_a?(Array) ? pk : [pk]).each_with_object([]) { |pk_part, s| s << "#{hm_singular_name}.#{pk_part}" }.join(', ')
-      s << "<table id=\"#{hm_name}\">
+      s << "<table id=\"#{hm_name}\" class=\"shadow\">
         <tr><th>#{hm[3]}</th></tr>
         <% collection = @#{obj_name}.#{hm_name}
         collection = collection.is_a?(ActiveRecord::Associations::CollectionProxy) ? collection.order(#{pk.inspect}) : [collection].compact

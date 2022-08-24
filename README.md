@@ -232,6 +232,24 @@ in your application.rb file, make sure this configuration setting is in place:
 
     config.autoloader = :classic
 
+---
+If you see an error such as this (note the square brackets around the multiple listed keys specialofferid and productid represented):
+
+    PG::UndefinedColumn: ERROR:  column salesorderdetail.["specialofferid", "productid"] does not exist
+LINE 1: ... "sales"."specialofferproduct"."specialofferid" = "sales"."s...
+
+which has been reproduced here by setting up the [Adventureworks database for Postgres](https://github.com/lorint/AdventureWorks-for-Postgres), adding The Brick gem, and then navigating to:
+
+**[http://localhost:3000/sales/salesorderdetails](http://localhost:3000/sales/salesorderdetails)**
+
+then you probably have a table that uses composite keys.  Thankfully The Brick can make use of
+the incredibly popular [composite_primary_keys gem](https://github.com/composite-primary-keys/composite_primary_keys), so just add that to your Gemfile as such:
+
+    gem 'composite_primary_keys'
+
+and then bundle, and all should be well.
+
+---
 Every effort is given to maintain compatibility with the current version of the Rails ecosystem,
 so if you hit a snag then we'd at least like to understand the situation.  Often we'll also offer
 suggestions.  Some feature requests will be enteratined, and for things deemed to be outside of
