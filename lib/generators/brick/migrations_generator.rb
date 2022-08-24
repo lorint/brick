@@ -21,8 +21,17 @@ module Brick
                   'timestamp with time zone' => 'timestamp',
                   'time without time zone' => 'time',
                   'time with time zone' => 'time',
-                  'double precision' => 'float', # might work with 'double'
-                  'smallint' => 'integer' } # %%% Need to put in "limit: 2"
+                  'double precision' => 'float',
+                  'smallint' => 'integer', # %%% Need to put in "limit: 2"
+                  # Sqlite data types
+                  'TEXT' => 'text',
+                  '' => 'string',
+                  'INTEGER' => 'integer',
+                  'REAL' => 'float',
+                  'BLOB' => 'binary',
+                  'TIMESTAMP' => 'timestamp',
+                  'DATETIME' => 'timestamp'
+                }
     # (Still need to find what "inet" and "json" data types map to.)
 
     desc 'Auto-generates migration files for an existing database.'
@@ -38,7 +47,8 @@ module Brick
         return
       end
 
-      key_type = (ActiveRecord.version < ::Gem::Version.new('5.1') ? 'integer' : 'bigint')
+      is_sqlite = ActiveRecord::Base.connection.adapter_name == 'SQLite'
+      key_type = ((is_sqlite || ActiveRecord.version < ::Gem::Version.new('5.1')) ? 'integer' : 'bigint')
       is_4x_rails = ActiveRecord.version < ::Gem::Version.new('5.0')
       ar_version = "[#{ActiveRecord.version.segments[0..1].join('.')}]" unless is_4x_rails
       is_insert_versions = true
@@ -142,21 +152,20 @@ module Brick
           # if this one has come in as bigint or integer.
           pk_is_also_fk = fkey_cols.any? { |assoc| pkey_cols&.first == assoc[:fk] } ? pkey_cols&.first : nil
           # Support missing primary key (by adding:  ,id: false)
-          id_option = if pk_is_also_fk || (pkey_col_first = relation[:cols][pkey_cols&.first]&.first) != key_type
-                        if pk_is_also_fk || !pkey_cols&.present?
-                          ', id: false'
+          id_option = if pk_is_also_fk || !pkey_cols&.present?
+                        ', id: false'
+                      elsif ((pkey_col_first = relation[:cols][pkey_cols&.first]&.first) &&
+                             (pkey_col_first = SQL_TYPES[pkey_col_first] || pkey_col_first) != key_type)
+                        case pkey_col_first
+                        when 'integer'
+                          ', id: :serial'
+                        when 'bigint'
+                          ', id: :bigserial'
                         else
-                          case pkey_col_first
-                          when 'integer'
-                            ', id: :serial'
-                          when 'bigint'
-                            ', id: :bigserial'
-                          else
-                            ", id: :#{SQL_TYPES[pkey_col_first] || pkey_col_first}" # Something like:  id: :integer, primary_key: :businessentityid
-                          end +
-                            (pkey_cols.first ? ", primary_key: :#{pkey_cols.first}" : '') +
-                            (!is_4x_rails && (comment = relation&.fetch(:description, nil))&.present? ? ", comment: #{comment.inspect}" : '')
-                        end
+                          ", id: :#{pkey_col_first}" # Something like:  id: :integer, primary_key: :businessentityid
+                        end +
+                          (pkey_cols.first ? ", primary_key: :#{pkey_cols.first}" : '') +
+                          (!is_4x_rails && (comment = relation&.fetch(:description, nil))&.present? ? ", comment: #{comment.inspect}" : '')
                       end
           # Find the ActiveRecord class in order to see if the columns have comments
           unless is_4x_rails
@@ -208,7 +217,7 @@ module Brick
                 mig << "      t.references :#{fk[:assoc_name]}#{suffix}, foreign_key: { to_table: #{to_table} }\n"
               end
             else
-              next if !id_option&.end_with?('id: false') && pkey_cols.include?(col)
+              next if !id_option&.end_with?('id: false') && pkey_cols&.include?(col)
 
               # See if there are generic timestamps
               if sql_type == 'timestamp' && ['created_at','updated_at'].include?(col)
@@ -244,7 +253,7 @@ module Brick
             mig << "    #{'# ' if is_commented}add_foreign_key #{tbl_code}, #{add_fk[0]}, column: :#{add_fk[1]}, primary_key: :#{pk}\n"
           end
           mig << "  end\n"
-          versions_to_create << migration_file_write(mig_path, "create_#{tbl_parts.join('_')}", current_mig_time += 1.minute, ar_version, mig)
+          versions_to_create << migration_file_write(mig_path, "create_#{tbl_parts.map(&:underscore).join('_')}", current_mig_time += 1.minute, ar_version, mig)
         end
         done.concat(fringe)
         chosen -= done

@@ -130,8 +130,8 @@ avaiable therein.
 | unreleased     | master     |        | >= 2.3.5 | >= 4.2, < 7.2 |
 | 1.0            | 1-stable   | v1.x   | >= 2.3.5 | >= 4.2, < 7.2 |
 
-Brick supports all Rails versions which have been current during the past 7 years, which at
-the time of writing (July 2022) includes Rails 4.2.0 and above.  Rails 7.x and 5.x apps work
+Brick supports all Rails versions which have been current during the past 8 years, which at
+the time of writing (September 2022) includes Rails 4.2.0 and above.  Rails 7.x and 5.x apps work
 staightaway with no additional changes.
 
 Rails 6.x uses an interim version of Zeitwerk that is not yet compatible with The Brick, so for
@@ -158,13 +158,13 @@ last line in boot.rb:
 BigDecimal:Class (NoMethodError)".)
 
 The Brick notices when some other gems are present and makes use of them -- most notably
-composite_primary_keys which allows very tricky databases to function.  As it stands, when
-database table and column names are not named according to Rails' conventions, The Brick does
-quite a bit to accommodate.  But to get multiple-column primary and foreign keys to work,
-then composite_primary_keys is required.  Just bundle it in and The Brick will leverage this
-gem in order to make everything work.
+**[composite_primary_keys](https://github.com/composite-primary-keys/composite_primary_keys)** which allows very tricky databases to function.
+(Try out the [Adventureworks](https://github.com/lorint/AdventureWorks-for-Postgres) sample database to see this in action.) Already when tables and columns are not named in accordance
+with Rails' conventions, The Brick does quite a bit to accommodate.  But to get
+multiple-column primary and foreign keys to work, then **composite_primary_keys** is
+required.  Just bundle it in and The Brick will leverage this gem.
 
-Another notable set of compatibility is provided with the multitenancy gem Apartment.  This is
+Another notable set of compatibility is provided with the multitenancy gem **[Apartment](https://github.com/influitive/apartment)**.  This is
 the most popular gem for setting up multiple tenants where each one uses a different database
 schema in Postgres.  The Brick is able to recognise this configuration when you place a line
 like this in config/initializers/brick.rb:
@@ -187,12 +187,18 @@ whatever schema you choose here needs to have data present in those polymorphic 
 represents the full variety of models that should end up getting the `has_many` side of this
 polymorphic association.
 
+A few other gems are auto-recognised in order to support data types such as
+[pg_ltree](https://github.com/sjke/pg_ltree)
+for hierarchical data sets in Postgres, [RGeo](https://github.com/rgeo/rgeo) for spatial and
+geolocation data types, and [ActiveUUID](https://github.com/jashmenn/activeuuid) in order
+to use uuids with a non-Postgres database.
+
 ### 1.b. Installation
 
 1. Add Brick to your `Gemfile` and bundle.
-
+    ```
     gem 'brick'
-
+    ```
 2. To test things, configure database.yml to use Postgres, Sqlite3, or MySQL, and point to a relational database.  Then from within `rails c` attempt to reference a model by what its normal name might be.  For instance, if you have a `plants` table then just type `Plant.count` and see that automatically a model is built out on-the-fly and the count for this `plants` table is shown.  If you similarly have `products` that relates to `categories` with a foreign key then notice that by referencing `Category` the gem builds out a model which has a has_many association called :products.  Without writing any code these associations are all wired up as long as you have proper foreign keys in place.
 
 To configure additional options, such as defining related columns that you want to have act as if they were a foreign key, then you can build out an initializer file for Brick.  The gem automatically provides some suggestions for you based on your current database, so it's useful to make sure your database.yml file is properly configured before continuing.  By using the `install` generator, the file `config/initializers/brick.rb` is automatically written out and here is the command:
@@ -203,13 +209,22 @@ Inside the generated file many options exist, and one of which is `Brick.additio
 
 ### 1.f. Autogenerate Model Files
 
-You can throw anything at it -- singular / plural / uppercase / lower / etc. Knows how to properly set self.table_name = '....', primary_key = '...ID'.
+To create a set of model files from an existing database, you can run this generator:
+
+    bin/rails g brick:models
+
+First a table picker comes up where you choose which table(s) you wish to build models for -- by default all the tables are chosen. (Use the arrow keys and spacebar to select and deselect items in the list), then press ENTER and model files will be written into the app/models folder.
+
+Table and column names do not have to adhere to Rails convention -- singular / plural / uppercase / lower / etc. are all valid, and the resulting model files will properly set self.table_name = '....' and primary_key = '...ID' as appropriate.
 
 On associations it sets the class_name, foreign_key, and for has_many :through the source, and inverse_of when any of those are necessary. If they're not needed (which is pretty common of course when following standard Rails conventions) then it refrains.
 
 It also knows how to deal with Postgres schemas, building out modules for anything that's not public, so for a sales.orders table the model class would become Sales::Order, controller is Sales::OrdersController, etc.
 
-Creates unique names when multiple foreign keys go from one table to another, such as a Flight table with keys to both a departure airport and an arrival one.
+Special consideration is made when multiple foreign keys go from one table to another so that unique associations
+will be created.  For instance, given Flight and Airport tables where Flight has two foreign keys to Airport,
+one to define the departure airport and another for the arrival one, the belongs_to associations would end up
+being named **departure_airport** and **arrival_airport**.
 
 ### 1.g. Autogenerate Migration Files
 
@@ -222,7 +237,7 @@ First a table picker comes up where you choose which table(s) you wish to build 
 After successful file generation, the `schema_migrations` table is updated to have appropriate numerical `version` entries, one for each file which was generated.  This is so that after generating, you don't end up seeing the "Migrations are pending" error later.
 
 ## Issues
-
+---
 If you are using Rails 6.0 or Rails 6.1 and see:
 
     uninitialized constant _______
@@ -232,6 +247,24 @@ in your application.rb file, make sure this configuration setting is in place:
 
     config.autoloader = :classic
 
+---
+If you see an error such as this (note the square brackets around the multiple listed keys specialofferid and productid represented):
+
+    PG::UndefinedColumn: ERROR:  column salesorderdetail.["specialofferid", "productid"] does not exist
+LINE 1: ... "sales"."specialofferproduct"."specialofferid" = "sales"."s...
+
+which has been reproduced here by setting up the [Adventureworks database for Postgres](https://github.com/lorint/AdventureWorks-for-Postgres), adding The Brick gem, and then navigating to:
+
+**[http://localhost:3000/sales/salesorderdetails](http://localhost:3000/sales/salesorderdetails)**
+
+then you probably have a table that uses composite keys.  Thankfully The Brick can make use of
+the incredibly popular [composite_primary_keys gem](https://github.com/composite-primary-keys/composite_primary_keys), so just add that to your Gemfile as such:
+
+    gem 'composite_primary_keys'
+
+and then bundle, and all should be well.
+
+---
 Every effort is given to maintain compatibility with the current version of the Rails ecosystem,
 so if you hit a snag then we'd at least like to understand the situation.  Often we'll also offer
 suggestions.  Some feature requests will be enteratined, and for things deemed to be outside of
@@ -319,4 +352,4 @@ And run the tests on MySQL with:
 Copyright (c) 2020 Lorin Thwaits (lorint@gmail.com)
 Released under the MIT licence.
 
-[5]: https://github.com/lorint/brick/blob/master/doc/CONTRIBUTING.md
+[5]: https://github.com/lorint/brick/blob/master/docs/CONTRIBUTING.md

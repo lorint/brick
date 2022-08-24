@@ -93,16 +93,15 @@ module Brick
 
             alias :_brick_find_template :find_template
             def find_template(*args, **options)
-              unless (model_name = (
-                       @_brick_model ||
-                       (ActionView.version < ::Gem::Version.new('5.0') && args[1].is_a?(Array) ? set_brick_model(args) : nil)
-                     )&.name) ||
+              unless (model_name = @_brick_model&.name) ||
                      (is_status = ::Brick.config.add_status && args[0..1] == ['status', ['brick_gem']]) ||
-                     (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']])
+                     (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']]) ||
+                     # Used to also have:  ActionView.version < ::Gem::Version.new('5.0') &&
+                     (model_name = (args[1].is_a?(Array) ? set_brick_model(args) : nil)&.name)
                 return _brick_find_template(*args, **options)
               end
 
-              unless is_status || is_orphans
+            if @_brick_model
                 pk = @_brick_model._brick_primary_key(::Brick.relations.fetch(model_name, nil))
                 obj_name = model_name.split('::').last.underscore
                 path_obj_name = model_name.underscore.tr('/', '_')
@@ -115,7 +114,9 @@ module Brick
                   hm_stuff = [(hm_assoc = hm.last),
                               "H#{hm_assoc.macro == :has_one ? 'O' : 'M'}#{'T' if hm_assoc.options[:through]}",
                               (assoc_name = hm.first)]
-                  hm_fk_name = if hm_assoc.options[:through]
+                  hm_fk_name = if (through = hm_assoc.options[:through])
+                                 next unless @_brick_model.instance_methods.include?(through)
+
                                  associative = @_brick_model._br_associatives[hm.first]
                                  tbl_nm = if hm_assoc.options[:source]
                                             associative.klass.reflect_on_association(hm_assoc.options[:source]).inverse_of&.name
@@ -174,6 +175,7 @@ module Brick
                               end.keys.sort.each_with_object(+'') do |v, s|
                                 s << "<option value=\"#{v.underscore.gsub('.', '/').pluralize}\">#{v}</option>"
                               end.html_safe
+              table_options << '<option value="brick_status">(Status)</option>'.html_safe if ::Brick.config.add_status
               table_options << '<option value="brick_orphans">(Orphans)</option>'.html_safe if is_orphans
               css = +"<style>
 h1, h3 {
@@ -196,6 +198,8 @@ table {
   border-collapse: collapse;
   font-size: 0.9em;
   font-family: sans-serif;
+}
+table.shadow {
   min-width: 400px;
   box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
 }
@@ -213,6 +217,7 @@ tr th {
   display: none;
   top: 0;
   right: 0;
+  cursor: pointer;
 }
 #headerTop tr th:hover {
   background-color: #18B090;
@@ -245,7 +250,7 @@ tr th, tr td {
   color: #80B8D2;
 }
 
-table tbody tr {
+table.shadow > tbody > tr {
   border-bottom: thin solid #dddddd;
 }
 
@@ -253,7 +258,7 @@ table tbody tr:nth-of-type(even) {
   background-color: #f3f3f3;
 }
 
-table tbody tr:last-of-type {
+table.shadow > tbody > tr:last-of-type {
   border-bottom: 2px solid #009879;
 }
 
@@ -270,14 +275,6 @@ a.big-arrow {
   font-size: 2.5em;
   text-decoration: none;
 }
-.wide-input {
-  display: block;
-  overflow: hidden;
-}
-.wide-input input[type=text] {
-  display: inline-block;
-  width: 90%;
-}
 .dimmed {
   background-color: #C0C0C0;
   text-align: center;
@@ -293,9 +290,6 @@ a.big-arrow {
 svg.revert {
   display: none;
   margin-left: 0.25em;
-}
-.wide-input > svg.revert {
-  float: right;
 }
 input+svg.revert {
   top: 0.5em;
@@ -326,6 +320,28 @@ def hide_bcrypt(val, max_len = 200)
       val.force_encoding('UTF-8') unless val.encoding.name == 'UTF-8'
     end
     val
+  end
+end
+def display_value(col_type, val)
+  case col_type
+  when 'geometry'
+    if Object.const_defined?('RGeo')
+      @is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2' if @is_mysql.nil?
+      if @is_mysql
+        # MySQL's \"Internal Geometry Format\" is like WKB, but with an initial 4 bytes that indicates the SRID.
+        srid = val[0..3].unpack('I')
+        val = val[4..-1]
+      end
+      RGeo::WKRep::WKBParser.new.parse(val)
+    else
+      '(Add RGeo gem to parse geometry detail)'
+    end
+  else
+    if col_type
+      hide_bcrypt(val)
+    else
+      '?'
+    end
   end
 end %>"
 
@@ -401,25 +417,28 @@ window.addEventListener(\"pageshow\", function() {
 
 function changeout(href, param, value, trimAfter) {
   var hrefParts = href.split(\"?\");
-  if (param === undefined || param === null) {
+  var params = hrefParts.length > 1 ? hrefParts[1].split(\"&\") : [];
+  if (param === undefined || param === null || param === -1) {
     hrefParts = hrefParts[0].split(\"://\");
     var pathParts = hrefParts[hrefParts.length - 1].split(\"/\");
     if (value === undefined)
       // A couple possibilities if it's namespaced, starting with two parts in the path -- and then try just one
       return [pathParts.slice(1, 3).join('/'), pathParts.slice(1, 2)[0]];
-    else
-      return hrefParts[0] + \"://\" + pathParts[0] + \"/\" + value;
+    else {
+      var queryString = param ? \"?\" + params.join(\"&\") : \"\";
+      return hrefParts[0] + \"://\" + pathParts[0] + \"/\" + value + queryString;
+    }
   }
   if (trimAfter) {
     var pathParts = hrefParts[0].split(\"/\");
     while (pathParts.lastIndexOf(trimAfter) !== pathParts.length - 1) pathParts.pop();
     hrefParts[0] = pathParts.join(\"/\");
   }
-  var params = hrefParts.length > 1 ? hrefParts[1].split(\"&\") : [];
-  params = params.reduce(function (s, v) { var parts = v.split(\"=\"); s[parts[0]] = parts[1]; return s; }, {});
+  params = params.reduce(function (s, v) { var parts = v.split(\"=\"); if (parts[1]) s[parts[0]] = parts[1]; return s; }, {});
   if (value === undefined) return params[param];
   params[param] = value;
-  return hrefParts[0] + \"?\" + Object.keys(params).reduce(function (s, v) { s.push(v + \"=\" + params[v]); return s; }, []).join(\"&\");
+  var finalParams = Object.keys(params).reduce(function (s, v) { if (params[v]) s.push(v + \"=\" + params[v]); return s; }, []).join(\"&\");
+  return hrefParts[0] + (finalParams.length > 0 ? \"?\" + finalParams : \"\");
 }
 
 // Snag first TR for sticky header
@@ -576,7 +595,7 @@ if (headerTop) {
 </script>
 <script async defer src=\"https://apis.google.com/js/api.js\" onload=\"gapiLoaded()\"></script>
 "
-                         end
+                         end # DutyFree data export and import
 # %%% Instead of our current "for Janet Leverling (Employee)" kind of link we previously had this code that did a "where x = 123" thing:
 #   (where <%= @_brick_params.each_with_object([]) { |v, s| s << \"#\{v.first\} = #\{v.last.inspect\}\" }.join(', ') %>)
 +"#{css}
@@ -616,8 +635,8 @@ if (headerTop) {
   </script>
 <% end
 
-%><table id=\"headerTop\">
-<table id=\"#{table_name}\">
+%><table id=\"headerTop\"></table>
+<table id=\"#{table_name}\" class=\"shadow\">
   <thead><tr>#{"<th x-order=\"#{pk.join(',')}\"></th>" if pk.present?}<%=
      # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
      cols = {#{hms_keys = []
@@ -683,7 +702,7 @@ if (headerTop) {
         <% end
          elsif (hms_col = hms_cols[col_name])
            if hms_col.length == 1 %>
-         <%= hms_col.first %>
+        <%=  hms_col.first %>
         <% else
              klass = (col = cols[col_name])[1]
              txt = if col[2] == 'HO'
@@ -696,8 +715,8 @@ if (headerTop) {
                    end %>
          <%= link_to txt, send(\"#\{klass.name.underscore.tr('/', '_').pluralize}_path\".to_sym, hms_col[2]) unless hms_col[1]&.zero? %>
         <% end
-         elsif cols.key?(col_name)
-      %><%= hide_bcrypt(val) %><%
+         elsif (col = cols[col_name])
+    %><%=  display_value(col&.type || col&.sql_type, val) %><%
          else # Bad column name!
       %>?<%
          end
@@ -712,6 +731,7 @@ if (headerTop) {
 #{script}"
 
                        when 'status'
+                         if is_status
 # Status page - list of all resources and 5 things they do or don't have present, and what is turned on and off
 # Must load all models, and then find what table names are represented
 # Easily could be multiple files involved (STI for instance)
@@ -720,7 +740,7 @@ if (headerTop) {
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
 <h1>Status</h1>
-<table id=\"status\"><thead><tr>
+<table id=\"status\" class=\"shadow\"><thead><tr>
   <th>Resource</th>
   <th>Table</th>
   <th>Migration</th>
@@ -735,7 +755,7 @@ if (headerTop) {
   @resources.each do |r|
   %>
   <tr>
-  <td><%= link_to(r[0], \"/#\{r[0].tr('.', '/')}\") %></td>
+  <td><%= link_to(r[0], \"/#\{r[0].underscore.tr('.', '/')}\") %></td>
   <td<%= if r[1]
            ' class=\"orphan\"' unless ::Brick.relations.key?(r[1])
          else
@@ -754,8 +774,9 @@ if (headerTop) {
                %></td>
   <tr>
 <% end %>
-</tbody><table>
+</tbody></table>
 #{script}"
+                         end
 
                        when 'orphans'
                          if is_orphans
@@ -796,7 +817,7 @@ end
     # path_options << { '_brick_schema':  } if
     # url = send(:#{model_name.underscore}_path, obj.#{pk})
     form_for(obj.becomes(#{model_name})) do |f| %>
-  <table>
+  <table class=\"shadow\">
   <% has_fields = false
     @#{obj_name}.attributes.each do |k, val|
       col = #{model_name}.columns_hash[k] %>
@@ -840,38 +861,41 @@ end
     <% end %>
     </th>
     <td>
+    <table><tr><td>
     <% dt_pickers = { datetime: 'datetimepicker', timestamp: 'datetimepicker', time: 'timepicker', date: 'datepicker' }
+    html_options = {}
+    html_options[:class] = 'dimmed' unless val
+    is_revert = true
     if bt
-      html_options = { prompt: \"Select #\{bt_name\}\" }
-      html_options[:class] = 'dimmed' unless val %>
+      html_options[:prompt] = \"Select #\{bt_name\}\" %>
       <%= f.select k.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options %>
       <%= if (bt_obj = bt_class&.find_by(bt_pair[1] => val))
             link_to('⇛', send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_obj.send(bt_class.primary_key.to_sym)), { class: 'show-arrow' })
           elsif val
             \"<span class=\\\"orphan\\\">Orphaned ID: #\{val}</span>\".html_safe
-          end %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg>
+          end %>
     <% else
-    html_options = {}
-    html_options[:class] = 'dimmed' unless val
-    case (col_type = #{model_name}.column_for_attribute(k).type)
+      case (col_type = col.type || col.sql_type)
       when :string, :text %>
-        <% if is_bcrypt?(val) # || .readonly? %>
+        <% if is_bcrypt?(val) # || .readonly?
+             is_revert = false %>
           <%= hide_bcrypt(val, 1000) %>
         <% else %>
-          <div class=\"wide-input\"><%= f.text_field(k.to_sym, html_options) %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg></div>
+          <%= f.text_field(k.to_sym, html_options) %>
         <% end %>
       <% when :boolean %>
-        <%= f.check_box k.to_sym %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg>
+        <%= f.check_box k.to_sym %>
       <% when :integer, :decimal, :float %>
         <%= if col_type == :integer
               f.text_field k.to_sym, { pattern: '\\d*', class: 'check-validity' }
             else
               f.number_field k.to_sym
-            end %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg>
+            end %>
       <% when *dt_pickers.keys
            is_includes_dates = true %>
-        <%= f.text_field k.to_sym, { class: dt_pickers[col_type] } %><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg>
-      <% when :uuid %>
+        <%= f.text_field k.to_sym, { class: dt_pickers[col_type] } %>
+      <% when :uuid
+           is_revert = false %>
         <%=
           # Postgres naturally uses the +uuid_generate_v4()+ function from the uuid-ossp extension
           # If it's not yet enabled then:  create extension \"uuid-ossp\";
@@ -882,9 +906,18 @@ end
           # In Postgres labels of data stored in a hierarchical tree-like structure
           # If it's not yet enabled then:  create extension ltree;
           val %>
-      <% when :binary, :primary_key %>
+      <% when :binary, :primary_key
+           is_revert = false %>
+      <% else %>
+        <%= display_value(col_type, val)
+           is_revert = false %>
+      <% end
+       end
+       if is_revert
+         %></td>
+         <td><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg>
       <% end %>
-    <% end %>
+      </td></tr></table>
     </td>
     </tr>
   <% end
@@ -903,7 +936,7 @@ end
     if (pk = hm.first.klass.primary_key)
       hm_singular_name = (hm_name = hm.first.name.to_s).singularize.underscore
       obj_pk = (pk.is_a?(Array) ? pk : [pk]).each_with_object([]) { |pk_part, s| s << "#{hm_singular_name}.#{pk_part}" }.join(', ')
-      s << "<table id=\"#{hm_name}\">
+      s << "<table id=\"#{hm_name}\" class=\"shadow\">
         <tr><th>#{hm[3]}</th></tr>
         <% collection = @#{obj_name}.#{hm_name}
         collection = collection.is_a?(ActiveRecord::Associations::CollectionProxy) ? collection.order(#{pk.inspect}) : [collection].compact
@@ -952,9 +985,12 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
   var origVal = getInpVal(),
       prevVal = origVal;
   var revert;
-  if ((revert = ((inp.tagName === \"SELECT\" && inp.nextElementSibling.nextElementSibling) ||
-       inp.nextElementSibling ||
-       inp.parentElement.nextElementSibling)) && revert.tagName.toLowerCase() === \"svg\")
+  if (inp.getAttribute(\"type\") == \"hidden\" || inp.getAttribute(\"type\") == \"submit\") return;
+
+  var svgTd = null;
+  if ((revert = ((inp.tagName === \"SELECT\" && (svgTd = inp.parentElement.nextElementSibling) && svgTd.firstElementChild) ||
+                 ((svgTd = inp.parentElement.nextElementSibling) && svgTd.firstElementChild))
+     ) && revert.tagName.toLowerCase() === \"svg\")
     revert.addEventListener(\"click\", function (e) {
       if (inp.type === \"checkbox\")
         inp.checked = origVal;
@@ -985,7 +1021,7 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
       prevVal = getInpVal();
     }
     // Show or hide the revert button
-    if (revert) revert.style.display = getInpVal() === origVal ? \"none\" : \"inline-block\";
+    if (revert) revert.style.display = getInpVal() === origVal ? \"none\" : \"block\";
   });
   function getInpVal() {
     return inp.type === \"checkbox\" ? inp.checked : inp.value;
