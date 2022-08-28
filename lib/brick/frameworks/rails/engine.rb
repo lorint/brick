@@ -538,6 +538,65 @@ if (headerTop) {
   }, true);
 }
 </script>"
+
+              erd_markup = "<div id=\"mermaidErd\" class=\"mermaid\">
+erDiagram
+<% model_short_name = #{@_brick_model.name.split('::').last.inspect}
+   callbacks = {}
+   @_brick_bt_descrip&.each do |bt|
+     bt_class = bt[1].first.first
+     callbacks[bt_name = bt_class.name.split('::').last] = bt_class
+     is_has_one = #{@_brick_model.name}.reflect_on_association(bt.first).inverse_of&.macro == :has_one ||
+                  ::Brick.config.has_ones&.fetch('#{@_brick_model.name}', nil)&.key?(bt.first.to_s)
+    %>  <%= \"#\{model_short_name} #\{is_has_one ? '||' : '}o'}--|| #\{bt_name} : \\\"#\{
+        bt.first unless bt.first.to_s == bt[1].first.first.name.underscore.singularize.tr('/', '_')
+        }\\\"\".html_safe %>
+<% end
+   last_through = nil
+   @_brick_hm_counts&.each do |hm|
+     # Skip showing self-referencing HM links since they would have already been drawn while evaluating the BT side
+     next if (hm_class = hm.last&.klass) == #{@_brick_model.name}
+
+     callbacks[hm_name = hm_class.name.split('::').last] = hm_class
+     if (through = hm.last.options[:through]&.to_s) # has_many :through  (HMT)
+       callbacks[through.singularize.camelize] = (through_assoc = hm.last.source_reflection).active_record
+       if last_through == through # Same HM, so no need to build it again, and for clarity just put in a blank line
+%><%=    \"\n\"
+%><%   else
+%>  <%= \"#\{model_short_name} ||--o{ #\{through_assoc.active_record.name}\".html_safe %> : \"\"
+<%       last_through = through
+       end
+%>    <%= \"#\{through_assoc.active_record.name} }o--|| #\{hm_name}\".html_safe %> : \"\"
+    <%= \"#\{model_short_name} }o..o{ #\{hm_name} : \\\"#\{hm.first}\\\"\".html_safe %><%
+     else # has_many
+%>  <%= \"#\{model_short_name} ||--o{ #\{hm_name} : \\\"#\{
+            hm_name unless hm.first.to_s == hm_class.name.underscore.pluralize.tr('/', '_')
+          }\\\"\".html_safe %><%
+     end %>
+<% end
+   callbacks.merge({model_short_name => #{@_brick_model.name}}).each do |cb_k, cb_class|
+     cb_relation = ::Brick.relations[cb_class.table_name]
+     pkeys = cb_relation[:pkey]&.first&.last
+     fkeys = cb_relation[:fks]&.values&.each_with_object([]) { |fk, s| s << fk[:fk] if fk.fetch(:is_bt, nil) }
+ %>  <%= cb_k %> {<%
+     pkeys&.each do |pk| %>
+    <%= \"int #\{pk} \\\"PK#\{' fk' if fkeys&.include?(pk)}\\\"\".html_safe %><%
+     end %><%
+     fkeys&.each do |fk|
+       if fk.is_a?(Array)
+         fk.each do |fk_part| %>
+    <%= \"int #\{fk_part} \\\"&nbsp;&nbsp;&nbsp;&nbsp;fk\\\"\".html_safe unless pkeys&.include?(fk_part) %><%
+         end
+       else %>
+    <%= \"int #\{fk} \\\"&nbsp;&nbsp;&nbsp;&nbsp;fk\\\"\".html_safe unless pkeys&.include?(fk) %><%
+       end
+     end %>
+  }
+<% end
+ # callback < %= cb_k % > erdClick
+ %>
+</div>
+"
               inline = case args.first
                        when 'index'
                          obj_pk = if pk&.is_a?(Array) # Composite primary key?
@@ -674,39 +733,9 @@ if (headerTop) {
       });
     });
   </script>
-<% end
-   if true # @_brick_erd
-%><div id=\"mermaidErd\" class=\"mermaid\">
-erDiagram
-<% model_short_name = #{@_brick_model.name.split('::').last.inspect}
-   callbacks = {}
-   @_brick_bt_descrip.each do |bt|
-     bt_full_name = bt[1].first.first.name
-     callbacks[bt_name = bt_full_name.split('::').last] = bt_full_name
-    %>  <%= \"#\{model_short_name} #\{'||'}--#\{
-        'o{'} #\{bt_name} : \\\"#\{
-        bt.first unless bt.first.to_s == bt[1].first.first.name.underscore.singularize.tr('/', '_')
-        }\\\"\".html_safe %>
 <% end %>
-<% @_brick_hm_counts.each do |hm|
-     hm_full_name = hm.last.klass.name
-     callbacks[hm_name = hm_full_name.split('::').last] = hm_full_name
-    %>  <%= \"#\{model_short_name} #\{'}o'}--#\{
-        '||'} #\{hm_name} : \\\"#\{
-        hm.first unless hm.first.to_s == hm_full_name.underscore.pluralize.tr('/', '_')
-        }\\\"\".html_safe %>
-<% end %>
-<% callbacks.keys.each do |cb|
- %>  <%= cb %> {
-    int id
-  }
-<% end
- # callback < %= cb_k % > erdClick
- %>
-</div>
-<% end
-
-%><table id=\"headerTop\"></table>
+#{erd_markup}
+<table id=\"headerTop\"></table>
 <table id=\"#{table_name}\" class=\"shadow\">
   <thead><tr>#{"<th x-order=\"#{pk.join(',')}\"></th>" if pk.present?}<%=
      # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
@@ -880,6 +909,7 @@ if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(
   description %><br><%
 end
 %><%= link_to '(See all #{obj_name.pluralize})', #{path_obj_name.pluralize}_path %>
+#{erd_markup}
 <% if obj %>
   <br><br>
   <%= # path_options = [obj.#{pk}]
@@ -1037,7 +1067,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
   var imgErd = document.getElementById(\"imgErd\");
   var mermaidErd = document.getElementById(\"mermaidErd\");
   var mermaidCode;
-  var cbs = {<%= callbacks.map { |k, v| \"#\{k}: \\\"#\{v.underscore.pluralize}\\\"\" }.join(', ').html_safe %>};
+  var cbs = {<%= callbacks.map { |k, v| \"#\{k}: \\\"#\{v.name.underscore.pluralize}\\\"\" }.join(', ').html_safe %>};
   imgErd.addEventListener(\"click\", showErd);
   function showErd() {
     imgErd.style.display = \"none\";
