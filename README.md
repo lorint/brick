@@ -23,7 +23,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.63         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.64         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 You can use The Brick in several ways -- from taking a quick peek inside an existing data set,
 with full ability to navigate across associations -- to easily updating and creating data,
@@ -99,7 +99,7 @@ avaiable therein.
 - [1. Getting Started](#1-getting-started)
   - [1.a. Compatibility](#1a-compatibility)
   - [1.b. Installation](#1b-installation)
-  - [1.c. Generating Templates](#1c-generating-templates)
+  - [1.c. Displaying an ERD](#1c-displaying-an-erd)
   - [1.d. Exporting Data](#1d-exporting-data)
   - [1.e. Using rails g df_export](#1e-using-rails-g-df-export)
   - [1.f. Autogenerate Model Files](#1f-autogenerate-model-files)
@@ -206,6 +206,41 @@ To configure additional options, such as defining related columns that you want 
     bin/rails g brick:install
 
 Inside the generated file many options exist, and one of which is `Brick.additional_references` which defines additional foreign key associations, and even shows some suggested ones where possible.  By default these are commented out, and by un-commenting the ones you would like (or perhaps even all of them), then it is as if these foreign keys were present to provide referential integrity.  If you then start up a `rails c` you'll find that appropriate belongs_to and has_many associations are automatically fleshed out.  Even has_many :through associations are provided when possible associative tables are identified -- that is, tables having only foreign keys that refer to other tables.
+
+### 1.c. Displaying an ERD
+
+It is a bit difficult to fully understand how things are associated by only clicking
+through data, going from one resource to the next.  So in order to better grasp how everything is associated, you can show a simple ERD diagram to see associations for the resource you're viewing, such as this glimpse of the Salesorderheader model:
+
+![sample ERD for BusinessEntity](./docs/erd1.png)
+
+From this we can see that Salesorderheader **belongs_to** Customer, Address, Salesperson,
+Salesterritory, and Shipmethod.  Foreign keys for these associations are listed under
+Salesorderheader.  The only model associated with a crow's foot designation is at the far
+right, and this symbol indicates that for Salesorderdetail there is a **has_many**
+association, so the foreign key for this association is found in that foreign table.
+
+Take special note that there are two links to Address -- one called "shiptoaddress" and
+the other "billtoaddress".  While not very common, there are times when one record should
+be associated to the same model in multiple ways, and as such have multiple foreign keys.
+When this is the case, The Brick builds out multiple **belongs_to** associations having
+unique names that are derived from the foreign key column names themselves.  Here in
+the ERD view it's easy to visualise because when a belongs_to name is not exactly the same
+as the resource to which it relates, a label is provided on the links to indicate what name
+has been applied.
+
+Opening one of these ERD diagrams is easy -- from any index view click on the ERD icon
+located to the right of the resource name.  A partial ERD diagram will open which shows
+immediately adjacent models -- that is, models which are up to one hop away via
+**belongs_to** and **has_many** associations.  Crow's foot notation indicates the "one
+and only one" and "zero to many" sides of each association as appropriate.
+
+Models related via a **has_many :through**, will show with a dashed line, such as seen
+here for the lowermost four models associated to BusinessEntity:
+
+![sample ERD for BusinessEntity](./docs/erd2.png)
+
+(The above diagrams can be seen by installing the Adventureworks sample and navigating to http://localhost:3000/person/businessentities?_brick_erd=1 and http://localhost:3000/sales/salesorderheaders?_brick_erd=1.)
 
 ### 1.f. Autogenerate Model Files
 
