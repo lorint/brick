@@ -479,24 +479,25 @@ module ActiveRecord
                        end
         next unless count_column # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
 
-        tbl_alias = "_br_#{hm.name}"
+        tbl_alias = is_mysql ? "`_br_#{hm.name}`" : "\"_br_#{hm.name}\""
         pri_tbl = hm.active_record
+        pri_tbl_name = is_mysql ? "`#{pri_tbl.table_name}`" : "\"#{pri_tbl.table_name.gsub('.', '"."')}\""
         on_clause = []
         if fk_col.is_a?(Array) # Composite key?
-          fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl.table_name}.#{pri_tbl.primary_key[idx]}" }
+          fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl_name}.#{pri_tbl.primary_key[idx]}" }
           selects = fk_col.dup
         else
           selects = [fk_col]
-          on_clause << "#{tbl_alias}.#{fk_col} = #{pri_tbl.table_name}.#{pri_tbl.primary_key}"
+          on_clause << "#{tbl_alias}.#{fk_col} = #{pri_tbl_name}.#{pri_tbl.primary_key}"
         end
         if poly_type
           selects << poly_type
           on_clause << "#{tbl_alias}.#{poly_type} = '#{name}'"
         end
+        hm_table_name = is_mysql ? "`#{associative&.table_name || hm.klass.table_name}`" : "\"#{(associative&.table_name || hm.klass.table_name).gsub('.', '"."')}\""
         join_clause = "LEFT OUTER
 JOIN (SELECT #{selects.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}#{count_column
-          }) AS _ct_ FROM #{associative&.table_name || hm.klass.table_name
-          } GROUP BY #{(1..selects.length).to_a.join(', ')}) AS #{tbl_alias}"
+          }) AS _ct_ FROM #{hm_table_name} GROUP BY #{(1..selects.length).to_a.join(', ')}) AS #{tbl_alias}"
         joins!("#{join_clause} ON #{on_clause.join(' AND ')}")
       end
       where!(wheres) unless wheres.empty?
@@ -1019,6 +1020,7 @@ class Object
       table_name = ActiveSupport::Inflector.underscore(plural_class_name)
       singular_table_name = ActiveSupport::Inflector.singularize(table_name)
       pk = model&._brick_primary_key(relations.fetch(table_name, nil))
+      is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2'
 
       namespace_name = "#{namespace.name}::" if namespace
       code = +"class #{namespace_name}#{class_name} < ApplicationController\n"
@@ -1122,7 +1124,9 @@ class Object
           @_brick_params = (ar_relation = model.all).brick_select(params, (selects = []), order_by, translations, join_array)
           # %%% Add custom HM count columns
           # %%% What happens when the PK is composite?
-          counts = model._br_hm_counts.each_with_object([]) { |v, s| s << "_br_#{v.first}._ct_ AS _br_#{v.first}_ct" }
+          counts = model._br_hm_counts.each_with_object([]) do |v, s|
+            s << (is_mysql ? "`_br_#{v.first}`._ct_ AS \"_br_#{v.first}_ct\"" : "\"_br_#{v.first}\"._ct_ AS \"_br_#{v.first}_ct\"")
+          end
           instance_variable_set("@#{table_name}".to_sym, ar_relation.dup._select!(*selects, *counts))
           if namespace && (idx = lookup_context.prefixes.index(table_name))
             lookup_context.prefixes[idx] = "#{namespace.name.underscore}/#{lookup_context.prefixes[idx]}"
@@ -1528,7 +1532,9 @@ module ActiveRecord::ConnectionHandling
 
   def retrieve_schema_and_tables(sql = nil, is_postgres = nil, schema = nil)
     sql ||= "SELECT t.table_schema AS \"schema\", t.table_name AS relation_name, t.table_type,#{"
-      pg_catalog.obj_description((t.table_schema || '.' || t.table_name)::regclass, 'pg_class') AS table_description," if is_postgres}
+      pg_catalog.obj_description(
+        ('\"' || t.table_schema || '\".\"' || t.table_name || '\"')::regclass, 'pg_class'
+      ) AS table_description," if is_postgres}
       c.column_name, c.data_type,
       COALESCE(c.character_maximum_length, c.numeric_precision) AS max_length,
       tc.constraint_type AS const, kcu.constraint_name AS \"key\",
