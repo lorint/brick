@@ -368,7 +368,8 @@ def display_value(col_type, val)
       '?'
     end
   end
-end %>"
+end
+callbacks = {} %>"
 
               if ['index', 'show', 'update'].include?(args.first)
                 poly_cols = []
@@ -526,10 +527,10 @@ if (headerTop) {
 }
 </script>"
 
-              erd_markup = "<div id=\"mermaidErd\" class=\"mermaid\">
+              erd_markup = if @_brick_model
+                             "<div id=\"mermaidErd\" class=\"mermaid\">
 erDiagram
 <% model_short_name = #{@_brick_model.name.split('::').last.inspect}
-   callbacks = {}
    @_brick_bt_descrip&.each do |bt|
      bt_class = bt[1].first.first
      callbacks[bt_name = bt_class.name.split('::').last] = bt_class
@@ -591,6 +592,7 @@ erDiagram
  %>
 </div>
 "
+                           end
               inline = case args.first
                        when 'index'
                          obj_pk = if pk&.is_a?(Array) # Composite primary key?
