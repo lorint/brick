@@ -1036,7 +1036,7 @@ class Object
           self.define_method :orphans do
             instance_variable_set(:@orphans, ::Brick.find_orphans(::Brick.set_db_schema(params)))
           end
-          return [new_controller_class, code + ' # BrickGem controller']
+          return [new_controller_class, code + "end # BrickGem controller\n"]
         when 'BrickSwagger'
           is_swagger = true # if request.format == :json)
         end
@@ -1196,6 +1196,8 @@ class Object
             else
               instance_variable_set("@#{singular_table_name}".to_sym,
                                     model.send(:create, send(params_name_sym)))
+              index
+              render :index
             end
           end
 
