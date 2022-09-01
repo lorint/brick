@@ -155,7 +155,7 @@ module Brick
                                  end
                     hm_entry << ']'
                     hms_columns << hm_entry
-                  when 'show', 'update'
+                  when 'show', 'new', 'update'
                     hm_stuff << if hm_fk_name
                                   "<%= link_to '#{assoc_name}', #{hm_assoc.klass.name.underscore.tr('/', '_').pluralize}_path({ #{path_keys(hm_assoc, hm_fk_name, "@#{obj_name}", pk)} }) %>\n"
                                 else # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
@@ -371,7 +371,7 @@ def display_value(col_type, val)
 end
 callbacks = {} %>"
 
-              if ['index', 'show', 'update'].include?(args.first)
+              if ['index', 'show', 'new', 'update'].include?(args.first)
                 poly_cols = []
                 css << "<% bts = { #{
                   bt_items = bts.each_with_object([]) do |v, s|
@@ -890,7 +890,7 @@ erDiagram
 #{script}"
                          end
 
-                       when 'show', 'update'
+                       when 'show', 'new', 'update'
 +"#{css}
 
 <svg id=\"revertTemplate\" version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"
