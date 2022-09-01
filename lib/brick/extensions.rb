@@ -1196,6 +1196,8 @@ class Object
             else
               instance_variable_set("@#{singular_table_name}".to_sym,
                                     model.send(:create, send(params_name_sym)))
+              index
+              render :index
             end
           end
 
