@@ -123,7 +123,7 @@ module Brick
   end
 
   class << self
-    attr_accessor :default_schema, :db_schemas
+    attr_accessor :default_schema, :db_schemas, :routes_done
 
     def set_db_schema(params)
       schema = params['_brick_schema'] || 'public'
@@ -461,11 +461,11 @@ In config/initializers/brick.rb appropriate entries would look something like:
 
   module RouteSet
     def finalize!
+      return super if ::Brick.routes_done
+
+      ::Brick.routes_done = true
       existing_controllers = routes.each_with_object({}) { |r, s| c = r.defaults[:controller]; s[c] = nil if c }
       ::Rails.application.routes.append do
-        unless ::Brick.config.default_route_fallback.blank? || ::Rails.application.routes.named_routes.send(:routes)[:root]
-          send(:root, "#{::Brick.config.default_route_fallback}#index")
-        end
         # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
         # If auto-controllers and auto-models are both enabled then this makes sense:
         ::Brick.relations.each do |rel_name, v|

@@ -279,8 +279,8 @@ module Brick
 # # route to go to the :index action for what would be a controller for that table.  You can specify any controller
 # # name and action you wish in order to override this and have that be the default route when none other has been
 # # specified in routes.rb or elsewhere.  (Or just use an empty string in order to disable this behaviour.)
-# Brick.default_route_fallback = 'customers' # This defaults to \"customers/index\"
-# Brick.default_route_fallback = 'orders/outstanding' # Example of a non-RESTful route
+# Brick.default_route_fallback = 'customers' # This defaults to \"customers#index\"
+# Brick.default_route_fallback = 'orders#outstanding' # Example of a non-RESTful route
 # Brick.default_route_fallback = '' # Omits setting a default route in the absence of any other
 ")
       end
