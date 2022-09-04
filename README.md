@@ -8,10 +8,17 @@ routes, and instead of being some big pile of raw scaffolded files, they exist j
 The beauty of this is that if you make database changes such as adding new tables or columns,
 basic functionality is immediately available without having to add any code.  General behaviour
 around things like if lists remain read-only, or if editing is enabled then the way in which to
-render -- either inline or via a pop-up model -- can established using rules.  More refined
-behaviour can be applied on a model-by-model basis, or in the "Pro" version of the gem, at a
-container level which by default gets inherited to child models, along the same chain of
-command that the inbuilt security platform uses in the "Pro" version.
+render -- either inline or via a pop-up modal -- can established using rules.  More refined
+behaviour can be applied on a model-by-model basis.
+
+| ![sample look at sales data](./docs/erd3.png) |
+|-|
+
+You can use The Brick in several ways -- from taking a quick peek inside an existing data set,
+with full ability to navigate across associations -- to easily updating and creating data,
+exporting tables or views out to CSV or Google Sheets, importing sets of data -- creating a
+minimally-scaffolded application one file at a time, experimenting with various data layouts to
+see how functional a given database design will be -- and more.
 
 Probably want to pop some corn and have **VOLUME UP** (on the player's slider below) for this
 video walkthrough:
@@ -23,13 +30,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.67         | https://github.com/lorint/brick/blob/v1.0/README.md   |
-
-You can use The Brick in several ways -- from taking a quick peek inside an existing data set,
-with full ability to navigate across associations -- to easily updating and creating data,
-exporting tables or views out to CSV or Google Sheets, importing sets of data -- creating a
-minimally-scaffolded application one file at a time, experimenting with various data layouts to
-see how functional a given database design will be -- and more.
+| 1.0.68         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only

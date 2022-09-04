@@ -23,7 +23,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.67         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.68         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 You can use The Brick in several ways -- from taking a quick peek inside an existing data set,
 with full ability to navigate across associations -- to easily updating and creating data,
