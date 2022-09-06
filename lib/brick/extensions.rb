@@ -266,18 +266,27 @@ module ActiveRecord
       quoted_table_name = table_name.split('.').map { |x| "\"#{x}\"" }.join('.')
       order_by_txt = [] if is_do_txt
       ordering = [ordering] if ordering && !ordering.is_a?(Array)
-      order_by = ordering&.map do |ord_part| # %%% If a term is also used as an eqi-condition in the WHERE clause, it can be omitted from ORDER BY
+      order_by = ordering&.each_with_object([]) do |ord_part, s| # %%% If a term is also used as an eqi-condition in the WHERE clause, it can be omitted from ORDER BY
                    case ord_part
                    when String
                      ord_expr = ord_part.gsub('^^^', quoted_table_name)
                      order_by_txt&.<<("Arel.sql(#{ord_expr})")
-                     Arel.sql(ord_expr)
+                     s << Arel.sql(ord_expr)
                    else # Expecting only Symbol
-                     ord_part = "_br_#{ord_part}_ct" if _br_hm_counts.key?(ord_part)
-                     # Retain any reference to a bt_descrip as being a symbol
-                     # Was:  "#{quoted_table_name}.\"#{ord_part}\""
-                     order_by_txt&.<<(_br_bt_descrip.key?(ord_part) ? ord_part : ord_part.inspect)
-                     ord_part
+                     if _br_hm_counts.key?(ord_part)
+                       ord_part = "\"_br_#{ord_part}_ct\""
+                     elsif !_br_bt_descrip.key?(ord_part) && !column_names.include?(ord_part.to_s)
+                       # Disallow ordering by a bogus column
+                       # %%% Note this bogus entry so that Javascript can remove any bogus _brick_order
+                       # parameter from the querystring, pushing it into the browser history.
+                       ord_part = nil
+                     end
+                     if ord_part
+                       # Retain any reference to a bt_descrip as being a symbol
+                       # Was:  "#{quoted_table_name}.\"#{ord_part}\""
+                       order_by_txt&.<<(_br_bt_descrip.key?(ord_part) ? ord_part : ord_part.inspect)
+                       s << ord_part
+                     end
                    end
                  end
       [order_by, order_by_txt]
@@ -509,7 +518,7 @@ JOIN (SELECT #{selects.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}
             # Add the ordered series of columns derived from the BT based on its DSL
             if (bt_cols = klass._br_bt_descrip[v])
               bt_cols.values.each do |v1|
-                v1.each { |v2| s << v2.last if v2.length > 1 }
+                v1.each { |v2| s << "\"#{v2.last}\"" if v2.length > 1 }
               end
             else
               s << v
