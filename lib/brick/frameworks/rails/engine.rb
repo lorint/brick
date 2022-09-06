@@ -1096,7 +1096,9 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
             gErd.setAttribute(\"class\", \"relatedModel\");
             gErd.addEventListener(\"click\",
               function (evt) {
-                location.href = changeout(changeout(location.href, -1, cbs[this.id]), \"_brick_erd\", \"1\");
+                location.href = changeout(changeout(
+                  changeout(location.href, '_brick_order', null), // Remove any ordering
+                -1, cbs[this.id]), \"_brick_erd\", \"1\");
               }
             );
           }
