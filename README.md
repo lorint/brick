@@ -30,7 +30,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.68         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.69         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -200,7 +200,7 @@ to use uuids with a non-Postgres database.
     ```
     gem 'brick'
     ```
-2. To test things, configure database.yml to use Postgres, Sqlite3, or MySQL, and point to a relational database.  Then from within `rails c` attempt to reference a model by what its normal name might be.  For instance, if you have a `plants` table then just type `Plant.count` and see that automatically a model is built out on-the-fly and the count for this `plants` table is shown.  If you similarly have `products` that relates to `categories` with a foreign key then notice that by referencing `Category` the gem builds out a model which has a has_many association called :products.  Without writing any code these associations are all wired up as long as you have proper foreign keys in place.
+2. To test things, configure database.yml to use Postgres, Sqlite3, Oracle, or MySQL, and point to a relational database.  Then from within `rails c` attempt to reference a model by what its normal name might be.  For instance, if you have a `plants` table then just type `Plant.count` and see that automatically a model is built out on-the-fly and the count for this `plants` table is shown.  If you similarly have `products` that relates to `categories` with a foreign key then notice that by referencing `Category` the gem builds out a model which has a has_many association called :products.  Without writing any code these associations are all wired up as long as you have proper foreign keys in place.
 
 To configure additional options, such as defining related columns that you want to have act as if they were a foreign key, then you can build out an initializer file for Brick.  The gem automatically provides some suggestions for you based on your current database, so it's useful to make sure your database.yml file is properly configured before continuing.  By using the `install` generator, the file `config/initializers/brick.rb` is automatically written out and here is the command:
 
@@ -382,6 +382,72 @@ Now you should be able to set up the test database for MySQL with:
 And run the tests on MySQL with:
 
     bundle exec appraisal ar-7.0 rspec spec
+
+## Setting up for Oracle on a MacOS (OSX) machine
+
+Oracle is the third most popular database solution used for Rails projects in production,
+so it only makes sense to have support for this in The Brick.  Starting with version 1.0.69
+this was added, offering full compatibility for all Brick features.  This can run on Linux,
+Windows, and Mac.
+
+One important caveat for those with Apple M1 or M2 machines is that the low-level Ruby driver
+which we rely upon will NOT function natively on Apple Silicon, so on an M1 or M2 machine you
+will have to use the Rosetta emulator to run Ruby and your entire Rails app.  In the future when
+an Apple Silicon version of Oracle Instant Client ships then everything can work natively.
+
+Before setting up the gems to give support for Oracle in ActiveRecord, there are two necessary
+libraries you will need to have installed in order to allow the ruby-oci8 gem to function.
+In turn ruby-oci8 is used by oracle_enhanced adapter to give full ActiveRecord support.  Here's
+how to get started on a Mac machine that is running Homebrew:
+
+    brew tap InstantClientTap/instantclient
+    brew install instantclient-basiclite
+    brew install instantclient-sdk
+
+Similar kind of thing on Linux -- install the Basic or Basic Lite version of OCI, and also
+the OCI SDK.  With those two libraries in place, you're ready to get the Rails side of things
+in order.  Rails has an understanding of the Oracle gem built-in such that if you create a new
+Rails app like this:
+
+    rails new brick_app -d oracle
+
+then it automatically puts the main gem in place for you, along with a sample database.yml.
+
+In your Rails project, open your **Gemfile** and confirm that proper database drivers are present:
+
+    gem 'activerecord-oracle_enhanced-adapter'
+    gem 'ruby-oci8' # Not needed under Rails 7.x and later
+    gem 'brick'
+
+Now bundle, and finally in databases.yml make sure there is an entry which looks like this:
+
+```
+development:
+  adapter: oracle_enhanced
+  database: //localhost:1521/xepdb1
+  username: hr
+  password: cool_hr_pa$$w0rd
+```
+
+You can change **localhost** to be the IP address or host name of an Oracle database server
+accessible on your network.  By default Oracle uses port 1521 for connectivity.  The last
+part of the database line, in this case **xepdb1**, refers to the name of the database you can
+connect to.  If you are unsure, open SQL*Plus and issue this query:
+
+```
+SELECT name FROM V$database;
+```
+
+The **username** would often refer to the schema you wish to access, or to an account with
+privileges on various schemas you are interested in.  The **password** would have been set
+up when the user account was first established, and can be reset by logging on as SYSDBA and
+issuing this command:
+
+```
+ALTER USER hr IDENTIFIED BY cool_hr_pa$$w0rd;
+```
+
+This should be all that is necessary in order to have ActiveRecord interact with Oracle.
 
 ## Intellectual Property
 

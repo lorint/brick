@@ -274,7 +274,7 @@ module ActiveRecord
                      s << Arel.sql(ord_expr)
                    else # Expecting only Symbol
                      if _br_hm_counts.key?(ord_part)
-                       ord_part = "\"_br_#{ord_part}_ct\""
+                       ord_part = "\"b_r_#{ord_part}_ct\""
                      elsif !_br_bt_descrip.key?(ord_part) && !column_names.include?(ord_part.to_s)
                        # Disallow ordering by a bogus column
                        # %%% Note this bogus entry so that Javascript can remove any bogus _brick_order
@@ -382,6 +382,7 @@ module ActiveRecord
     end
 
     def brick_select(params, selects = nil, order_by = nil, translations = {}, join_array = ::Brick::JoinArray.new)
+      is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2'
       is_distinct = nil
       wheres = {}
@@ -407,13 +408,22 @@ module ActiveRecord
       if selects&.empty? # Default to all columns
         tbl_no_schema = table.name.split('.').last
         columns.each do |col|
-          col_alias = " AS _#{col.name}" if (col_name = col.name) == 'class'
+          col_alias = " AS #{col.name}_" if (col_name = col.name) == 'class'
           selects << if is_mysql
                        "`#{tbl_no_schema}`.`#{col_name}`#{col_alias}"
-                     else
+                     elsif is_postgres
                        # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
                        cast_as_text = '::text' if is_distinct && Brick.relations[klass.table_name]&.[](:cols)&.[](col_name)&.first&.start_with?('xml')
                        "\"#{tbl_no_schema}\".\"#{col_name}\"#{cast_as_text}#{col_alias}"
+                     elsif col.type # Could be Sqlite or Oracle
+                       if col_alias
+                         "#{tbl_no_schema}.#{col_name}#{col_alias}"
+                       else
+                         "#{tbl_no_schema}.#{col_name}"
+                       end
+                     else # Oracle with a custom data type
+                       typ = col.sql_type
+                       "'<#{typ.end_with?('_TYP') ? typ[0..-5] : typ}>' AS #{col.name}"
                      end
         end
       end
@@ -439,13 +449,15 @@ module ActiveRecord
               # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
               is_xml = is_distinct && Brick.relations[sel_col.first.table_name]&.[](:cols)&.[](sel_col.last)&.first&.start_with?('xml')
               # If it's not unique then also include the belongs_to association name before the column name
-              if used_col_aliases.key?(col_alias = "_brfk_#{v.first}__#{sel_col.last}")
-                col_alias = "_brfk_#{v.first}__#{v1[idx][-2..-1].map(&:to_s).join('__')}"
+              if used_col_aliases.key?(col_alias = "br_fk_#{v.first}__#{sel_col.last}")
+                col_alias = "br_fk_#{v.first}__#{v1[idx][-2..-1].map(&:to_s).join('__')}"
               end
               selects << if is_mysql
                            "`#{field_tbl_name}`.`#{sel_col.last}` AS `#{col_alias}`"
-                         else
+                         elsif is_postgres
                            "\"#{field_tbl_name}\".\"#{sel_col.last}\"#{'::text' if is_xml} AS \"#{col_alias}\""
+                         else
+                           "#{field_tbl_name}.#{sel_col.last} AS \"#{col_alias}\""
                          end
               used_col_aliases[col_alias] = nil
               v1[idx] << col_alias
@@ -456,9 +468,11 @@ module ActiveRecord
               ((id_col = k1.primary_key).is_a?(Array) ? id_col : [id_col]).each do |id_part|
                 id_for_tables[v.first] << if id_part
                                             selects << if is_mysql
-                                                         "#{"`#{tbl_name}`.`#{id_part}`"} AS `#{(id_alias = "_brfk_#{v.first}__#{id_part}")}`"
+                                                         "#{"`#{tbl_name}`.`#{id_part}`"} AS `#{(id_alias = "br_fk_#{v.first}__#{id_part}")}`"
+                                                       elsif is_postgres
+                                                         "#{"\"#{tbl_name}\".\"#{id_part}\""} AS \"#{(id_alias = "br_fk_#{v.first}__#{id_part}")}\""
                                                        else
-                                                         "#{"\"#{tbl_name}\".\"#{id_part}\""} AS \"#{(id_alias = "_brfk_#{v.first}__#{id_part}")}\""
+                                                         "#{"#{tbl_name}.#{id_part}"} AS \"#{(id_alias = "br_fk_#{v.first}__#{id_part}")}\""
                                                        end
                                             id_alias
                                           end
@@ -488,9 +502,22 @@ module ActiveRecord
                        end
         next unless count_column # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
 
-        tbl_alias = is_mysql ? "`_br_#{hm.name}`" : "\"_br_#{hm.name}\""
+        tbl_alias = if is_mysql
+                      "`b_r_#{hm.name}`"
+                    elsif is_postgres
+                      "\"b_r_#{hm.name}\""
+                    else
+                      "b_r_#{hm.name}"
+                    end
         pri_tbl = hm.active_record
         pri_tbl_name = is_mysql ? "`#{pri_tbl.table_name}`" : "\"#{pri_tbl.table_name.gsub('.', '"."')}\""
+        pri_tbl_name = if is_mysql
+                         "`#{pri_tbl.table_name}`"
+                       elsif is_postgres
+                         "\"#{pri_tbl.table_name.gsub('.', '"."')}\""
+                       else
+                         pri_tbl.table_name
+                       end
         on_clause = []
         if fk_col.is_a?(Array) # Composite key?
           fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl_name}.#{pri_tbl.primary_key[idx]}" }
@@ -503,15 +530,22 @@ module ActiveRecord
           selects << poly_type
           on_clause << "#{tbl_alias}.#{poly_type} = '#{name}'"
         end
-        hm_table_name = is_mysql ? "`#{associative&.table_name || hm.klass.table_name}`" : "\"#{(associative&.table_name || hm.klass.table_name).gsub('.', '"."')}\""
+        hm_table_name = if is_mysql
+                          "`#{associative&.table_name || hm.klass.table_name}`"
+                        elsif is_postgres
+                          "\"#{(associative&.table_name || hm.klass.table_name).gsub('.', '"."')}\""
+                        else
+                          associative&.table_name || hm.klass.table_name
+                        end
+        group_bys = ::Brick.is_oracle ? selects : (1..selects.length).to_a
         join_clause = "LEFT OUTER
 JOIN (SELECT #{selects.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}#{count_column
-          }) AS _ct_ FROM #{hm_table_name} GROUP BY #{(1..selects.length).to_a.join(', ')}) AS #{tbl_alias}"
+          }) AS c_t_ FROM #{hm_table_name} GROUP BY #{group_bys.join(', ')}) #{tbl_alias}"
         joins!("#{join_clause} ON #{on_clause.join(' AND ')}")
       end
       where!(wheres) unless wheres.empty?
       # Must parse the order_by and see if there are any symbols which refer to BT associations
-      # as they must be expanded to find the corresponding _br_model__column naming for each.
+      # as they must be expanded to find the corresponding b_r_model__column naming for each.
       if order_by.present?
         final_order_by = *order_by.each_with_object([]) do |v, s|
           if v.is_a?(Symbol)
@@ -1029,6 +1063,7 @@ class Object
       table_name = ActiveSupport::Inflector.underscore(plural_class_name)
       singular_table_name = ActiveSupport::Inflector.singularize(table_name)
       pk = model&._brick_primary_key(relations.fetch(table_name, nil))
+      is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2'
 
       namespace_name = "#{namespace.name}::" if namespace
@@ -1134,7 +1169,13 @@ class Object
           # %%% Add custom HM count columns
           # %%% What happens when the PK is composite?
           counts = model._br_hm_counts.each_with_object([]) do |v, s|
-            s << (is_mysql ? "`_br_#{v.first}`._ct_ AS \"_br_#{v.first}_ct\"" : "\"_br_#{v.first}\"._ct_ AS \"_br_#{v.first}_ct\"")
+            s << if is_mysql
+                   "`b_r_#{v.first}`.c_t_ AS \"b_r_#{v.first}_ct\""
+                 elsif is_postgres
+                   "\"b_r_#{v.first}\".c_t_ AS \"b_r_#{v.first}_ct\""
+                 else
+                   "b_r_#{v.first}.c_t_ AS \"b_r_#{v.first}_ct\""
+                 end
           end
           instance_variable_set("@#{table_name}".to_sym, ar_relation.dup._select!(*selects, *counts))
           if namespace && (idx = lookup_context.prefixes.index(table_name))
@@ -1366,6 +1407,11 @@ module ActiveRecord::ConnectionHandling
         end
       when 'Mysql2'
         ::Brick.default_schema = schema = ActiveRecord::Base.connection.current_database
+      when 'OracleEnhanced'
+        # ActiveRecord::Base.connection.current_database will be something like "XEPDB1"
+        ::Brick.default_schema = schema = ActiveRecord::Base.connection.raw_connection.username
+        ::Brick.db_schemas = {}
+        ActiveRecord::Base.execute_sql("SELECT username FROM sys.all_users WHERE ORACLE_MAINTAINED != 'Y'").each { |s| ::Brick.db_schemas[s.first] = nil }
       when 'SQLite'
         sql = "SELECT m.name AS relation_name, UPPER(m.type) AS table_type,
           p.name AS column_name, p.type AS data_type,
@@ -1424,9 +1470,34 @@ module ActiveRecord::ConnectionHandling
           cols[col_name] = [r['data_type'], r['max_length'], measures&.include?(col_name), r['is_nullable'] == 'NO']
           # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
         end
-      else # MySQL2 acts a little differently, bringing back an array for each row
-        ActiveRecord::Base.retrieve_schema_and_tables(sql).each do |r|
-          relation = relations[(relation_name = r[1])] # here relation represents a table or view from the database
+      else # MySQL2 and OracleEnhanced act a little differently, bringing back an array for each row
+        schema_and_tables = if ActiveRecord::Base.connection.adapter_name == 'OracleEnhanced'
+                              sql =
+"SELECT c.owner AS schema, c.table_name AS relation_name,
+  CASE WHEN v.owner IS NULL THEN 'BASE_TABLE' ELSE 'VIEW' END AS table_type,
+  c.column_name, c.data_type,
+  COALESCE(c.data_length, c.data_precision) AS max_length,
+  CASE ac.constraint_type WHEN 'P' THEN 'PRIMARY KEY' END AS const,
+  ac.constraint_name AS \"key\",
+  CASE c.nullable WHEN 'Y' THEN 'YES' ELSE 'NO' END AS is_nullable
+FROM all_tab_cols c
+  LEFT OUTER JOIN all_cons_columns acc ON acc.owner = c.owner AND acc.table_name = c.table_name AND acc.column_name = c.column_name
+  LEFT OUTER JOIN all_constraints ac ON ac.owner = acc.owner AND ac.table_name = acc.table_name AND ac.constraint_name = acc.constraint_name AND constraint_type = 'P'
+  LEFT OUTER JOIN all_views v ON c.owner = v.owner AND c.table_name = v.view_name
+WHERE c.owner IN (#{::Brick.db_schemas.keys.map { |s| "'#{s}'" }.join(', ')})
+  AND c.table_name NOT IN (?, ?)
+ORDER BY 1, 2, c.internal_column_id, acc.position"
+                              ActiveRecord::Base.execute_sql(sql, *ar_tables)
+                            else
+                              ActiveRecord::Base.retrieve_schema_and_tables(sql)
+                            end
+        schema_and_tables.each do |r|
+          next if r[1].index('$') # Oracle can have goofy table names with $
+
+          if (relation_name = r[1]) =~ /^[A-Z_]+$/
+            relation_name.downcase!
+          end
+          relation = relations[relation_name] # here relation represents a table or view from the database
           relation[:isView] = true if r[2] == 'VIEW' # table_type
           col_name = r[3]
           key = case r[6] # constraint type
@@ -1490,8 +1561,25 @@ module ActiveRecord::ConnectionHandling
           INNER JOIN pragma_foreign_key_list(m.name) fkl ON m.type = 'table'
         ORDER BY m.name, fkl.seq"
         fk_references = ActiveRecord::Base.execute_sql(sql)
-      else
+      when 'OracleEnhanced'
+        schemas = ::Brick.db_schemas.keys.map { |s| "'#{s}'" }.join(', ')
+        sql =
+        "SELECT -- fk
+               ac.owner AS constraint_schema, acc_fk.table_name, LOWER(acc_fk.column_name),
+               -- referenced pk
+               ac.r_owner AS primary_schema, acc_pk.table_name AS primary_table, acc_fk.constraint_name AS constraint_schema_fk
+               -- , LOWER(acc_pk.column_name)
+        FROM all_cons_columns acc_fk
+          INNER JOIN all_constraints ac ON acc_fk.owner = ac.owner
+            AND acc_fk.constraint_name = ac.constraint_name
+          INNER JOIN all_cons_columns acc_pk ON ac.r_owner = acc_pk.owner
+            AND ac.r_constraint_name = acc_pk.constraint_name
+        WHERE ac.constraint_type = 'R'
+          AND ac.owner IN (#{schemas})
+          AND ac.r_owner IN (#{schemas})"
+        fk_references = ActiveRecord::Base.execute_sql(sql)
       end
+      ::Brick.is_oracle = true if ActiveRecord::Base.connection.adapter_name == 'OracleEnhanced'
       # ::Brick.default_schema ||= schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       fk_references&.each do |fk|
         fk = fk.values unless fk.is_a?(Array)
@@ -1508,6 +1596,8 @@ module ActiveRecord::ConnectionHandling
               !is_postgres && ['mysql', 'performance_schema', 'sys'].exclude?(fk[3])
           fk[3] = nil
         end
+        fk[1].downcase! if ::Brick.is_oracle && fk[1] =~ /^[A-Z_]+$/
+        fk[4].downcase! if ::Brick.is_oracle && fk[4] =~ /^[A-Z_]+$/
         ::Brick._add_bt_and_hm(fk, relations)
       end
     end
@@ -1617,7 +1707,7 @@ module Brick
                           "#{bt_assoc_name}_bt"
                         end
       end
-      bt_assoc_name = "_#{bt_assoc_name}" if bt_assoc_name == 'attribute'
+      bt_assoc_name = "#{bt_assoc_name}_" if bt_assoc_name == 'attribute'
 
       # %%% Temporary schema patch
       for_tbl = fk[1]
