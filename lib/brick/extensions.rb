@@ -171,7 +171,7 @@ module ActiveRecord
                         end
                         this_obj&.to_s || ''
                       end
-              is_brackets_have_content = true unless (datum).blank?
+              is_brackets_have_content = true unless datum.blank?
               output << (datum || '')
               bracket_name = nil
             else
@@ -412,7 +412,7 @@ module ActiveRecord
                        "`#{tbl_no_schema}`.`#{col_name}`#{col_alias}"
                      else
                        # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
-                       cast_as_text = '::text' if is_distinct && Brick.relations[klass.table_name]&.[](:cols)&.[](col.name)&.first&.start_with?('xml')
+                       cast_as_text = '::text' if is_distinct && Brick.relations[klass.table_name]&.[](:cols)&.[](col_name)&.first&.start_with?('xml')
                        "\"#{tbl_no_schema}\".\"#{col_name}\"#{cast_as_text}#{col_alias}"
                      end
         end
@@ -1483,32 +1483,32 @@ module ActiveRecord::ConnectionHandling
               AND kcu2.ORDINAL_POSITION = kcu1.ORDINAL_POSITION#{"
           WHERE kcu1.CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }"
           # AND kcu2.TABLE_NAME = ?;", Apartment::Tenant.current, table_name
+        fk_references = ActiveRecord::Base.execute_sql(sql)
       when 'SQLite'
         sql = "SELECT m.name, fkl.\"from\", fkl.\"table\", m.name || '_' || fkl.\"from\" AS constraint_name
         FROM sqlite_master m
           INNER JOIN pragma_foreign_key_list(m.name) fkl ON m.type = 'table'
         ORDER BY m.name, fkl.seq"
+        fk_references = ActiveRecord::Base.execute_sql(sql)
       else
       end
-      if sql
-        # ::Brick.default_schema ||= schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-        ActiveRecord::Base.execute_sql(sql).each do |fk|
-          fk = fk.values unless fk.is_a?(Array)
-          # Multitenancy makes things a little more general overall, except for non-tenanted tables
-          if apartment_excluded&.include?(fk[1].singularize.camelize)
-            fk[0] = Apartment.default_schema
-          elsif is_postgres && (fk[0] == 'public' || (is_multitenant && fk[0] == schema)) ||
-                !is_postgres && ['mysql', 'performance_schema', 'sys'].exclude?(fk[0])
-            fk[0] = nil
-          end
-          if apartment_excluded&.include?(fk[4].singularize.camelize)
-            fk[3] = Apartment.default_schema
-          elsif is_postgres && (fk[3] == 'public' || (is_multitenant && fk[3] == schema)) ||
-                !is_postgres && ['mysql', 'performance_schema', 'sys'].exclude?(fk[3])
-            fk[3] = nil
-          end
-          ::Brick._add_bt_and_hm(fk, relations)
+      # ::Brick.default_schema ||= schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+      fk_references&.each do |fk|
+        fk = fk.values unless fk.is_a?(Array)
+        # Multitenancy makes things a little more general overall, except for non-tenanted tables
+        if apartment_excluded&.include?(fk[1].singularize.camelize)
+          fk[0] = Apartment.default_schema
+        elsif is_postgres && (fk[0] == 'public' || (is_multitenant && fk[0] == schema)) ||
+              !is_postgres && ['mysql', 'performance_schema', 'sys'].exclude?(fk[0])
+          fk[0] = nil
         end
+        if apartment_excluded&.include?(fk[4].singularize.camelize)
+          fk[3] = Apartment.default_schema
+        elsif is_postgres && (fk[3] == 'public' || (is_multitenant && fk[3] == schema)) ||
+              !is_postgres && ['mysql', 'performance_schema', 'sys'].exclude?(fk[3])
+          fk[3] = nil
+        end
+        ::Brick._add_bt_and_hm(fk, relations)
       end
     end
 
@@ -1569,13 +1569,17 @@ module ActiveRecord::ConnectionHandling
   --          AND t.table_type IN ('VIEW') -- 'BASE TABLE', 'FOREIGN TABLE'
       AND t.table_name NOT IN ('pg_stat_statements', ?, ?)
     ORDER BY 1, t.table_type DESC, 2, c.ordinal_position"
+    ActiveRecord::Base.execute_sql(sql, *ar_tables)
+  end
+
+  def ar_tables
     ar_smtn = if ActiveRecord::Base.respond_to?(:schema_migrations_table_name)
                 ActiveRecord::Base.schema_migrations_table_name
               else
                 'schema_migrations'
               end
     ar_imtn = ActiveRecord.version >= ::Gem::Version.new('5.0') ? ActiveRecord::Base.internal_metadata_table_name : ''
-    ActiveRecord::Base.execute_sql(sql, ar_smtn, ar_imtn)
+    [ar_smtn, ar_imtn]
   end
 end
 
