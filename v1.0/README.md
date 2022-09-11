@@ -8,10 +8,17 @@ routes, and instead of being some big pile of raw scaffolded files, they exist j
 The beauty of this is that if you make database changes such as adding new tables or columns,
 basic functionality is immediately available without having to add any code.  General behaviour
 around things like if lists remain read-only, or if editing is enabled then the way in which to
-render -- either inline or via a pop-up model -- can established using rules.  More refined
-behaviour can be applied on a model-by-model basis, or in the "Pro" version of the gem, at a
-container level which by default gets inherited to child models, along the same chain of
-command that the inbuilt security platform uses in the "Pro" version.
+render -- either inline or via a pop-up modal -- can established using rules.  More refined
+behaviour can be applied on a model-by-model basis.
+
+| ![sample look at sales data](./docs/erd3.png) |
+|-|
+
+You can use The Brick in several ways -- from taking a quick peek inside an existing data set,
+with full ability to navigate across associations -- to easily updating and creating data,
+exporting tables or views out to CSV or Google Sheets, importing sets of data -- creating a
+minimally-scaffolded application one file at a time, experimenting with various data layouts to
+see how functional a given database design will be -- and more.
 
 Probably want to pop some corn and have **VOLUME UP** (on the player's slider below) for this
 video walkthrough:
@@ -23,13 +30,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.68         | https://github.com/lorint/brick/blob/v1.0/README.md   |
-
-You can use The Brick in several ways -- from taking a quick peek inside an existing data set,
-with full ability to navigate across associations -- to easily updating and creating data,
-exporting tables or views out to CSV or Google Sheets, importing sets of data -- creating a
-minimally-scaffolded application one file at a time, experimenting with various data layouts to
-see how functional a given database design will be -- and more.
+| 1.0.69         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -99,7 +100,7 @@ avaiable therein.
 - [1. Getting Started](#1-getting-started)
   - [1.a. Compatibility](#1a-compatibility)
   - [1.b. Installation](#1b-installation)
-  - [1.c. Generating Templates](#1c-generating-templates)
+  - [1.c. Displaying an ERD](#1c-displaying-an-erd)
   - [1.d. Exporting Data](#1d-exporting-data)
   - [1.e. Using rails g df_export](#1e-using-rails-g-df-export)
   - [1.f. Autogenerate Model Files](#1f-autogenerate-model-files)
@@ -158,11 +159,11 @@ last line in boot.rb:
 BigDecimal:Class (NoMethodError)".)
 
 The Brick notices when some other gems are present and makes use of them -- most notably
-**[composite_primary_keys](https://github.com/composite-primary-keys/composite_primary_keys)** which allows very tricky databases to function.  As it stands, when
-database table and column names are not named according to Rails' conventions, The Brick does
-quite a bit to accommodate.  But to get multiple-column primary and foreign keys to work,
-then **composite_primary_keys** is required.  Just bundle it in and The Brick will leverage this
-gem.
+**[composite_primary_keys](https://github.com/composite-primary-keys/composite_primary_keys)** which allows very tricky databases to function.
+(Try out the [Adventureworks](https://github.com/lorint/AdventureWorks-for-Postgres) sample database to see this in action.) Already when tables and columns are not named in accordance
+with Rails' conventions, The Brick does quite a bit to accommodate.  But to get
+multiple-column primary and foreign keys to work, then **composite_primary_keys** is
+required.  Just bundle it in and The Brick will leverage this gem.
 
 Another notable set of compatibility is provided with the multitenancy gem **[Apartment](https://github.com/influitive/apartment)**.  This is
 the most popular gem for setting up multiple tenants where each one uses a different database
@@ -191,7 +192,7 @@ A few other gems are auto-recognised in order to support data types such as
 [pg_ltree](https://github.com/sjke/pg_ltree)
 for hierarchical data sets in Postgres, [RGeo](https://github.com/rgeo/rgeo) for spatial and
 geolocation data types, and [ActiveUUID](https://github.com/jashmenn/activeuuid) in order
-to use uuids on a non-Postgres database.
+to use uuids with a non-Postgres database.
 
 ### 1.b. Installation
 
@@ -199,7 +200,7 @@ to use uuids on a non-Postgres database.
     ```
     gem 'brick'
     ```
-2. To test things, configure database.yml to use Postgres, Sqlite3, or MySQL, and point to a relational database.  Then from within `rails c` attempt to reference a model by what its normal name might be.  For instance, if you have a `plants` table then just type `Plant.count` and see that automatically a model is built out on-the-fly and the count for this `plants` table is shown.  If you similarly have `products` that relates to `categories` with a foreign key then notice that by referencing `Category` the gem builds out a model which has a has_many association called :products.  Without writing any code these associations are all wired up as long as you have proper foreign keys in place.
+2. To test things, configure database.yml to use Postgres, Sqlite3, Oracle, or MySQL, and point to a relational database.  Then from within `rails c` attempt to reference a model by what its normal name might be.  For instance, if you have a `plants` table then just type `Plant.count` and see that automatically a model is built out on-the-fly and the count for this `plants` table is shown.  If you similarly have `products` that relates to `categories` with a foreign key then notice that by referencing `Category` the gem builds out a model which has a has_many association called :products.  Without writing any code these associations are all wired up as long as you have proper foreign keys in place.
 
 To configure additional options, such as defining related columns that you want to have act as if they were a foreign key, then you can build out an initializer file for Brick.  The gem automatically provides some suggestions for you based on your current database, so it's useful to make sure your database.yml file is properly configured before continuing.  By using the `install` generator, the file `config/initializers/brick.rb` is automatically written out and here is the command:
 
@@ -207,9 +208,50 @@ To configure additional options, such as defining related columns that you want 
 
 Inside the generated file many options exist, and one of which is `Brick.additional_references` which defines additional foreign key associations, and even shows some suggested ones where possible.  By default these are commented out, and by un-commenting the ones you would like (or perhaps even all of them), then it is as if these foreign keys were present to provide referential integrity.  If you then start up a `rails c` you'll find that appropriate belongs_to and has_many associations are automatically fleshed out.  Even has_many :through associations are provided when possible associative tables are identified -- that is, tables having only foreign keys that refer to other tables.
 
+### 1.c. Displaying an ERD
+
+It is a bit difficult to fully understand how things are associated by only clicking
+through data, going from one resource to the next.  So in order to better grasp how everything is associated, you can show a simple ERD diagram to see associations for the resource you're viewing, such as this glimpse of the Salesorderheader model:
+
+![sample ERD for BusinessEntity](./docs/erd1.png)
+
+From this we can see that Salesorderheader **belongs_to** Customer, Address, Salesperson,
+Salesterritory, and Shipmethod.  Foreign keys for these associations are listed under
+Salesorderheader.  The only model associated with a crow's foot designation is at the far
+right, and this symbol indicates that for Salesorderdetail there is a **has_many**
+association, so the foreign key for this association is found in that foreign table.
+
+Take special note that there are two links to Address -- one called "shiptoaddress" and
+the other "billtoaddress".  While not very common, there are times when one record should
+be associated to the same model in multiple ways, and as such have multiple foreign keys.
+When this is the case, The Brick builds out multiple **belongs_to** associations having
+unique names that are derived from the foreign key column names themselves.  Here in
+the ERD view it's easy to visualise because when a belongs_to name is not exactly the same
+as the resource to which it relates, a label is provided on the links to indicate what name
+has been applied.
+
+Opening one of these ERD diagrams is easy -- from any index view click on the ERD icon
+located to the right of the resource name.  A partial ERD diagram will open which shows
+immediately adjacent models -- that is, models which are up to one hop away via
+**belongs_to** and **has_many** associations.  Crow's foot notation indicates the "one
+and only one" and "zero to many" sides of each association as appropriate.
+
+Models related via a **has_many :through**, will show with a dashed line, such as seen
+here for the lowermost four models associated to BusinessEntity:
+
+![sample ERD for BusinessEntity](./docs/erd2.png)
+
+(The above diagrams can be seen by installing the Adventureworks sample and navigating to http://localhost:3000/person/businessentities?_brick_erd=1 and http://localhost:3000/sales/salesorderheaders?_brick_erd=1.)
+
 ### 1.f. Autogenerate Model Files
 
-You can throw anything at it -- singular / plural / uppercase / lower / etc. and it will properly set self.table_name = '....', primary_key = '...ID'.
+To create a set of model files from an existing database, you can run this generator:
+
+    bin/rails g brick:models
+
+First a table picker comes up where you choose which table(s) you wish to build models for -- by default all the tables are chosen. (Use the arrow keys and spacebar to select and deselect items in the list), then press ENTER and model files will be written into the app/models folder.
+
+Table and column names do not have to adhere to Rails convention -- singular / plural / uppercase / lower / etc. are all valid, and the resulting model files will properly set self.table_name = '....' and primary_key = '...ID' as appropriate.
 
 On associations it sets the class_name, foreign_key, and for has_many :through the source, and inverse_of when any of those are necessary. If they're not needed (which is pretty common of course when following standard Rails conventions) then it refrains.
 
@@ -340,6 +382,64 @@ Now you should be able to set up the test database for MySQL with:
 And run the tests on MySQL with:
 
     bundle exec appraisal ar-7.0 rspec spec
+
+## Setting up for Oracle on a MacOS (OSX) machine
+
+Oracle is the third most popular database solution used for Rails projects in production,
+so it only makes sense to have support for this in The Brick.  Starting with version 1.0.69
+this was added, offering full compatibility for all Brick features.  This can run on Linux,
+Windows, and Mac.
+
+One important caveat for those with Apple M1 or M2 machines -- the low-level Ruby driver which
+we rely upon will NOT function natively on Apple Silicon, so on an M1 or M2 machine you will
+have to use the Rosetta emulator to run Ruby and your entire Rails app.  In the future when an
+Apple Silicon version of Oracle Instant Client ships then everything can work natively.
+
+Before setting up the gems to give support for Oracle in ActiveRecord, there are two necessary
+libraries you will need to have installed in order to allow the ruby-oci8 gem to function.
+In turn ruby-oci8 is used by oracle_enhanced adapter to give full ActiveRecord support.  Here's
+how to get started on a Mac machine that is running Homebrew:
+
+    brew tap InstantClientTap/instantclient
+    brew install instantclient-basiclite
+    brew install instantclient-sdk
+
+Similar kind of thing on Linux -- install the Basic or Basic Lite version of OCI, and also
+the OCI SDK.  With those two libraries in place, open your **Gemfile** and remove any other
+database drivers such as sqlite3, then add these:
+
+    gem 'activerecord-oracle_enhanced-adapter'
+    gem 'ruby-oci8' # Not needed under Rails 7.x and later
+
+Now bundle, and finally in databases.yml create an entry which looks like this:
+
+```
+development:
+  adapter: oracle_enhanced
+  database: //localhost:1521/xepdb1
+  username: hr
+  password: cool_hr_pa$$w0rd
+```
+
+You can change **localhost** to be the IP address or host name of an Oracle database server
+accessible on your network.  By default Oracle uses port 1521 for connectivity.  The last
+part of the database line, in this case **xepdb1**, refers to the name of the database you can
+connect to.  If you are unsure, open SQL*Plus and issue this query:
+
+```
+SELECT name FROM V$database;
+```
+
+The **username** would often refer to the schema you wish to access, or to an account with
+privileges on various schemas you are interested in.  The **password** would have been set
+up when the user account was first established, and can be reset by logging on as SYSDBA and
+issuing this command:
+
+```
+ALTER USER hr IDENTIFIED BY cool_hr_pa$$w0rd;
+```
+
+This should be all that is necessary in order to have ActiveRecord interact with Oracle.
 
 ## Intellectual Property
 

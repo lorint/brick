@@ -123,7 +123,7 @@ module Brick
   end
 
   class << self
-    attr_accessor :default_schema, :db_schemas, :routes_done
+    attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle
 
     def set_db_schema(params)
       schema = params['_brick_schema'] || 'public'

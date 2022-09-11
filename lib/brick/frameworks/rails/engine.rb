@@ -145,7 +145,7 @@ module Brick
                                                  'nil'
                                                else
                                                  # Postgres column names are limited to 63 characters
-                                                 "#{obj_name}.#{"_br_#{assoc_name}_ct"[0..62]} || 0"
+                                                 "#{obj_name}.#{"b_r_#{assoc_name}_ct"[0..62]} || 0"
                                                end
                                      ", #{set_ct}, #{path_keys(hm_assoc, hm_fk_name, obj_name, pk)}"
                                    end
