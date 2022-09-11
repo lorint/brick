@@ -85,9 +85,9 @@ module Brick
 
             def path_keys(hm_assoc, fk_name, obj_name, pk)
               keys = if fk_name.is_a?(Array) && pk.is_a?(Array) # Composite keys?
-                       fk_name.zip(pk.map { |pk_part| "#{obj_name}.#{pk_part}" })
+                       fk_name.zip(pk.map { |fk_part| "#{obj_name}.#{fk_part}" })
                      else
-                       pk = pk.each_with_object([]) { |pk_part, s| s << "#{obj_name}.#{pk_part}" }
+                       pk = pk.map { |pk_part| "#{obj_name}.#{pk_part}" }
                        [[fk_name, pk.length == 1 ? pk.first : pk.inspect]]
                      end
               keys << [hm_assoc.inverse_of.foreign_type, hm_assoc.active_record.name] if hm_assoc.options.key?(:as)
@@ -104,8 +104,8 @@ module Brick
                 return _brick_find_template(*args, **options)
               end
 
-            if @_brick_model
-                pk = @_brick_model._brick_primary_key(::Brick.relations.fetch(model_name, nil))
+              if @_brick_model
+                pk = @_brick_model._brick_primary_key(::Brick.relations.fetch(@_brick_model&.table_name, nil))
                 obj_name = model_name.split('::').last.underscore
                 path_obj_name = model_name.underscore.tr('/', '_')
                 table_name = obj_name.pluralize

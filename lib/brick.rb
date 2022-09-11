@@ -151,6 +151,21 @@ module Brick
       @pending_models ||= {}
     end
 
+    # Convert spaces to underscores if the second character and onwards is mixed case
+    def namify(name, attempt_downcase = false)
+      name.downcase! if attempt_downcase && name =~ /^[A-Z0-9_]+$/
+      if name.include?(' ')
+        # All uppers or all lowers?
+        if name[1..-1] =~ /^[A-Z0-9_]+$/ || name[1..-1] =~ /^[a-z0-9_]+$/
+          name.titleize.tr(' ', '_')
+        else # Mixed uppers and lowers -- just remove existing spaces
+          name.tr(' ', '')
+        end
+      else
+        name
+      end
+    end
+
     def get_bts_and_hms(model)
       bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
         next if !const_defined?(a.name.to_s.singularize.camelize) && ::Brick.config.exclude_tables.include?(a.plural_name)
