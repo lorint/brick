@@ -1483,32 +1483,49 @@ module ActiveRecord::ConnectionHandling
               AND kcu2.ORDINAL_POSITION = kcu1.ORDINAL_POSITION#{"
           WHERE kcu1.CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }"
           # AND kcu2.TABLE_NAME = ?;", Apartment::Tenant.current, table_name
+        fk_references = ActiveRecord::Base.execute_sql(sql)
       when 'SQLite'
         sql = "SELECT m.name, fkl.\"from\", fkl.\"table\", m.name || '_' || fkl.\"from\" AS constraint_name
         FROM sqlite_master m
           INNER JOIN pragma_foreign_key_list(m.name) fkl ON m.type = 'table'
         ORDER BY m.name, fkl.seq"
+        fk_references = ActiveRecord::Base.execute_sql(sql)
+      when 'OracleEnhanced'
+        sql =
+        "SELECT -- fk
+               ac.owner AS constraint_schema, acc_fk.table_name, acc_fk.column_name,
+               -- referenced pk
+               ac.r_owner AS primary_schema, acc_pk.table_name AS primary_table, acc_fk.constraint_name AS constraint_schema_fk
+               -- , acc_pk.column_name
+        FROM all_cons_columns acc_fk
+          INNER JOIN all_constraints ac ON acc_fk.owner = ac.owner
+            AND acc_fk.constraint_name = ac.constraint_name
+          INNER JOIN all_cons_columns acc_pk ON ac.r_owner = acc_pk.owner
+            AND ac.r_constraint_name = acc_pk.constraint_name
+        WHERE ac.constraint_type = 'R'
+          AND ac.owner NOT IN ('SYS', 'SYSTEM')
+          AND ac.r_owner NOT IN ('SYS', 'SYSTEM')"
+        references = ActiveRecord::Base.execute_oracle(sql)
       else
+        binding.pry
       end
-      if sql
-        # ::Brick.default_schema ||= schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-        ActiveRecord::Base.execute_sql(sql).each do |fk|
-          fk = fk.values unless fk.is_a?(Array)
-          # Multitenancy makes things a little more general overall, except for non-tenanted tables
-          if apartment_excluded&.include?(fk[1].singularize.camelize)
-            fk[0] = Apartment.default_schema
-          elsif is_postgres && (fk[0] == 'public' || (is_multitenant && fk[0] == schema)) ||
-                !is_postgres && ['mysql', 'performance_schema', 'sys'].exclude?(fk[0])
-            fk[0] = nil
-          end
-          if apartment_excluded&.include?(fk[4].singularize.camelize)
-            fk[3] = Apartment.default_schema
-          elsif is_postgres && (fk[3] == 'public' || (is_multitenant && fk[3] == schema)) ||
-                !is_postgres && ['mysql', 'performance_schema', 'sys'].exclude?(fk[3])
-            fk[3] = nil
-          end
-          ::Brick._add_bt_and_hm(fk, relations)
+      # ::Brick.default_schema ||= schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+      fk_references&.each do |fk|
+        fk = fk.values unless fk.is_a?(Array)
+        # Multitenancy makes things a little more general overall, except for non-tenanted tables
+        if apartment_excluded&.include?(fk[1].singularize.camelize)
+          fk[0] = Apartment.default_schema
+        elsif is_postgres && (fk[0] == 'public' || (is_multitenant && fk[0] == schema)) ||
+              !is_postgres && ['mysql', 'performance_schema', 'sys'].exclude?(fk[0])
+          fk[0] = nil
         end
+        if apartment_excluded&.include?(fk[4].singularize.camelize)
+          fk[3] = Apartment.default_schema
+        elsif is_postgres && (fk[3] == 'public' || (is_multitenant && fk[3] == schema)) ||
+              !is_postgres && ['mysql', 'performance_schema', 'sys'].exclude?(fk[3])
+          fk[3] = nil
+        end
+        ::Brick._add_bt_and_hm(fk, relations)
       end
     end
 
@@ -1569,13 +1586,17 @@ module ActiveRecord::ConnectionHandling
   --          AND t.table_type IN ('VIEW') -- 'BASE TABLE', 'FOREIGN TABLE'
       AND t.table_name NOT IN ('pg_stat_statements', ?, ?)
     ORDER BY 1, t.table_type DESC, 2, c.ordinal_position"
+    ActiveRecord::Base.execute_sql(sql, *ar_tables)
+  end
+
+  def ar_tables
     ar_smtn = if ActiveRecord::Base.respond_to?(:schema_migrations_table_name)
                 ActiveRecord::Base.schema_migrations_table_name
               else
                 'schema_migrations'
               end
     ar_imtn = ActiveRecord.version >= ::Gem::Version.new('5.0') ? ActiveRecord::Base.internal_metadata_table_name : ''
-    ActiveRecord::Base.execute_sql(sql, ar_smtn, ar_imtn)
+    [ar_smtn, ar_imtn]
   end
 end
 
