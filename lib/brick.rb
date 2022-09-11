@@ -123,7 +123,7 @@ module Brick
   end
 
   class << self
-    attr_accessor :default_schema, :db_schemas, :routes_done
+    attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle
 
     def set_db_schema(params)
       schema = params['_brick_schema'] || 'public'
@@ -560,7 +560,11 @@ ActiveSupport.on_load(:active_record) do
         class << self
           def execute_sql(sql, *param_array)
             param_array = param_array.first if param_array.length == 1 && param_array.first.is_a?(Array)
-            connection.execute(send(:sanitize_sql_array, [sql] + param_array))
+            if ['OracleEnhanced'].include?(ActiveRecord::Base.connection.adapter_name)
+              connection.exec_query(send(:sanitize_sql_array, [sql] + param_array)).rows
+            else
+              connection.execute(send(:sanitize_sql_array, [sql] + param_array))
+            end
           end
         end
       end
@@ -718,6 +722,22 @@ ActiveSupport.on_load(:active_record) do
                 self.default_scopes += [scope]
               end
             end
+          end
+        end
+      end
+    end
+
+    # Migration stuff
+    module ConnectionAdapters
+      # Override the downcasing implementation from the OracleEnhanced gem as it has bad regex
+      if const_defined?(:OracleEnhanced)
+        module OracleEnhanced::Quoting
+          private
+
+          def oracle_downcase(column_name)
+            return nil if column_name.nil?
+
+            /^[A-Za-z0-9_]+$/ =~ column_name ? column_name.downcase : column_name
           end
         end
       end

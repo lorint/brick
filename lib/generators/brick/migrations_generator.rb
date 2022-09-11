@@ -23,6 +23,14 @@ module Brick
                   'time with time zone' => 'time',
                   'double precision' => 'float',
                   'smallint' => 'integer', # %%% Need to put in "limit: 2"
+                  # # Oracle data types
+                  'VARCHAR2' => 'string',
+                  'CHAR' => 'string',
+                  ['NUMBER', 22] => 'integer',
+                  /^INTERVAL / => 'string', # Time interval stuff like INTERVAL YEAR(2) TO MONTH, INTERVAL '999' DAY(3), etc
+                  'XMLTYPE' => 'xml',
+                  'RAW' => 'binary',
+                  'SDO_GEOMETRY' => 'geometry',
                   # Sqlite data types
                   'TEXT' => 'text',
                   '' => 'string',
@@ -122,7 +130,7 @@ module Brick
         fringe.each do |tbl|
           next unless (relation = ::Brick.relations.fetch(tbl, nil))&.fetch(:cols, nil)&.present?
 
-          pkey_cols = (rpk = relation[:pkey].values.flatten) & (arpk = [ActiveRecord::Base.primary_key].flatten)
+          pkey_cols = (rpk = relation[:pkey].values.flatten) & (arpk = [ApplicationRecord.primary_key].flatten.sort)
           # In case things aren't as standard
           if pkey_cols.empty?
             pkey_cols = if rpk.empty? && relation[:cols][arpk.first]&.first == key_type
@@ -154,8 +162,12 @@ module Brick
           # Support missing primary key (by adding:  ,id: false)
           id_option = if pk_is_also_fk || !pkey_cols&.present?
                         ', id: false'
-                      elsif ((pkey_col_first = relation[:cols][pkey_cols&.first]&.first) &&
-                             (pkey_col_first = SQL_TYPES[pkey_col_first] || pkey_col_first) != key_type)
+                      elsif ((pkey_col_first = (col_def = relation[:cols][pkey_cols&.first])&.first) &&
+                             (pkey_col_first = SQL_TYPES[pkey_col_first] || SQL_TYPES[col_def&.[](0..1)] ||
+                                               SQL_TYPES.find { |r| r.first.is_a?(Regexp) && pkey_col_first =~ r.first }&.last ||
+                                               pkey_col_first
+                             ) != key_type
+                            )
                         case pkey_col_first
                         when 'integer'
                           ', id: :serial'
@@ -187,8 +199,10 @@ module Brick
           possible_ts = [] # Track possible generic timestamps
           add_fks = [] # Track foreign keys to add after table creation
           relation[:cols].each do |col, col_type|
-            sql_type = SQL_TYPES[col_type.first] || col_type.first
-            suffix = col_type[3] ? +', null: false' : +''
+            sql_type = SQL_TYPES[col_type.first] || SQL_TYPES[col_type[0..1]] ||
+                       SQL_TYPES.find { |r| r.first.is_a?(Regexp) && col_type.first =~ r.first }&.last ||
+                       col_type.first
+            suffix = col_type[3] || pkey_cols&.include?(col) ? +', null: false' : +''
             if !is_4x_rails && klass && (comment = klass.columns_hash.fetch(col, nil)&.comment)&.present?
               suffix << ", comment: #{comment.inspect}"
             end
