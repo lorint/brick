@@ -7,7 +7,7 @@ gem_spec = Gem::Specification.new do |s|
   s.name = 'brick'
   s.version = Brick::VERSION::STRING
   s.platform = Gem::Platform::RUBY
-  s.summary = 'Import and Export Data'
+  s.summary = 'Create a Rails app from data alone'
   s.description = <<~EOS
     Auto-create models, views, controllers, and routes with this slick Rails extension
   EOS
@@ -29,7 +29,9 @@ gem_spec = Gem::Specification.new do |s|
 
   require 'brick/util'
 
-  s.add_dependency 'activerecord', ['>= 4.2']
+  # While only Rails 4.2 and above are officially supported, there are some useful things
+  # that will work in older versions of Rails.
+  s.add_dependency 'activerecord', ['>= 3.1']
   s.add_dependency 'fancy_gets'
 
   s.add_development_dependency 'appraisal', '~> 2.2'
