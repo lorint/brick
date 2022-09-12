@@ -49,8 +49,10 @@ module Brick
       # After we're initialized and before running the rest of stuff, put our configuration in place
       ActiveSupport.on_load(:after_initialize) do |app|
         assets_path = File.expand_path("#{__dir__}/../../../../vendor/assets")
-        (app.config.assets.precompile ||= []) << "#{assets_path}/images/brick_erd.png"
-        (app.config.assets.paths ||= []) << assets_path
+        if (app_config = app.config).respond_to?(:assets)
+          (app_config.assets.precompile ||= []) << "#{assets_path}/images/brick_erd.png"
+          (app.config.assets.paths ||= []) << assets_path
+        end
         # ====================================
         # Dynamically create generic templates
         # ====================================

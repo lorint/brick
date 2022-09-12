@@ -7,18 +7,19 @@ from any existing relational database!  This gem auto-creates models, views, con
 routes, and instead of being some big pile of raw scaffolded files, they exist just in RAM.
 The beauty of this is that if you make database changes such as adding new tables or columns,
 basic functionality is immediately available without having to add any code.  General behaviour
-around things like if lists remain read-only, or if editing is enabled then the way in which to
-render -- either inline or via a pop-up modal -- can be established.  More
-refined behaviour can be applied on a model-by-model basis.
+around things like having lists be read-only, or when editing is enabled then rules about
+how to render the layout -- either inline or via a pop-up modal -- can be established.  More
+refined behaviour and overrides for the defaults can be applied on a model-by-model basis.
 
 | ![sample look at sales data](./docs/erd3.png) |
 |-|
 
 You can use The Brick in several ways -- from taking a quick peek inside an existing data set,
 with full ability to navigate across associations -- to easily updating and creating data,
-exporting tables or views out to CSV or Google Sheets, importing sets of data -- creating a
-minimally-scaffolded application one file at a time, experimenting with various data layouts to
-see how functional a given database design will be -- and more.
+exporting tables or views out to CSV or Google Sheets -- to importing sets of data, even when
+each row targets multiple destination tables -- to creating a minimally-scaffolded application
+one file at a time -- to experimenting with various data layouts, seeing how functional a given
+database design will be -- and more.
 
 Probably want to pop some corn and have **VOLUME UP** (on the player's slider below) for this
 video walkthrough:
@@ -173,14 +174,14 @@ like this in config/initializers/brick.rb:
     Brick.schema_behavior = { multitenant: {} }
 
 If you provide a sample representative tenant schema that is bound to exist then it gets even
-a little smarter about things, being able to auto-recognise models being used on the has_many
+a little smarter about things, being able to auto-recognise models being used on the **has_many**
 side of polymorphic associations.  For example, if globex_corp is a schema that has a good
 representation of data, then you might want to use this line in the brick initialiser:
 
     Brick.schema_behavior = { multitenant: { schema_to_analyse: 'globex_corp' } }
 
 The way this auto-polymorphic discovery functions is by analysing all existing types in the
-_type columns of these associations.  For instance, let's say you have an images table with the
+*able_type columns of these associations.  For instance, let's say you have an images table with the
 columns `imageable_type` and `imageable_id`, and a goal to have the `Image` model get built out
 with `belongs_to :imageable, polymorphic: true`.  In that case to properly establish all the
 inverse associations of `has_many :images, as: :imageable` in each appropriate model, then
@@ -191,8 +192,9 @@ polymorphic association.
 A few other gems are auto-recognised in order to support data types such as
 [pg_ltree](https://github.com/sjke/pg_ltree)
 for hierarchical data sets in Postgres, [RGeo](https://github.com/rgeo/rgeo) for spatial and
-geolocation data types, and [ActiveUUID](https://github.com/jashmenn/activeuuid) in order
-to use uuids with a non-Postgres database.
+geolocation data types, [oracle_enhanced adapter](https://github.com/rsim/oracle-enhanced) for
+Oracle databases, and [ActiveUUID](https://github.com/jashmenn/activeuuid) in order
+to use uuids with MySQL or Sqlite databases.
 
 ### 1.b. Installation
 
@@ -200,7 +202,12 @@ to use uuids with a non-Postgres database.
     ```
     gem 'brick'
     ```
-2. To test things, configure database.yml to use Postgres, Sqlite3, Oracle, or MySQL, and point to a relational database.  Then from within `rails c` attempt to reference a model by what its normal name might be.  For instance, if you have a `plants` table then just type `Plant.count` and see that automatically a model is built out on-the-fly and the count for this `plants` table is shown.  If you similarly have `products` that relates to `categories` with a foreign key then notice that by referencing `Category` the gem builds out a model which has a has_many association called :products.  Without writing any code these associations are all wired up as long as you have proper foreign keys in place.
+2. To test things, configure database.yml to use Postgres, MySQL, Oracle, or Sqlite3, and point to a relational database.  Then from within `bin/rails c` attempt to reference a model by what its normal name might be.  For instance, if you have a `plants` table then just type `Plant.count` and see that automatically a model is built out on-the-fly and the count for this `plants` table is shown.  If you similarly have `products` that relates to `categories` with a foreign key then notice that by referencing `Category` the gem builds out a model which has a **has_many** association called :products.  Without writing any code these associations are all wired up as long as you have proper foreign keys in place.
+
+Even if your table and column names do not follow Rails' conventions, everything still works
+because as models are built out then `self.table_name = ` and `self.primary_key = ` entries are
+provided as needed.  Likewise, **belongs_to** and **has_many** associations will indicate
+which foreign key to use whenever anything is non-standard.  Everything just works.
 
 To configure additional options, such as defining related columns that you want to have act as if they were a foreign key, then you can build out an initializer file for Brick.  The gem automatically provides some suggestions for you based on your current database, so it's useful to make sure your database.yml file is properly configured before continuing.  By using the `install` generator, the file `config/initializers/brick.rb` is automatically written out and here is the command:
 
