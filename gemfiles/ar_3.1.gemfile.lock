@@ -27,12 +27,11 @@ GEM
     builder (3.0.4)
     byebug (11.1.3)
     coderay (1.1.3)
-    concurrent-ruby (1.1.9)
+    concurrent-ruby (1.1.10)
     database_cleaner (1.99.0)
     diff-lcs (1.5.0)
     erubis (2.7.0)
-    fancy_gets (0.1.10)
-    ffaker (2.20.0)
+    ffaker (2.21.0)
     generator_spec (0.9.4)
       activesupport (>= 3.0.0)
       railties (>= 3.0.0)
@@ -96,7 +95,7 @@ GEM
       power_assert
     thor (0.14.6)
     tilt (1.4.1)
-    tzinfo (0.3.60)
+    tzinfo (0.3.61)
 
 PLATFORMS
   ruby
