@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.69         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.70         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -455,6 +455,50 @@ ALTER USER hr IDENTIFIED BY cool_hr_pa$$w0rd;
 ```
 
 This should be all that is necessary in order to have ActiveRecord interact with Oracle.
+
+## Setting up for Microsoft SQL Server on a MacOS (OSX) machine
+
+MSSQL is the fifth most popular database solution used for Rails projects in production, so it
+only makes sense to have support for this in The Brick.  Starting with version 1.0.70 this was
+added, offering full compatibility for all Brick features.  The client library can run on Linux,
+Windows, and Mac.
+
+Before setting up the gems to give support for SQL Server in ActiveRecord, there is a
+necessary library you will need to have installed in order to allow the
+activerecord-sqlserver-adapter gem to function.  Here's how to get started on a Mac machine
+that is running Homebrew:
+
+    brew install freetds
+    bundle config set --local build.tiny_tds "--with-opt-dir=$(brew --prefix freetds)"
+
+On Linux it's even simpler -- just install **freetds**.
+
+If you're creating a new application then conveniently Rails already has an understanding of the
+SQL Server gem built-in, so if you run this:
+
+    rails new brick_app -d sqlserver
+
+then automatically the main gem is put in place for you, along with a sample database.yml.
+
+In your Rails project, open your **Gemfile** and confirm that proper database drivers are present:
+
+    gem 'activerecord-sqlserver-adapter'
+    gem 'tiny_tds'
+    gem 'brick'
+
+Now bundle, and finally in databases.yml create an entry which looks like this:
+
+```
+development:
+  adapter: sqlserver
+  encoding: utf8
+  username: sa
+  password: <%= ENV["SA_PASSWORD"] %>
+  host: localhost
+```
+
+If your database instance is not the default instance, but instead a named instance, then you
+can specify the instance name like this: **localhost\MSSQLSERVER**.
 
 ## Intellectual Property
 

@@ -560,7 +560,11 @@ ActiveSupport.on_load(:active_record) do
         class << self
           def execute_sql(sql, *param_array)
             param_array = param_array.first if param_array.length == 1 && param_array.first.is_a?(Array)
-            connection.execute(send(:sanitize_sql_array, [sql] + param_array))
+            if ActiveRecord::Base.connection.adapter_name == 'SQLServer'
+              connection.exec_query(send(:sanitize_sql_array, [sql] + param_array)).rows
+            else
+              connection.execute(send(:sanitize_sql_array, [sql] + param_array))
+            end
           end
         end
       end
