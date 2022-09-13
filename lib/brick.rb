@@ -151,6 +151,20 @@ module Brick
       @pending_models ||= {}
     end
 
+    # Convert spaces to underscores if the second character and onwards is mixed case
+    def namify(name)
+      if name.include?(' ')
+        # All uppers or all lowers?
+        if name[1..-1] =~ /^[A-Z0-9_]+$/ || name[1..-1] =~ /^[a-z0-9_]+$/
+          name.titleize.tr(' ', '_')
+        else # Mixed uppers and lowers -- just remove existing spaces
+          name.tr(' ', '')
+        end
+      else
+        name
+      end
+    end
+
     def get_bts_and_hms(model)
       bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
         next if !const_defined?(a.name.to_s.singularize.camelize) && ::Brick.config.exclude_tables.include?(a.plural_name)
@@ -469,9 +483,10 @@ In config/initializers/brick.rb appropriate entries would look something like:
         # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
         # If auto-controllers and auto-models are both enabled then this makes sense:
         ::Brick.relations.each do |rel_name, v|
-          rel_name = rel_name.split('.').map(&:underscore)
+          rel_name = rel_name.split('.').map { |x| ::Brick.namify(x).underscore }
           schema_names = rel_name[0..-2]
           schema_names.shift if ::Brick.apartment_multitenant && schema_names.first == Apartment.default_schema
+          # %%% If more than one schema has the same table name, will need to add a schema name prefix to have uniqueness
           k = rel_name.last
           unless existing_controllers.key?(controller_name = k.pluralize)
             options = {}
