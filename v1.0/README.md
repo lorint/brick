@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.69         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.70         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -202,7 +202,7 @@ to use uuids with MySQL or Sqlite databases.
     ```
     gem 'brick'
     ```
-2. To test things, configure database.yml to use Postgres, MySQL, Oracle, or Sqlite3, and point to a relational database.  Then from within `bin/rails c` attempt to reference a model by what its normal name might be.  For instance, if you have a `plants` table then just type `Plant.count` and see that automatically a model is built out on-the-fly and the count for this `plants` table is shown.  If you similarly have `products` that relates to `categories` with a foreign key then notice that by referencing `Category` the gem builds out a model which has a **has_many** association called :products.  Without writing any code these associations are all wired up as long as you have proper foreign keys in place.
+2. To test things, configure database.yml to use Postgres, MySQL, Oracle, Microsoft SQL Server, or Sqlite3, and point to a relational database.  Then from within `bin/rails c` attempt to reference a model by what its normal name might be.  For instance, if you have a `plants` table then just type `Plant.count` and see that automatically a model is built out on-the-fly and the count for this `plants` table is shown.  If you similarly have `products` that relates to `categories` with a foreign key then notice that by referencing `Category` the gem builds out a model which has a **has_many** association called :products.  Without writing any code these associations are all wired up as long as you have proper foreign keys in place.
 
 Even if your table and column names do not follow Rails' conventions, everything still works
 because as models are built out then `self.table_name = ` and `self.primary_key = ` entries are

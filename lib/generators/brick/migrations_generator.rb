@@ -31,6 +31,13 @@ module Brick
                   'XMLTYPE' => 'xml',
                   'RAW' => 'binary',
                   'SDO_GEOMETRY' => 'geometry',
+                  # MSSQL data types
+                  'int' => 'integer',
+                  'nvarchar' => 'string',
+                  'nchar' => 'string',
+                  'datetime2' => 'timestamp',
+                  'bit' => 'boolean',
+                  'varbinary' => 'binary',
                   # Sqlite data types
                   'TEXT' => 'text',
                   '' => 'string',
@@ -149,7 +156,7 @@ module Brick
                    end
           unless schema.blank? || built_schemas.key?(schema)
             mig = +"  def change\n    create_schema(:#{schema}) unless schema_exists?(:#{schema})\n  end\n"
-            migration_file_write(mig_path, "create_db_schema_#{schema}", current_mig_time += 1.minute, ar_version, mig)
+            migration_file_write(mig_path, "create_db_schema_#{schema.underscore}", current_mig_time += 1.minute, ar_version, mig)
             built_schemas[schema] = nil
           end
 
@@ -159,8 +166,9 @@ module Brick
           # a column definition which includes :primary_key -- %%% also using a data type of bigserial or serial
           # if this one has come in as bigint or integer.
           pk_is_also_fk = fkey_cols.any? { |assoc| pkey_cols&.first == assoc[:fk] } ? pkey_cols&.first : nil
-          # Support missing primary key (by adding:  ,id: false)
+          # Support missing primary key (by adding:  , id: false)
           id_option = if pk_is_also_fk || !pkey_cols&.present?
+                        needs_serial_col = true
                         ', id: false'
                       elsif ((pkey_col_first = (col_def = relation[:cols][pkey_cols&.first])&.first) &&
                              (pkey_col_first = SQL_TYPES[pkey_col_first] || SQL_TYPES[col_def&.[](0..1)] ||
@@ -176,9 +184,14 @@ module Brick
                         else
                           ", id: :#{pkey_col_first}" # Something like:  id: :integer, primary_key: :businessentityid
                         end +
-                          (pkey_cols.first ? ", primary_key: :#{pkey_cols.first}" : '') +
-                          (!is_4x_rails && (comment = relation&.fetch(:description, nil))&.present? ? ", comment: #{comment.inspect}" : '')
+                          (pkey_cols.first ? ", primary_key: :#{pkey_cols.first}" : '')
                       end
+          if !id_option && pkey_cols.sort != arpk
+            id_option = ", primary_key: :#{pkey_cols.first}"
+          end
+          if !is_4x_rails && (comment = relation&.fetch(:description, nil))&.present?
+            (id_option ||= +'') << ", comment: #{comment.inspect}"
+          end
           # Find the ActiveRecord class in order to see if the columns have comments
           unless is_4x_rails
             klass = begin
@@ -207,12 +220,16 @@ module Brick
               suffix << ", comment: #{comment.inspect}"
             end
             # Determine if this column is used as part of a foreign key
-            if fk = fkey_cols.find { |assoc| col == assoc[:fk] }
+            if (fk = fkey_cols.find { |assoc| col == assoc[:fk] })
               to_table = fk[:inverse_table].split('.')
               to_table = to_table.length == 1 ? ":#{to_table.first}" : "'#{fk[:inverse_table]}'"
+              if needs_serial_col && pkey_cols&.include?(col) && (new_serial_type = {'integer' => 'serial', 'bigint' => 'bigserial'}[sql_type])
+                sql_type = new_serial_type
+                needs_serial_col = false
+              end
               if fk[:fk] != "#{fk[:assoc_name].singularize}_id" # Need to do our own foreign_key tricks, not use references?
                 column = fk[:fk]
-                mig << "      t.#{sql_type} :#{column}#{suffix}\n"
+                mig << emit_column(sql_type, column, suffix)
                 add_fks << [to_table, column, ::Brick.relations[fk[:inverse_table]]]
               else
                 suffix << ", type: :#{sql_type}" unless sql_type == key_type

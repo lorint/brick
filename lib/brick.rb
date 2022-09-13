@@ -561,7 +561,7 @@ ActiveSupport.on_load(:active_record) do
         class << self
           def execute_sql(sql, *param_array)
             param_array = param_array.first if param_array.length == 1 && param_array.first.is_a?(Array)
-            if ['OracleEnhanced'].include?(ActiveRecord::Base.connection.adapter_name)
+            if ['OracleEnhanced', 'SQLServer'].include?(ActiveRecord::Base.connection.adapter_name)
               connection.exec_query(send(:sanitize_sql_array, [sql] + param_array)).rows
             else
               connection.execute(send(:sanitize_sql_array, [sql] + param_array))
@@ -739,6 +739,47 @@ ActiveSupport.on_load(:active_record) do
             return nil if column_name.nil?
 
             /^[A-Za-z0-9_]+$/ =~ column_name ? column_name.downcase : column_name
+          end
+        end
+      end
+      if const_defined?(:SQLServerAdapter)
+        class SQLServer::TableDefinition
+          alias _brick_new_column_definition new_column_definition
+          def new_column_definition(name, type, **options)
+            case type
+            when :serial
+              type = :integer
+              options[:is_identity] = true
+            when :bigserial
+              type = :bigint
+              options[:is_identity] = true
+            end
+            _brick_new_column_definition(name, type, **options)
+          end
+          def serial(*args)
+            options = args.extract_options!
+            options[:is_identity] = true
+            args.each { |name| column(name, 'integer', options) }
+          end
+          def bigserial(*args)
+            options = args.extract_options!
+            options[:is_identity] = true
+            args.each { |name| column(name, 'bigint', options) }
+          end
+          # Seems that geography gets used a fair bit in MSSQL
+          def geography(*args)
+            options = args.extract_options!
+            # options[:precision] ||= 8
+            # options[:scale] ||= 2
+            args.each { |name| column(name, 'geography', options) }
+          end
+        end
+        class SQLServerAdapter
+          unless respond_to?(:schema_exists?)
+            def schema_exists?(schema)
+              schema_sql = 'SELECT 1 FROM sys.schemas WHERE name = ?'
+              ActiveRecord::Base.execute_sql(schema_sql, schema).present?
+            end
           end
         end
       end
