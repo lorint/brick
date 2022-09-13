@@ -674,7 +674,7 @@ Module.class_exec do
        )
       return possible
     end
-    class_name = args.first.to_s
+    class_name = ::Brick.namify(args.first.to_s)
     # self.name is nil when a model name is requested in an .erb file
     base_module = (self < ActiveRecord::Migration || !self.name) ? Object : self
     # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
@@ -788,7 +788,7 @@ class Object
           schema_name = Apartment.default_schema
         end
         # Maybe, just maybe there's a database table that will satisfy this need
-        if (matching = [table_name, singular_table_name, plural_class_name, model_name].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
+        if (matching = [table_name, singular_table_name, plural_class_name, model_name, table_name.titleize].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
           build_model_worker(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching)
         end
       end
@@ -1603,7 +1603,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       fk_references&.each do |fk|
         fk = fk.values unless fk.is_a?(Array)
         # Multitenancy makes things a little more general overall, except for non-tenanted tables
-        if apartment_excluded&.include?(fk[1].singularize.camelize)
+        if apartment_excluded&.include?(::Brick.namify(fk[1]).singularize.camelize)
           fk[0] = Apartment.default_schema
         elsif (is_postgres && (fk[0] == 'public' || (is_multitenant && fk[0] == schema))) ||
               (::Brick.is_oracle && fk[0] == schema) ||
@@ -1724,7 +1724,7 @@ module Brick
       bt_assoc_name = ::Brick.namify(fk[2], true)
       unless is_polymorphic
         bt_assoc_name = if bt_assoc_name.underscore.end_with?('_id')
-                          bt_assoc_name[0..-4]
+                          bt_assoc_name[-3] == '_' ? bt_assoc_name[0..-4] : bt_assoc_name[0..-3]
                         elsif bt_assoc_name.downcase.end_with?('id') && bt_assoc_name.exclude?('_')
                           bt_assoc_name[0..-3] # Make the bold assumption that we can just peel off any final ID part
                         else
@@ -1735,8 +1735,9 @@ module Brick
 
       # %%% Temporary schema patch
       for_tbl = fk[1]
+      fk_namified = ::Brick.namify(fk[1])
       apartment = Object.const_defined?('Apartment') && Apartment
-      fk[0] = Apartment.default_schema if apartment && apartment.excluded_models.include?(for_tbl.singularize.camelize)
+      fk[0] = Apartment.default_schema if apartment && apartment.excluded_models.include?(fk_namified.singularize.camelize)
       fk[1] = "#{fk[0]}.#{fk[1]}" if fk[0] # && fk[0] != ::Brick.default_schema
       bts = (relation = relations.fetch(fk[1], nil))&.fetch(:fks) { relation[:fks] = {} }
 
@@ -1835,7 +1836,7 @@ module Brick
                   else
                     fk[1]
                   end
-        assoc_hm = hms[hm_cnstr_name] = { is_bt: false, fk: fk[2], assoc_name: for_tbl.pluralize, alternate_name: bt_assoc_name,
+        assoc_hm = hms[hm_cnstr_name] = { is_bt: false, fk: fk[2], assoc_name: fk_namified.pluralize, alternate_name: bt_assoc_name,
                                           inverse_table: inv_tbl, inverse: assoc_bt }
         assoc_hm[:polymorphic] = true if is_polymorphic
         hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }

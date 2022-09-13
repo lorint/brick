@@ -484,9 +484,10 @@ In config/initializers/brick.rb appropriate entries would look something like:
         # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
         # If auto-controllers and auto-models are both enabled then this makes sense:
         ::Brick.relations.each do |rel_name, v|
-          rel_name = rel_name.split('.').map(&:underscore)
+          rel_name = rel_name.split('.').map { |x| ::Brick.namify(x).underscore }
           schema_names = rel_name[0..-2]
           schema_names.shift if ::Brick.apartment_multitenant && schema_names.first == Apartment.default_schema
+          # %%% If more than one schema has the same table name, will need to add a schema name prefix to have uniqueness
           k = rel_name.last
           unless existing_controllers.key?(controller_name = k.pluralize)
             options = {}
