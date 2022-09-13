@@ -384,6 +384,7 @@ module ActiveRecord
     def brick_select(params, selects = nil, order_by = nil, translations = {}, join_array = ::Brick::JoinArray.new)
       is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2'
+      is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer'
       is_distinct = nil
       wheres = {}
       params.each do |k, v|
@@ -411,7 +412,7 @@ module ActiveRecord
           col_alias = " AS #{col.name}_" if (col_name = col.name) == 'class'
           selects << if is_mysql
                        "`#{tbl_no_schema}`.`#{col_name}`#{col_alias}"
-                     elsif is_postgres
+                     elsif is_postgres || is_mssql
                        # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
                        cast_as_text = '::text' if is_distinct && Brick.relations[klass.table_name]&.[](:cols)&.[](col_name)&.first&.start_with?('xml')
                        "\"#{tbl_no_schema}\".\"#{col_name}\"#{cast_as_text}#{col_alias}"
@@ -456,6 +457,8 @@ module ActiveRecord
                            "`#{field_tbl_name}`.`#{sel_col.last}` AS `#{col_alias}`"
                          elsif is_postgres
                            "\"#{field_tbl_name}\".\"#{sel_col.last}\"#{'::text' if is_xml} AS \"#{col_alias}\""
+                         elsif is_mssql
+                           "\"#{field_tbl_name}\".\"#{sel_col.last}\" AS \"#{col_alias}\""
                          else
                            "#{field_tbl_name}.#{sel_col.last} AS \"#{col_alias}\""
                          end
@@ -469,7 +472,7 @@ module ActiveRecord
                 id_for_tables[v.first] << if id_part
                                             selects << if is_mysql
                                                          "#{"`#{tbl_name}`.`#{id_part}`"} AS `#{(id_alias = "br_fk_#{v.first}__#{id_part}")}`"
-                                                       elsif is_postgres
+                                                       elsif is_postgres || is_mssql
                                                          "#{"\"#{tbl_name}\".\"#{id_part}\""} AS \"#{(id_alias = "br_fk_#{v.first}__#{id_part}")}\""
                                                        else
                                                          "#{"#{tbl_name}.#{id_part}"} AS \"#{(id_alias = "br_fk_#{v.first}__#{id_part}")}\""
@@ -513,7 +516,7 @@ module ActiveRecord
         pri_tbl_name = is_mysql ? "`#{pri_tbl.table_name}`" : "\"#{pri_tbl.table_name.gsub('.', '"."')}\""
         pri_tbl_name = if is_mysql
                          "`#{pri_tbl.table_name}`"
-                       elsif is_postgres
+                       elsif is_postgres || is_mssql
                          "\"#{pri_tbl.table_name.gsub('.', '"."')}\""
                        else
                          pri_tbl.table_name
@@ -532,12 +535,12 @@ module ActiveRecord
         end
         hm_table_name = if is_mysql
                           "`#{associative&.table_name || hm.klass.table_name}`"
-                        elsif is_postgres
+                        elsif is_postgres || is_mssql
                           "\"#{(associative&.table_name || hm.klass.table_name).gsub('.', '"."')}\""
                         else
                           associative&.table_name || hm.klass.table_name
                         end
-        group_bys = ::Brick.is_oracle ? selects : (1..selects.length).to_a
+        group_bys = ::Brick.is_oracle || is_mssql ? selects : (1..selects.length).to_a
         join_clause = "LEFT OUTER
 JOIN (SELECT #{selects.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}#{count_column
           }) AS c_t_ FROM #{hm_table_name} GROUP BY #{group_bys.join(', ')}) #{tbl_alias}"
@@ -1390,12 +1393,20 @@ module ActiveRecord::ConnectionHandling
       # puts ActiveRecord::Base.execute_sql("SELECT current_setting('SEARCH_PATH')").to_a.inspect
 
       is_postgres = nil
+      is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer'
       case ActiveRecord::Base.connection.adapter_name
-      when 'PostgreSQL'
-        is_postgres = true
+      when 'PostgreSQL', 'SQLServer'
+        is_postgres = !is_mssql
         db_schemas = ActiveRecord::Base.execute_sql('SELECT DISTINCT table_schema FROM INFORMATION_SCHEMA.tables;')
         ::Brick.db_schemas = db_schemas.each_with_object({}) do |row, s|
-          row = row.is_a?(String) ? row : row['table_schema']
+          row = case row
+                when String
+                  row
+                when Array
+                  row.first
+                else
+                  row['table_schema']
+                end
           # Remove any system schemas
           s[row] = nil unless ['information_schema', 'pg_catalog'].include?(row)
         end
@@ -1444,7 +1455,7 @@ module ActiveRecord::ConnectionHandling
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'SQLite' # These bring back a hash for each row because the query uses column aliases
         # schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-        ActiveRecord::Base.retrieve_schema_and_tables(sql, is_postgres, schema).each do |r|
+        ActiveRecord::Base.retrieve_schema_and_tables(sql, is_postgres, is_mssql, schema).each do |r|
           # If Apartment gem lists the table as being associated with a non-tenanted model then use whatever it thinks
           # is the default schema, usually 'public'.
           schema_name = if ::Brick.config.schema_behavior[:multitenant]
@@ -1471,7 +1482,8 @@ module ActiveRecord::ConnectionHandling
           # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
         end
       else # MySQL2 and OracleEnhanced act a little differently, bringing back an array for each row
-        schema_and_tables = if ActiveRecord::Base.connection.adapter_name == 'OracleEnhanced'
+        schema_and_tables = case ActiveRecord::Base.connection.adapter_name
+                            when 'OracleEnhanced'
                               sql =
 "SELECT c.owner AS schema, c.table_name AS relation_name,
   CASE WHEN v.owner IS NULL THEN 'BASE_TABLE' ELSE 'VIEW' END AS table_type,
@@ -1537,9 +1549,9 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       # end
       # schema = ::Brick.default_schema # Reset back for this next round of fun
       case ActiveRecord::Base.connection.adapter_name
-      when 'PostgreSQL', 'Mysql2'
+      when 'PostgreSQL', 'Mysql2', 'SQLServer'
         sql = "SELECT kcu1.CONSTRAINT_SCHEMA, kcu1.TABLE_NAME, kcu1.COLUMN_NAME,
-                  kcu2.CONSTRAINT_SCHEMA AS primary_schema, kcu2.TABLE_NAME AS primary_table, kcu1.CONSTRAINT_NAME AS CONSTRAINT_SCHEMA_FK
+            kcu2.CONSTRAINT_SCHEMA AS primary_schema, kcu2.TABLE_NAME AS primary_table, kcu1.CONSTRAINT_NAME AS CONSTRAINT_SCHEMA_FK
           FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS rc
             INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu1
               ON kcu1.CONSTRAINT_CATALOG = rc.CONSTRAINT_CATALOG
@@ -1550,7 +1562,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
               AND kcu2.CONSTRAINT_SCHEMA = rc.UNIQUE_CONSTRAINT_SCHEMA
               AND kcu2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME#{"
               AND kcu2.TABLE_NAME = kcu1.REFERENCED_TABLE_NAME
-              AND kcu2.COLUMN_NAME = kcu1.REFERENCED_COLUMN_NAME" unless is_postgres }
+              AND kcu2.COLUMN_NAME = kcu1.REFERENCED_COLUMN_NAME" unless is_postgres || is_mssql }
               AND kcu2.ORDINAL_POSITION = kcu1.ORDINAL_POSITION#{"
           WHERE kcu1.CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }"
           # AND kcu2.TABLE_NAME = ?;", Apartment::Tenant.current, table_name
@@ -1629,29 +1641,35 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
     ::Brick.load_additional_references if initializer_loaded
   end
 
-  def retrieve_schema_and_tables(sql = nil, is_postgres = nil, schema = nil)
+  def retrieve_schema_and_tables(sql = nil, is_postgres = nil, is_mssql = nil, schema = nil)
+    is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer' if is_mssql.nil?
     sql ||= "SELECT t.table_schema AS \"schema\", t.table_name AS relation_name, t.table_type,#{"
       pg_catalog.obj_description(
         ('\"' || t.table_schema || '\".\"' || t.table_name || '\"')::regclass, 'pg_class'
       ) AS table_description," if is_postgres}
       c.column_name, c.data_type,
       COALESCE(c.character_maximum_length, c.numeric_precision) AS max_length,
-      tc.constraint_type AS const, kcu.constraint_name AS \"key\",
+      kcu.constraint_type AS const, kcu.constraint_name AS \"key\",
       c.is_nullable
     FROM INFORMATION_SCHEMA.tables AS t
       LEFT OUTER JOIN INFORMATION_SCHEMA.columns AS c ON t.table_schema = c.table_schema
         AND t.table_name = c.table_name
-      LEFT OUTER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu ON
-        -- ON kcu.CONSTRAINT_CATALOG = t.table_catalog AND
+        LEFT OUTER JOIN
+        (SELECT kcu1.constraint_schema, kcu1.table_name, kcu1.ordinal_position,
+        tc.constraint_type, kcu1.constraint_name
+        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu1
+        INNER JOIN INFORMATION_SCHEMA.table_constraints AS tc
+          ON kcu1.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+          AND kcu1.TABLE_NAME = tc.TABLE_NAME
+          AND kcu1.CONSTRAINT_NAME = tc.constraint_name
+          AND tc.constraint_type != 'FOREIGN KEY' -- For MSSQL
+        ) AS kcu ON
+        -- kcu.CONSTRAINT_CATALOG = t.table_catalog AND
         kcu.CONSTRAINT_SCHEMA = c.table_schema
-        AND kcu.TABLE_NAME = c.table_name
-        AND kcu.position_in_unique_constraint IS NULL
+        AND kcu.TABLE_NAME = c.table_name#{"
+    --    AND kcu.position_in_unique_constraint IS NULL" unless is_mssql}
         AND kcu.ordinal_position = c.ordinal_position
-      LEFT OUTER JOIN INFORMATION_SCHEMA.table_constraints AS tc
-        ON kcu.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
-        AND kcu.TABLE_NAME = tc.TABLE_NAME
-        AND kcu.CONSTRAINT_NAME = tc.constraint_name
-    WHERE t.table_schema #{is_postgres ?
+    WHERE t.table_schema #{is_postgres || is_mssql ?
         "NOT IN ('information_schema', 'pg_catalog')"
         :
         "= '#{ActiveRecord::Base.connection.current_database.tr("'", "''")}'"}#{"
