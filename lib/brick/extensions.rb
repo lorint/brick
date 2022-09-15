@@ -409,7 +409,22 @@ module ActiveRecord
       if selects&.empty? # Default to all columns
         tbl_no_schema = table.name.split('.').last
         columns.each do |col|
-          col_alias = " AS #{col.name}_" if (col_name = col.name) == 'class'
+          if (col_name = col.name) == 'class'
+            col_alias = " AS #{col.name}_"
+          else
+            alias_name = nil
+            idx = 0
+            col_name.each_char do |c|
+              unless (c >= 'a' && c <= 'z') ||
+                 c == '_' ||
+                 (c >= 'A' && c <= 'Z') ||
+                 (c >= '0' && c <= '9')
+                (alias_name ||= col_name.dup)[idx] = 'x'
+              end
+              ++idx
+            end
+            col_alias = " AS #{alias_name}" if alias_name
+          end
           selects << if is_mysql
                        "`#{tbl_no_schema}`.`#{col_name}`#{col_alias}"
                      elsif is_postgres || is_mssql
