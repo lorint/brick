@@ -99,13 +99,14 @@ module ActiveRecord
       dsl
     end
 
-    def self.brick_parse_dsl(build_array = nil, prefix = [], translations = {}, is_polymorphic = false)
+    def self.brick_parse_dsl(build_array = nil, prefix = [], translations = {}, emit_dsl = false, is_polymorphic = false)
       build_array = ::Brick::JoinArray.new.tap { |ary| ary.replace([build_array]) } if build_array.is_a?(::Brick::JoinHash)
       build_array = ::Brick::JoinArray.new unless build_array.nil? || build_array.is_a?(Array)
       members = []
       bracket_name = nil
       prefix = [prefix] unless prefix.is_a?(Array)
       if (dsl = ::Brick.config.model_descrips[name] || brick_get_dsl)
+        dsl2 = +''
         klass = nil
         dsl.each_char do |ch|
           if bracket_name
@@ -125,7 +126,15 @@ module ActiveRecord
                 end
                 translations[parts[0..-2].join('.')] = klass
               end
-              members << parts
+              if klass.column_names.exclude?(parts.last) &&
+                 (klass = (orig_class = klass).reflect_on_association(possible_dsl = parts.pop.to_sym)&.klass)
+                members2, dsl2a = klass.brick_parse_dsl(build_array, prefix + [possible_dsl], translations, true)
+                members += members2
+                dsl2 << dsl2a
+              else
+                dsl2 << "[#{bracket_name}]"
+                members << parts
+              end
               bracket_name = nil
             else
               bracket_name << ch
@@ -133,13 +142,20 @@ module ActiveRecord
           elsif ch == '['
             bracket_name = +''
             klass = self
+          else
+            dsl2 << ch
           end
+        end
+        # Rewrite the DSL just in case it's different because we had to expand it
+        unless emit_dsl
+          # puts "Compare:\n  #{dsl}\n  #{dsl2}"
+          ::Brick.config.model_descrips[name] = dsl2
         end
       else # With no DSL available, still put this prefix into the JoinArray so we can get primary key (ID) info from this table
         x = prefix.each_with_object(build_array) { |v, s| s[v.to_sym] }
         x[prefix.last] = nil unless prefix.empty? # Using []= will "hydrate" any missing part(s) in our whole series
       end
-      members
+      emit_dsl ? [members, dsl2] : members
     end
 
     # If available, parse simple DSL attached to a model in order to provide a friendlier name.
@@ -168,6 +184,9 @@ module ActiveRecord
                           obj_name += ".#{part}"
                           this_obj = caches.fetch(obj_name) { caches[obj_name] = this_obj&.send(part.to_sym) }
                           break if this_obj.nil?
+                        end
+                        if this_obj.is_a?(ActiveRecord::Base) && (obj_descrip = this_obj.class.brick_descrip(this_obj))
+                          this_obj = obj_descrip
                         end
                         this_obj&.to_s || ''
                       end
@@ -244,7 +263,8 @@ module ActiveRecord
 
         # join_array will receive this relation name when calling #brick_parse_dsl
         _br_bt_descrip[bt.first] = if bt[1].is_a?(Array)
-                                     bt[1].each_with_object({}) { |bt_class, s| s[bt_class] = bt_class.brick_parse_dsl(join_array, bt.first, translations, true) }
+                                     # Last two params here:  "false" is for don't emit DSL, and "true" is for yes, we are polymorphic
+                                     bt[1].each_with_object({}) { |bt_class, s| s[bt_class] = bt_class.brick_parse_dsl(join_array, bt.first, translations, false, true) }
                                    else
                                      { bt.last => bt[1].brick_parse_dsl(join_array, bt.first, translations) }
                                    end
