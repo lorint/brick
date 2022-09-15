@@ -173,6 +173,7 @@ module Brick
               # environment or whatever, then get either the controllers or routes list instead
               apartment_default_schema = ::Brick.apartment_multitenant && Apartment.default_schema
               table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).each_with_object({}) do |tbl, s|
+                                binding.pry if tbl.is_a?(Symbol)
                                 if (tbl_parts = tbl.split('.')).first == apartment_default_schema
                                   tbl = tbl_parts.last
                                 end
