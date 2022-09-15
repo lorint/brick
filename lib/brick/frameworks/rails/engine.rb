@@ -1090,9 +1090,9 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
       mermaid.initialize({
         startOnLoad: true,
         securityLevel: \"loose\",
+        er: { useMaxWidth: false },
         mermaid: {callback: function(objId) {
           var svg = document.getElementById(objId);
-          svg.removeAttribute(\"width\");
           var cb;
           for(cb in cbs) {
             var gErd = svg.getElementById(cb);
