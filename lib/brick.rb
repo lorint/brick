@@ -152,17 +152,19 @@ module Brick
     end
 
     # Convert spaces to underscores if the second character and onwards is mixed case
-    def namify(name, attempt_downcase = false)
-      name.downcase! if attempt_downcase && name =~ /^[A-Z0-9_]+$/
+    def namify(name, action = nil)
+      has_uppers = name =~ /[A-Z]+/
+      has_lowers = name =~ /[a-z]+/
+      name.downcase! if has_uppers && action == :downcase
       if name.include?(' ')
         # All uppers or all lowers?
-        if name[1..-1] =~ /^[A-Z0-9_]+$/ || name[1..-1] =~ /^[a-z0-9_]+$/
+        if !has_uppers || !has_lowers
           name.titleize.tr(' ', '_')
         else # Mixed uppers and lowers -- just remove existing spaces
           name.tr(' ', '')
         end
       else
-        name
+        action == :underscore ? name.underscore : name
       end
     end
 
@@ -484,7 +486,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
         # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
         # If auto-controllers and auto-models are both enabled then this makes sense:
         ::Brick.relations.each do |rel_name, v|
-          rel_name = rel_name.split('.').map { |x| ::Brick.namify(x).underscore }
+          rel_name = rel_name.split('.').map { |rel_part| ::Brick.namify(rel_part, :underscore) }
           schema_names = rel_name[0..-2]
           schema_names.shift if ::Brick.apartment_multitenant && schema_names.first == Apartment.default_schema
           # %%% If more than one schema has the same table name, will need to add a schema name prefix to have uniqueness
