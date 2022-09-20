@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.71         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.72         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -208,6 +208,57 @@ Even if your table and column names do not follow Rails' conventions, everything
 because as models are built out then `self.table_name = ` and `self.primary_key = ` entries are
 provided as needed.  Likewise, **belongs_to** and **has_many** associations will indicate
 which foreign key to use whenever anything is non-standard.  Everything just works.
+
+When running `rails s` you can navigate to the resource names shown during startup.  For instance, here
+is a look at a fresh Rails 7 project pointed to an Oracle database loaded with Oracle's OE schema.  This
+is a sample database with order entry information.  Some tables in this schema have foreign keys over to
+tables in the HR schema as well, and all of the resources you can reference are shown as the `rails s` is
+starting up:
+
+```
+Lorins-Macbook:example_oracle lorin$ bin/rails s
+=> Booting Puma
+=> Rails 7.0.4 application starting in development
+=> Run `rails server --help` for more startup options
+
+Classes that can be built from tables:
+CategoriesTab       /categories_tabs
+Customer            /customers
+HR::Country         /hr/countries
+HR::Department      /hr/departments
+HR::Employee        /hr/employees
+HR::Job             /hr/jobs
+HR::JobHistory      /hr/job_histories
+HR::Location        /hr/locations
+Inventory           /inventories
+Order               /orders
+OrderItem           /order_items
+ProductDescription  /product_descriptions
+ProductInformation  /product_informations
+Promotion           /promotions
+Warehouse           /warehouses
+
+Classes that can be built from views:
+AccountManager        /account_managers
+BombayInventory       /bombay_inventories
+CustomersView         /customers_views
+OcCorporateCustomer   /oc_corporate_customers
+OcCustomer            /oc_customers
+OcInventory           /oc_inventories
+OcOrder               /oc_orders
+OcProductInformation  /oc_product_informations
+OrdersView            /orders_views
+Product               /products
+ProductPrice          /product_prices
+SydneyInventory       /sydney_inventories
+TorontoInventory      /toronto_inventories
+
+Puma starting in single mode...
+...
+```
+
+From this it's easy to tell where you can navigate to in the browser -- in order to see everything from
+`HR::JobHistory`, just navigate to http://localhost:3000/hr/job_histories.
 
 To configure additional options, such as defining related columns that you want to have act as if they were a foreign key, then you can build out an initializer file for Brick.  The gem automatically provides some suggestions for you based on your current database, so it's useful to make sure your database.yml file is properly configured before continuing.  By using the `install` generator, the file `config/initializers/brick.rb` is automatically written out and here is the command:
 
@@ -397,10 +448,10 @@ so it only makes sense to have support for this in The Brick.  Starting with ver
 this was added, offering full compatibility for all Brick features.  This can run on Linux,
 Windows, and Mac.
 
-One important caveat for those with Apple M1 or M2 machines -- the low-level Ruby driver which
-we rely upon will NOT function natively on Apple Silicon, so on an M1 or M2 machine you will
-have to use the Rosetta emulator to run Ruby and your entire Rails app.  In the future when an
-Apple Silicon version of Oracle Instant Client ships then everything can work natively.
+One important caveat for those with Apple M1 or M2 machines is that the low-level Ruby driver
+which we rely upon will NOT function natively on Apple Silicon, so on an M1 or M2 machine you
+will have to use the Rosetta emulator to run Ruby and your entire Rails app.  In the future when
+an Apple Silicon version of Oracle Instant Client ships then everything can work natively.
 
 Before setting up the gems to give support for Oracle in ActiveRecord, there are two necessary
 libraries you will need to have installed in order to allow the ruby-oci8 gem to function.
@@ -412,13 +463,21 @@ how to get started on a Mac machine that is running Homebrew:
     brew install instantclient-sdk
 
 Similar kind of thing on Linux -- install the Basic or Basic Lite version of OCI, and also
-the OCI SDK.  With those two libraries in place, open your **Gemfile** and remove any other
-database drivers such as sqlite3, then add these:
+the OCI SDK.  With those two libraries in place, you're ready to get the Rails side of things
+in order.  Rails has an understanding of the Oracle gem built-in such that if you create a new
+Rails app like this:
+
+    rails new brick_app -d oracle
+
+then it automatically puts the main gem in place for you, along with a sample database.yml.
+
+In your Rails project, open your **Gemfile** and confirm that proper database drivers are present:
 
     gem 'activerecord-oracle_enhanced-adapter'
     gem 'ruby-oci8' # Not needed under Rails 7.x and later
+    gem 'brick'
 
-Now bundle, and finally in databases.yml create an entry which looks like this:
+Now bundle, and finally in databases.yml make sure there is an entry which looks like this:
 
 ```
 development:
@@ -447,6 +506,50 @@ ALTER USER hr IDENTIFIED BY cool_hr_pa$$w0rd;
 ```
 
 This should be all that is necessary in order to have ActiveRecord interact with Oracle.
+
+## Setting up for Microsoft SQL Server on a MacOS (OSX) machine
+
+MSSQL is the fifth most popular database solution used for Rails projects in production, so it
+only makes sense to have support for this in The Brick.  Starting with version 1.0.70 this was
+added, offering full compatibility for all Brick features.  The client library can run on Linux,
+Windows, and Mac.
+
+Before setting up the gems to give support for SQL Server in ActiveRecord, there is a
+necessary library you will need to have installed in order to allow the
+activerecord-sqlserver-adapter gem to function.  Here's how to get started on a Mac machine
+that is running Homebrew:
+
+    brew install freetds
+    bundle config set --local build.tiny_tds "--with-opt-dir=$(brew --prefix freetds)"
+
+On Linux it's even simpler -- just install **freetds**.
+
+If you're creating a new application then conveniently Rails already has an understanding of the
+SQL Server gem built-in, so if you run this:
+
+    rails new brick_app -d sqlserver
+
+then automatically the main gem is put in place for you, along with a sample database.yml.
+
+In your Rails project, open your **Gemfile** and confirm that proper database drivers are present:
+
+    gem 'activerecord-sqlserver-adapter'
+    gem 'tiny_tds'
+    gem 'brick'
+
+Now bundle, and finally in databases.yml create an entry which looks like this:
+
+```
+development:
+  adapter: sqlserver
+  encoding: utf8
+  username: sa
+  password: <%= ENV["SA_PASSWORD"] %>
+  host: localhost
+```
+
+If your database instance is not the default instance, but instead a named instance, then you
+can specify the instance name like this: **localhost\MSSQLSERVER**.
 
 ## Intellectual Property
 

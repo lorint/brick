@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.71         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.72         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -208,6 +208,57 @@ Even if your table and column names do not follow Rails' conventions, everything
 because as models are built out then `self.table_name = ` and `self.primary_key = ` entries are
 provided as needed.  Likewise, **belongs_to** and **has_many** associations will indicate
 which foreign key to use whenever anything is non-standard.  Everything just works.
+
+When running `rails s` you can navigate to the resource names shown during startup.  For instance, here
+is a look at a fresh Rails 7 project pointed to an Oracle database loaded with Oracle's OE schema.  This
+is a sample database with order entry information.  Some tables in this schema have foreign keys over to
+tables in the HR schema as well, and all of the resources you can reference are shown as the `rails s` is
+starting up:
+
+```
+Lorins-Macbook:example_oracle lorin$ bin/rails s
+=> Booting Puma
+=> Rails 7.0.4 application starting in development
+=> Run `rails server --help` for more startup options
+
+Classes that can be built from tables:
+CategoriesTab       /categories_tabs
+Customer            /customers
+HR::Country         /hr/countries
+HR::Department      /hr/departments
+HR::Employee        /hr/employees
+HR::Job             /hr/jobs
+HR::JobHistory      /hr/job_histories
+HR::Location        /hr/locations
+Inventory           /inventories
+Order               /orders
+OrderItem           /order_items
+ProductDescription  /product_descriptions
+ProductInformation  /product_informations
+Promotion           /promotions
+Warehouse           /warehouses
+
+Classes that can be built from views:
+AccountManager        /account_managers
+BombayInventory       /bombay_inventories
+CustomersView         /customers_views
+OcCorporateCustomer   /oc_corporate_customers
+OcCustomer            /oc_customers
+OcInventory           /oc_inventories
+OcOrder               /oc_orders
+OcProductInformation  /oc_product_informations
+OrdersView            /orders_views
+Product               /products
+ProductPrice          /product_prices
+SydneyInventory       /sydney_inventories
+TorontoInventory      /toronto_inventories
+
+Puma starting in single mode...
+...
+```
+
+From this it's easy to tell where you can navigate to in the browser -- in order to see everything from
+`HR::JobHistory`, just navigate to http://localhost:3000/hr/job_histories.
 
 To configure additional options, such as defining related columns that you want to have act as if they were a foreign key, then you can build out an initializer file for Brick.  The gem automatically provides some suggestions for you based on your current database, so it's useful to make sure your database.yml file is properly configured before continuing.  By using the `install` generator, the file `config/initializers/brick.rb` is automatically written out and here is the command:
 

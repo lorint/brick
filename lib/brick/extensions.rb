@@ -1662,29 +1662,44 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
 
     tables = []
     views = []
+    table_class_length = 0
+    view_class_length = 0
     relations.each do |k, v|
       name_parts = k.split('.')
       idx = 1
       name_parts = name_parts.map do |x|
-        ((idx += 1) < name_parts.length ? x.singularize : x).camelize
+        (idx += 1) < name_parts.length ? x : x.singularize
       end
+      name_parts.shift if apartment && name_parts.length > 1 && name_parts.first == Apartment.default_schema
+      class_name = name_parts.map(&:camelize).join('::')
       if v.key?(:isView)
+        view_class_length = class_name.length if class_name.length > view_class_length
         views
       else
-        name_parts.shift if apartment && name_parts.length > 1 && name_parts.first == Apartment.default_schema
+        table_class_length = class_name.length if class_name.length > table_class_length
         tables
-      end << name_parts.join('::')
+      end << [class_name, name_parts]
     end
-    unless tables.empty?
-      puts "\nClasses that can be built from tables:"
-      tables.sort.each { |x| puts x }
+    puts "\n" if tables.present? || views.present?
+    if tables.present?
+      puts "Classes that can be built from tables:"
+      display_classes(tables, table_class_length)
     end
-    unless views.empty?
-      puts "\nClasses that can be built from views:"
-      views.sort.each { |x| puts x }
+    if views.present?
+      puts "Classes that can be built from views:"
+      display_classes(views, view_class_length)
     end
 
     ::Brick.load_additional_references if initializer_loaded
+  end
+
+  def display_classes(rels, max_length)
+    rels.sort.each do |rel|
+      rel_link = rel.last.dup.map(&:underscore)
+      rel_link[-1] = rel_link[-1].pluralize
+      puts "#{rel.first}#{' ' * (max_length - rel.first.length)}  /#{rel_link.join('/')}"
+    end
+    puts "\n"
   end
 
   def retrieve_schema_and_tables(sql = nil, is_postgres = nil, is_mssql = nil, schema = nil)
