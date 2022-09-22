@@ -125,8 +125,8 @@ module Brick
   class << self
     attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle
 
-    def set_db_schema(params)
-      schema = params['_brick_schema'] || 'public'
+    def set_db_schema(params = nil)
+      schema = (params ? params['_brick_schema'] : ::Brick.default_schema) || 'public'
       if schema && ::Brick.db_schemas&.include?(schema)
         ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema)
         schema
@@ -496,10 +496,10 @@ In config/initializers/brick.rb appropriate entries would look something like:
             options[:only] = [:index, :show] if v.key?(:isView)
             if schema_names.present? # && !Object.const_defined('Apartment')
               send(:namespace, schema_names.first) do
-                send(:resources, controller_name.to_sym, **options)
+                send(:resources, k.to_sym, **options)
               end
             else
-              send(:resources, controller_name.to_sym, **options)
+              send(:resources, k.to_sym, **options)
             end
           end
           if ::Brick.config.add_status && instance_variable_get(:@set).named_routes.names.exclude?(:brick_status)

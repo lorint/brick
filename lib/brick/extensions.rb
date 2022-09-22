@@ -440,6 +440,9 @@ module ActiveRecord
       # %%% Skip the metadata columns
       if selects&.empty? # Default to all columns
         tbl_no_schema = table.name.split('.').last
+        # %%% Have once gotten this error with MSSQL referring to http://localhost:3000/warehouse/cold_room_temperatures__archive
+        #     ActiveRecord::StatementInvalid (TinyTds::Error: DBPROCESS is dead or not enabled)
+        #     Relevant info here:  https://github.com/rails-sqlserver/activerecord-sqlserver-adapter/issues/402
         columns.each do |col|
           col_alias = " AS #{col.name}_" if (col_name = col.name) == 'class'
           selects << if is_mysql
@@ -1377,7 +1380,7 @@ class Object
     end
 
     def _brick_get_hm_assoc_name(relation, hm_assoc, source = nil)
-      if (relation[:hm_counts][hm_assoc[:assoc_name]]&.> 1) &&
+      if (relation[:hm_counts][hm_assoc[:inverse_table]]&.> 1) &&
          hm_assoc[:alternate_name] != (source || name.underscore)
         plural = ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name])
         new_alt_name = (hm_assoc[:alternate_name] == name.underscore) ? "#{hm_assoc[:assoc_name].singularize}_#{plural}" : plural
@@ -1686,7 +1689,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       name_parts = k.split('.')
       idx = 1
       name_parts = name_parts.map do |x|
-        (idx += 1) < name_parts.length ? x : x.singularize
+        (idx += 1) <= name_parts.length ? x : x.singularize
       end
       name_parts.shift if apartment && name_parts.length > 1 && name_parts.first == Apartment.default_schema
       class_name = name_parts.map(&:camelize).join('::')
