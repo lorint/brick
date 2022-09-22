@@ -179,7 +179,7 @@ module Brick
                                 end
                                 s[tbl] = nil
                               end.keys.sort.each_with_object(+'') do |v, s|
-                                s << "<option value=\"#{v.underscore.gsub('.', '/').pluralize}\">#{v}</option>"
+                                s << "<option value=\"#{v.underscore.gsub('.', '/')}\">#{v}</option>"
                               end.html_safe
               table_options << '<option value="brick_status">(Status)</option>'.html_safe if ::Brick.config.add_status
               table_options << '<option value="brick_orphans">(Orphans)</option>'.html_safe if is_orphans
@@ -352,15 +352,39 @@ def hide_bcrypt(val, max_len = 200)
 end
 def display_value(col_type, val)
   case col_type
-  when 'geometry'
+  when 'geometry', 'geography'
     if Object.const_defined?('RGeo')
       @is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2' if @is_mysql.nil?
-      if @is_mysql
-        # MySQL's \"Internal Geometry Format\" is like WKB, but with an initial 4 bytes that indicates the SRID.
-        srid = val[0..3].unpack('I')
-        val = val[4..-1]
+      @is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer' if @is_mssql.nil?
+      val_err = nil
+      if @is_mysql || @is_mssql
+        # MySQL's \"Internal Geometry Format\" and MSSQL's Geography are like WKB, but with an initial 4 bytes that indicates the SRID.
+        if (srid = val&.[](0..3)&.unpack('I'))
+          val = val.force_encoding('BINARY')[4..-1].bytes
+
+          # MSSQL spatial bitwise flags, often 0C for a point:
+          # xxxx xxx1 = HasZValues
+          # xxxx xx1x = HasMValues
+          # xxxx x1xx = IsValid
+          # xxxx 1xxx = IsSinglePoint
+          # xxx1 xxxx = IsSingleLineSegment
+          # xx1x xxxx = IsWholeGlobe
+          # Convert Microsoft's unique geography binary to standard WKB
+          # (MSSQL point usually has two doubles, lng / lat, and can also have Z)
+          if @is_mssql
+            if val[0] == 1 && (val[1] & 8 > 0) && # Single point?
+              (val.length - 2) % 8 == 0 && val.length < 27 # And containing up to three 8-byte values?
+              idx = 2
+              new_val = [0, 0, 0, 0, 1]
+              new_val.concat(val[idx - 8...idx].reverse) while (idx += 8) <= val.length
+              val = new_val
+            else
+              val_err = '(Microsoft internal SQL geography type)'
+            end
+          end
+        end
       end
-      RGeo::WKRep::WKBParser.new.parse(val)
+      val_err || (val ? RGeo::WKRep::WKBParser.new.parse(val.pack('c*')) : nil)
     else
       '(Add RGeo gem to parse geometry detail)'
     end
@@ -702,7 +726,7 @@ erDiagram
   <td><h1>#{model_plural = model_name.pluralize}</h1></td>
   <td id=\"imgErd\" title=\"Show ERD\"></td>
 </tr></table>#{template_link}<%
-   if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %><%=
+   if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)).present? %><%=
      description %><br><%
    end
    # FILTER PARAMETERS
@@ -777,7 +801,11 @@ erDiagram
      end.html_safe
   %></tr></thead>
   <tbody>
-  <% @#{table_name}.each do |#{obj_name}|
+  <% # %%% Have once gotten this error with MSSQL referring to http://localhost:3000/warehouse/cold_room_temperatures__archive
+     #     ActiveRecord::StatementTimeout in Warehouse::ColdRoomTemperatures_Archive#index
+     #     TinyTds::Error: Adaptive Server connection timed out
+     #     (After restarting the server it worked fine again.)
+     @#{table_name}.each do |#{obj_name}|
        hms_cols = {#{hms_columns.join(', ')}} %>
   <tr>#{"
     <td><%= link_to '⇛', #{path_obj_name}_path(#{obj_pk}), { class: 'big-arrow' } %></td>" if obj_pk}
@@ -815,7 +843,8 @@ erDiagram
          <%= link_to txt, send(\"#\{klass.name.underscore.tr('/', '_').pluralize}_path\".to_sym, hms_col[2]) unless hms_col[1]&.zero? %>
         <% end
          elsif (col = cols[col_name])
-    %><%=  display_value(col&.type || col&.sql_type, val) %><%
+           col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
+    %><%=  display_value(col_type || col&.sql_type, val) %><%
          else # Bad column name!
       %>?<%
          end
@@ -975,7 +1004,8 @@ end
             \"<span class=\\\"orphan\\\">Orphaned ID: #\{val}</span>\".html_safe
           end %>
     <% else
-      case (col_type = col.type || col.sql_type)
+      col_type = col.sql_type == 'geography' ? col.sql_type : col.type
+      case (col_type ||= col.sql_type)
       when :string, :text %>
         <% if is_bcrypt?(val) # || .readonly?
              is_revert = false %>
@@ -1009,8 +1039,8 @@ end
       <% when :binary, :primary_key
            is_revert = false %>
       <% else %>
-        <%= display_value(col_type, val)
-           is_revert = false %>
+        <%= is_revert = false
+           display_value(col_type, val) %>
       <% end
        end
        if is_revert

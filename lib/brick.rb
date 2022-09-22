@@ -125,8 +125,8 @@ module Brick
   class << self
     attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle
 
-    def set_db_schema(params)
-      schema = params['_brick_schema'] || 'public'
+    def set_db_schema(params = nil)
+      schema = (params ? params['_brick_schema'] : ::Brick.default_schema) || 'public'
       if schema && ::Brick.db_schemas&.include?(schema)
         ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema)
         schema
@@ -474,6 +474,13 @@ In config/initializers/brick.rb appropriate entries would look something like:
     def version
       VERSION::STRING
     end
+
+    def display_classes(rels, max_length)
+      rels.sort.each do |rel|
+        puts "#{rel.first}#{' ' * (max_length - rel.first.length)}  /#{rel.last}"
+      end
+      puts "\n"
+    end
   end
 
   module RouteSet
@@ -481,33 +488,59 @@ In config/initializers/brick.rb appropriate entries would look something like:
       return super if ::Brick.routes_done
 
       ::Brick.routes_done = true
+      tables = []
+      views = []
+      table_class_length = 38 # Length of "Classes that can be built from tables:"
+      view_class_length = 37 # Length of "Classes that can be built from views:"
       existing_controllers = routes.each_with_object({}) { |r, s| c = r.defaults[:controller]; s[c] = nil if c }
       ::Rails.application.routes.append do
         # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
         # If auto-controllers and auto-models are both enabled then this makes sense:
-        ::Brick.relations.each do |rel_name, v|
-          rel_name = rel_name.split('.').map { |rel_part| ::Brick.namify(rel_part, :underscore) }
-          schema_names = rel_name[0..-2]
-          schema_names.shift if ::Brick.apartment_multitenant && schema_names.first == Apartment.default_schema
-          # %%% If more than one schema has the same table name, will need to add a schema name prefix to have uniqueness
-          k = rel_name.last
-          unless existing_controllers.key?(controller_name = k.pluralize)
+        ::Brick.relations.each do |k, v|
+          unless !(controller_name = v.fetch(:resource, nil)&.pluralize) || existing_controllers.key?(controller_name)
             options = {}
             options[:only] = [:index, :show] if v.key?(:isView)
-            if schema_names.present? # && !Object.const_defined('Apartment')
-              send(:namespace, schema_names.first) do
-                send(:resources, controller_name.to_sym, **options)
+            full_resource = nil
+            if (schema_name = v.fetch(:schema, nil)) # && !Object.const_defined('Apartment')
+              send(:namespace, schema_name) do
+                send(:resources, v[:resource].to_sym, **options)
               end
+              full_resource = "#{schema_name}/#{v[:resource]}"
+              send(:get, "#{::Brick.api_root}#{full_resource}", { to: "#{schema_name}/#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
             else
-              send(:resources, controller_name.to_sym, **options)
+              send(:resources, v[:resource].to_sym, **options)
+              # Normally goes to something like:  /api/v1/employees
+              send(:get, "#{::Brick.api_root}#{v[:resource]}", { to: "#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
+            end
+
+            if (class_name = v.fetch(:class_name, nil))
+              if v.key?(:isView)
+                view_class_length = class_name.length if class_name.length > view_class_length
+                views
+              else
+                table_class_length = class_name.length if class_name.length > table_class_length
+                tables
+              end << [class_name, full_resource || v[:resource]]
             end
           end
-          if ::Brick.config.add_status && instance_variable_get(:@set).named_routes.names.exclude?(:brick_status)
-            get('/brick_status', to: 'brick_gem#status', as: 'brick_status')
-          end
-          if ::Brick.config.add_orphans && instance_variable_get(:@set).named_routes.names.exclude?(:brick_orphans)
-            get('/brick_orphans', to: 'brick_gem#orphans', as: 'brick_orphans')
-          end
+        end
+        puts "\n" if tables.present? || views.present?
+        if tables.present?
+          puts "Classes that can be built from tables:#{' ' * (table_class_length - 38)}  Path:"
+          puts "======================================#{' ' * (table_class_length - 38)}  ====="
+          ::Brick.display_classes(tables, table_class_length)
+        end
+        if views.present?
+          puts "Classes that can be built from views:#{' ' * (view_class_length - 37)}  Path:"
+          puts "=====================================#{' ' * (view_class_length - 37)}  ====="
+          ::Brick.display_classes(views, view_class_length)
+        end
+
+        if ::Brick.config.add_status && instance_variable_get(:@set).named_routes.names.exclude?(:brick_status)
+          get('/brick_status', to: 'brick_gem#status', as: 'brick_status')
+        end
+        if ::Brick.config.add_orphans && instance_variable_get(:@set).named_routes.names.exclude?(:brick_orphans)
+          get('/brick_orphans', to: 'brick_gem#orphans', as: 'brick_orphans')
         end
         send(:get, '/api-docs/v1/swagger.json', { to: 'brick_swagger#index' }) if Object.const_defined?('Rswag::Ui')
       end

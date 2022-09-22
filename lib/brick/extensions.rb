@@ -440,6 +440,9 @@ module ActiveRecord
       # %%% Skip the metadata columns
       if selects&.empty? # Default to all columns
         tbl_no_schema = table.name.split('.').last
+        # %%% Have once gotten this error with MSSQL referring to http://localhost:3000/warehouse/cold_room_temperatures__archive
+        #     ActiveRecord::StatementInvalid (TinyTds::Error: DBPROCESS is dead or not enabled)
+        #     Relevant info here:  https://github.com/rails-sqlserver/activerecord-sqlserver-adapter/issues/402
         columns.each do |col|
           col_alias = " AS #{col.name}_" if (col_name = col.name) == 'class'
           selects << if is_mysql
@@ -1377,7 +1380,7 @@ class Object
     end
 
     def _brick_get_hm_assoc_name(relation, hm_assoc, source = nil)
-      if (relation[:hm_counts][hm_assoc[:assoc_name]]&.> 1) &&
+      if (relation[:hm_counts][hm_assoc[:inverse_table]]&.> 1) &&
          hm_assoc[:alternate_name] != (source || name.underscore)
         plural = ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name])
         new_alt_name = (hm_assoc[:alternate_name] == name.underscore) ? "#{hm_assoc[:assoc_name].singularize}_#{plural}" : plural
@@ -1678,46 +1681,16 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       end
     end
 
-    tables = []
-    views = []
-    table_class_length = 0
-    view_class_length = 0
     relations.each do |k, v|
-      name_parts = k.split('.')
-      idx = 1
-      name_parts = name_parts.map do |x|
-        (idx += 1) < name_parts.length ? x : x.singularize
-      end
-      name_parts.shift if apartment && name_parts.length > 1 && name_parts.first == Apartment.default_schema
-      class_name = name_parts.map(&:camelize).join('::')
-      if v.key?(:isView)
-        view_class_length = class_name.length if class_name.length > view_class_length
-        views
-      else
-        table_class_length = class_name.length if class_name.length > table_class_length
-        tables
-      end << [class_name, name_parts]
+      rel_name = k.split('.').map { |rel_part| ::Brick.namify(rel_part, :underscore) }
+      schema_names = rel_name[0..-2]
+      schema_names.shift if ::Brick.apartment_multitenant && schema_names.first == Apartment.default_schema
+      v[:schema] = schema_names.join('.') unless schema_names.empty?
+      # %%% If more than one schema has the same table name, will need to add a schema name prefix to have uniqueness
+      v[:resource] = rel_name.last
+      v[:class_name] = (schema_names + [rel_name.last.singularize]).map(&:camelize).join('::')
     end
-    puts "\n" if tables.present? || views.present?
-    if tables.present?
-      puts "Classes that can be built from tables:"
-      display_classes(tables, table_class_length)
-    end
-    if views.present?
-      puts "Classes that can be built from views:"
-      display_classes(views, view_class_length)
-    end
-
     ::Brick.load_additional_references if initializer_loaded
-  end
-
-  def display_classes(rels, max_length)
-    rels.sort.each do |rel|
-      rel_link = rel.last.dup.map(&:underscore)
-      rel_link[-1] = rel_link[-1]
-      puts "#{rel.first}#{' ' * (max_length - rel.first.length)}  /#{rel_link.join('/')}"
-    end
-    puts "\n"
   end
 
   def retrieve_schema_and_tables(sql = nil, is_postgres = nil, is_mssql = nil, schema = nil)
