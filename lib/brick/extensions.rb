@@ -428,7 +428,7 @@ module ActiveRecord
       is_distinct = nil
       wheres = {}
       params.each do |k, v|
-        next if ['_brick_schema', '_brick_order'].include?(k)
+        next if ['_brick_schema', '_brick_order', 'controller', 'action'].include?(k)
 
         case (ks = k.split('.')).length
         when 1
@@ -750,7 +750,8 @@ Module.class_exec do
                # Vabc instead of VABC)
                full_class_name = +''
                full_class_name << "::#{self.name}" unless self == Object
-               full_class_name << "::#{plural_class_name.underscore.singularize.camelize}"
+               singular_class_name = ::Brick.namify(plural_class_name, :underscore).singularize.camelize
+               full_class_name << "::#{singular_class_name}"
                if plural_class_name == 'BrickSwagger' ||
                   (
                     (::Brick.config.add_status || ::Brick.config.add_orphans) &&
@@ -1135,11 +1136,72 @@ class Object
           end
           return [new_controller_class, code + "end # BrickGem controller\n"]
         when 'BrickSwagger'
-          is_swagger = true # if request.format == :json)
+          is_swagger = true
         end
 
         self.protect_from_forgery unless: -> { self.request.format.js? }
         self.define_method :index do
+          if (is_swagger || request.env['REQUEST_PATH'].start_with?(::Brick.api_root)) &&
+             !params&.key?('_brick_schema') &&
+             (referrer_params = request.env['HTTP_REFERER']&.split('?')&.last&.split('&')&.map { |x| x.split('=') }).present?
+            if params
+              referrer_params.each { |k, v| params.send(:parameters)[k] = v }
+            else
+              api_params = referrer_params&.to_h
+            end
+          end
+          ::Brick.set_db_schema(params || api_params)
+
+          if is_swagger
+            json = { 'openapi': '3.0.1', 'info': { 'title': Rswag::Ui.config.config_object[:urls].last&.fetch(:name, 'API documentation'), 'version': ::Brick.config.api_version },
+                     'servers': [
+                       { 'url': '{scheme}://{defaultHost}', 'variables': {
+                         'scheme': { 'default': request.env['rack.url_scheme'] },
+                         'defaultHost': { 'default': request.env['HTTP_HOST'] }
+                       } }
+                     ]
+                   }
+            json['paths'] = relations.inject({}) do |s, relation|
+              unless ::Brick.config.enable_api == false
+                table_description = relation.last[:description]
+                s["#{::Brick.config.api_root}#{relation.first.tr('.', '/')}"] = {
+                  'get': {
+                    'summary': "list #{relation.first}",
+                    'description': table_description,
+                    'parameters': relation.last[:cols].map do |k, v|
+                                    param = { 'name' => k, 'schema': { 'type': v.first } }
+                                    if (col_descrip = relation.last.fetch(:col_descrips, nil)&.fetch(k, nil))
+                                      param['description'] = col_descrip
+                                    end
+                                    param
+                                  end,
+                    'responses': { '200': { 'description': 'successful' } }
+                  }
+                }
+
+                s["#{::Brick.config.api_root}#{relation.first.tr('.', '/')}/{id}"] = {
+                  'patch': {
+                    'summary': "update a #{relation.first.singularize}",
+                    'description': table_description,
+                    'parameters': relation.last[:cols].reject { |k, v| Brick.config.metadata_columns.include?(k) }.map do |k, v|
+                      param = { 'name' => k, 'schema': { 'type': v.first } }
+                      if (col_descrip = relation.last.fetch(:col_descrips, nil)&.fetch(k, nil))
+                        param['description'] = col_descrip
+                      end
+                      param
+                    end,
+                    'responses': { '200': { 'description': 'successful' } }
+                  }
+                } unless relation.last.fetch(:isView, nil)
+                s
+              end
+            end
+            render inline: json.to_json, content_type: request.format
+            return
+          end
+
+          # Normal (non-swagger) request
+
           # We do all of this now so that bt_descrip and hm_counts are available on the model early in case the user
           # wants to do an ORDER BY based on any of that
           translations = {}
@@ -1147,58 +1209,6 @@ class Object
           is_add_bts = is_add_hms = true
           # This builds out bt_descrip and hm_counts on the model
           model._brick_calculate_bts_hms(translations, join_array) if is_add_bts || is_add_hms
-
-          if is_swagger
-            json = { 'openapi': '3.0.1', 'info': { 'title': 'API V1', 'version': 'v1' },
-                     'servers': [
-                       { 'url': 'https://{defaultHost}', 'variables': { 'defaultHost': { 'default': 'www.example.com' } } }
-                     ]
-                   }
-            json['paths'] = relations.inject({}) do |s, v|
-              s["/api/v1/#{v.first}"] = {
-                'get': {
-                  'summary': "list #{v.first}",
-                  'parameters': v.last[:cols].map { |k, v| { 'name' => k, 'schema': { 'type': v.first } } },
-                  'responses': { '200': { 'description': 'successful' } }
-                }
-              }
-              # next if v.last[:isView]
-
-              s["/api/v1/#{v.first}/{id}"] = {
-                'patch': {
-                  'summary': "update a #{v.first.singularize}",
-                  'parameters': v.last[:cols].reject { |k, v| Brick.config.metadata_columns.include?(k) }.map do |k, v|
-                    { 'name' => k, 'schema': { 'type': v.first } }
-                  end,
-                  'responses': { '200': { 'description': 'successful' } }
-                }
-                # "/api/v1/books/{id}": {
-                #   "parameters": [
-                #     {
-                #       "name": "id",
-                #       "in": "path",
-                #       "description": "id",
-                #       "required": true,
-                #       "schema": {
-                #         "type": "string"
-                #       }
-                #     },
-                #     {
-                #       "name": "Authorization",
-                #       "in": "header",
-                #       "schema": {
-                #         "type": "string"
-                #       }
-                #     }
-                #   ],
-              }
-              s
-            end
-            render inline: json.to_json, content_type: request.format
-            return
-          end
-
-          # Normal (non-swagger) request
 
           # %%% Allow params to define which columns to use for order_by
           # Overriding the default by providing a querystring param?
@@ -1213,8 +1223,9 @@ class Object
             end
             render inline: exported_csv, content_type: request.format
             return
-          elsif request.format == :js # Asking for JSON?
-            render inline: model.df_export(model.brick_import_template).to_json, content_type: request.format
+          elsif request.format == :js || request.path.start_with?('/api/') # Asking for JSON?
+            data = (model.is_view? || !Object.const_defined?('DutyFree')) ? model.limit(1000) : model.df_export(model.brick_import_template)
+            render inline: data.to_json, content_type: request.format == '*/*' ? 'application/json' : request.format
             return
           end
 
@@ -1230,7 +1241,7 @@ class Object
                    "b_r_#{v.first}.c_t_ AS \"b_r_#{v.first}_ct\""
                  end
           end
-          instance_variable_set("@#{table_name}".to_sym, ar_relation.dup._select!(*selects, *counts))
+          instance_variable_set("@#{table_name.pluralize}".to_sym, ar_relation.dup._select!(*selects, *counts))
           if namespace && (idx = lookup_context.prefixes.index(table_name))
             lookup_context.prefixes[idx] = "#{namespace.name.underscore}/#{lookup_context.prefixes[idx]}"
           end
@@ -1245,32 +1256,34 @@ class Object
           @_brick_erd = params['_brick_erd']&.to_i
         end
 
-        _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk))
-        code << "  def index\n"
-        code << "    @#{table_name} = #{model.name}#{pk&.present? ? ".order(#{order_by_txt.join(', ')})" : '.all'}\n"
-        code << "    @#{table_name}.brick_select(params)\n"
-        code << "  end\n"
-
-        is_pk_string = nil
-        if (pk_col = model&.primary_key)
-          code << "  def show\n"
-          code << "    #{find_by_name = "find_#{singular_table_name}"}\n"
+        unless is_swagger
+          ::Brick.set_db_schema
+          _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk)) if pk
+          code << "  def index\n"
+          code << "    @#{table_name.pluralize} = #{model.name}#{pk&.present? ? ".order(#{order_by_txt.join(', ')})" : '.all'}\n"
+          code << "    @#{table_name.pluralize}.brick_select(params)\n"
           code << "  end\n"
-          self.define_method :show do
-            ::Brick.set_db_schema(params)
-            id = if model.columns_hash[pk_col]&.type == :string
-                   is_pk_string = true
-                   params[:id]
-                 else
-                   params[:id]&.split(/[\/,_]/)
-                 end
-            id = id.first if id.is_a?(Array) && id.length == 1
-            instance_variable_set("@#{singular_table_name}".to_sym, find_obj)
-          end
-        end
 
-        # By default, views get marked as read-only
-        # unless model.readonly # (relation = relations[model.table_name]).key?(:isView)
+          is_pk_string = nil
+          if pk.present?
+            code << "  def show\n"
+            code << "    #{find_by_name = "find_#{singular_table_name}"}\n"
+            code << "  end\n"
+            self.define_method :show do
+              ::Brick.set_db_schema(params)
+              id = if model.columns_hash[pk.first]&.type == :string
+                     is_pk_string = true
+                     params[:id]
+                   else
+                     params[:id]&.split(/[\/,_]/)
+                   end
+              id = id.first if id.is_a?(Array) && id.length == 1
+              instance_variable_set("@#{singular_table_name}".to_sym, find_obj)
+            end
+          end
+
+          # By default, views get marked as read-only
+          # unless model.readonly # (relation = relations[model.table_name]).key?(:isView)
           code << "  def new\n"
           code << "    @#{singular_table_name} = #{model.name}.new\n"
           code << "  end\n"
@@ -1304,7 +1317,7 @@ class Object
             end
           end
 
-          if pk_col
+          if pk.present?
             # if (schema = ::Brick.config.schema_behavior[:multitenant]&.fetch(:schema_to_analyse, nil)) && ::Brick.db_schemas&.include?(schema)
             #   ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema)
             # end
@@ -1351,9 +1364,9 @@ class Object
             end
           end
 
-          code << "private\n" if pk_col || is_need_params
+          code << "private\n" if pk.present? || is_need_params
 
-          if pk_col
+          if pk.present?
             code << "  def find_#{singular_table_name}
     id = params[:id]&.split(/[\\/,_]/)
     @#{singular_table_name} = #{model.name}.find(id.is_a?(Array) && id.length == 1 ? id.first : id)
@@ -1381,7 +1394,7 @@ class Object
             private params_name
             # Get column names for params from relations[model.table_name][:cols].keys
           end
-        # end
+        end # unless is_swagger
         code << "end # #{namespace_name}#{class_name}\n"
       end # class definition
       [built_controller, code]
@@ -1539,6 +1552,7 @@ module ActiveRecord::ConnectionHandling
           cols = relation[:cols] # relation.fetch(:cols) { relation[:cols] = [] }
           cols[col_name] = [r['data_type'], r['max_length'], measures&.include?(col_name), r['is_nullable'] == 'NO']
           # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
+          relation[:col_descrips][col_name] = r['column_description'] if r['column_description']
         end
       else # MySQL2 and OracleEnhanced act a little differently, bringing back an array for each row
         schema_and_tables = case ActiveRecord::Base.connection.adapter_name
@@ -1705,8 +1719,11 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
     is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer' if is_mssql.nil?
     sql ||= "SELECT t.table_schema AS \"schema\", t.table_name AS relation_name, t.table_type,#{"
       pg_catalog.obj_description(
-        ('\"' || t.table_schema || '\".\"' || t.table_name || '\"')::regclass, 'pg_class'
-      ) AS table_description," if is_postgres}
+        ('\"' || t.table_schema || '\".\"' || t.table_name || '\"')::regclass::oid, 'pg_class'
+      ) AS table_description,
+      pg_catalog.col_description(
+        ('\"' || t.table_schema || '\".\"' || t.table_name || '\"')::regclass::oid, c.ordinal_position
+      ) AS column_description," if is_postgres}
       c.column_name, c.data_type,
       COALESCE(c.character_maximum_length, c.numeric_precision) AS max_length,
       kcu.constraint_type AS const, kcu.constraint_name AS \"key\",

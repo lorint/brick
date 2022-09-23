@@ -17,7 +17,7 @@ refined behaviour and overrides for the defaults can be applied on a model-by-mo
 You can use The Brick in several ways -- from taking a quick peek inside an existing data set,
 with full ability to navigate across associations -- to easily updating and creating data,
 exporting tables or views out to CSV or Google Sheets -- to importing sets of data, even when
-each row targets multiple destination tables -- to creating a minimally-scaffolded application
+each row targets multiple destination tables -- to auto-creating API endpoints -- to creating a minimally-scaffolded application
 one file at a time -- to experimenting with various data layouts, seeing how functional a given
 database design will be -- and more.
 
@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.72         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.74         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -102,7 +102,7 @@ avaiable therein.
   - [1.a. Compatibility](#1a-compatibility)
   - [1.b. Installation](#1b-installation)
   - [1.c. Displaying an ERD](#1c-displaying-an-erd)
-  - [1.d. Exporting Data](#1d-exporting-data)
+  - [1.d. Exposing an API](#1d-exposing-an-api)
   - [1.e. Using rails g df_export](#1e-using-rails-g-df-export)
   - [1.f. Autogenerate Model Files](#1f-autogenerate-model-files)
   - [1.g. Autogenerate Migration Files](#1g-autogenerate-migration-files)
@@ -300,6 +300,45 @@ here for the lowermost four models associated to BusinessEntity:
 ![sample ERD for BusinessEntity](./docs/erd2.png)
 
 (The above diagrams can be seen by installing the Adventureworks sample and navigating to http://localhost:3000/person/businessentities?_brick_erd=1 and http://localhost:3000/sales/salesorderheaders?_brick_erd=1.)
+
+### 1.d. Exposing an API
+
+**The Brick** will automatically create API endpoints with documentation for all tables and views when
+it detects that the **[rswag-ui gem](https://github.com/rswag/rswag)** has been configured.
+When you have bundled that gem into your project, configuration for RSwag UI can be automatically put
+into place by running `rails g rswag:ui:install`, which performs these two actions:
+```
+  create  config/initializers/rswag_ui.rb
+   route  mount Rswag::Ui::Engine => '/api-docs'
+```
+
+By default the documentation endpoint expects YAML, and in the interest of broader compatibility with
+OpenAPI it was chosen for **The Brick** to instead provide JSON.  So there is a change necessary to
+get things going -- open up `rswag_ui.rb` and change .yaml to .json so it looks something like this:
+```
+Rswag::Ui.configure do |config|
+  config.swagger_endpoint '/api-docs/v1/swagger.json', 'API V1 Docs'
+end
+```
+
+The API itself gets served from `/api/v1/` by default, and you can change that root path if you
+wish by going into the Brick initializer file and uncommenting this entry:
+
+```
+# ::Brick.api_root = '/api/v1/' # Path from which to serve out API resources when the RSwag gem is present
+```
+
+With all of this in place, when you run `bin/rails s` then right before the message about the rack
+server starting, you should see this indication:
+```
+Mounting swagger info endpoint for "API V1 Docs" on /api-docs/v1/swagger.json
+```
+
+And then navigating to http://localhost:3000/api-docs/v1 should look something like this:
+
+![API view of EmployeeDepartmentHistory](./docs/api1.png)
+
+You can test any of the endpoints with the "Try it out" button.
 
 ### 1.f. Autogenerate Model Files
 

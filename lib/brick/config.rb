@@ -56,6 +56,31 @@ module Brick
       @mutex.synchronize { @enable_routes = enable }
     end
 
+    def enable_api
+      @mutex.synchronize { @enable_api }
+    end
+
+    def enable_api=(enable)
+      @mutex.synchronize { @enable_api = enable }
+    end
+
+    def api_root
+      ver = api_version
+      @mutex.synchronize { @api_root || "/api/#{ver}/" }
+    end
+
+    def api_root=(path)
+      @mutex.synchronize { @api_root = path }
+    end
+
+    def api_version
+      @mutex.synchronize { @api_version || 'v1' }
+    end
+
+    def api_version=(ver)
+      @mutex.synchronize { @api_version = ver }
+    end
+
     # Additional table associations to use (Think of these as virtual foreign keys perhaps)
     def additional_references
       @mutex.synchronize { @additional_references }
