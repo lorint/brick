@@ -147,6 +147,8 @@ module Brick
 # Brick.enable_controllers = true # Setting this to \"false\" will disable controllers in development
 # Brick.enable_views = true # Setting this to \"false\" will disable views in development
 
+# Brick.api_root = '/api/v1/' # Path from which to serve out API resources when the RSwag gem is present
+
 # # By default models are auto-created for database views, and set to be read-only.  This can be skipped.
 # Brick.skip_database_views = true
 

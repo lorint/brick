@@ -269,6 +269,26 @@ module Brick
     end
 
     # @api public
+    def enable_api=(path)
+      Brick.config.enable_api = path
+    end
+
+    # @api public
+    def enable_api
+      Brick.config.enable_api
+    end
+
+    # @api public
+    def api_root=(path)
+      Brick.config.api_root = path
+    end
+
+    # @api public
+    def api_root
+      Brick.config.api_root
+    end
+
+    # @api public
     def skip_database_views=(value)
       Brick.config.skip_database_views = value
     end
@@ -498,8 +518,10 @@ In config/initializers/brick.rb appropriate entries would look something like:
               send(:namespace, schema_names.first) do
                 send(:resources, k.to_sym, **options)
               end
+              send(:get, "/api/v1/#{schema_names.first}/#{k}", { to: "#{schema_names.first}/#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
             else
               send(:resources, k.to_sym, **options)
+              send(:get, "/api/v1/#{k}", { to: "#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
             end
           end
           if ::Brick.config.add_status && instance_variable_get(:@set).named_routes.names.exclude?(:brick_status)
@@ -509,7 +531,11 @@ In config/initializers/brick.rb appropriate entries would look something like:
             get('/brick_orphans', to: 'brick_gem#orphans', as: 'brick_orphans')
           end
         end
-        send(:get, '/api-docs/v1/swagger.json', { to: 'brick_swagger#index' }) if Object.const_defined?('Rswag::Ui')
+        if Object.const_defined?('Rswag::Ui') && doc_endpoint = Rswag::Ui.config.config_object[:urls].last
+          # Serves JSON swagger info from a path such as  '/api-docs/v1/swagger.json'
+          puts "Mounting swagger info endpoint for \"#{doc_endpoint[:name]}\" on #{doc_endpoint[:url]}"
+          send(:get, doc_endpoint[:url], { to: 'brick_swagger#index' })
+        end
       end
       super
     end
