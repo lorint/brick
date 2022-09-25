@@ -1510,6 +1510,8 @@ module ActiveRecord::ConnectionHandling
                           r['schema']
                         end
           relation_name = schema_name ? "#{schema_name}.#{r['relation_name']}" : r['relation_name']
+          # Both uppers and lowers as well as underscores?
+          apply_double_underscore_patch if relation_name =~ /[A-Z]/ && relation_name =~ /[a-z]/ && relation_name.index('_')
           relation = relations[relation_name]
           relation[:isView] = true if r['table_type'] == 'VIEW'
           relation[:description] = r['table_description'] if r['table_description']
@@ -1555,6 +1557,9 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
 
           if (relation_name = r[1]) =~ /^[A-Z0-9_]+$/
             relation_name.downcase!
+          # Both uppers and lowers as well as underscores?
+          elsif relation_name =~ /[A-Z]/ && relation_name =~ /[a-z]/ && relation_name.index('_')
+            apply_double_underscore_patch
           end
           # Expect the default schema for SQL Server to be 'dbo'.
           if (::Brick.is_oracle && r[0] != schema) || (is_mssql && r[0] != 'dbo')
@@ -1764,6 +1769,43 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
     ar_imtn = ActiveRecord.version >= ::Gem::Version.new('5.0') ? ActiveRecord::Base.internal_metadata_table_name : ''
     [ar_smtn, ar_imtn]
   end
+
+  def apply_double_underscore_patch
+    unless @double_underscore_applied
+      # Same as normal #camelize and #underscore, just that double-underscores turn into a single underscore
+      ActiveSupport::Inflector.class_eval do
+        def camelize(term, uppercase_first_letter = true)
+          strings = term.to_s.split('__').map do |string|
+            # String#camelize takes a symbol (:upper or :lower), so here we also support :lower to keep the methods consistent.
+            if !uppercase_first_letter || uppercase_first_letter == :lower
+              string = string.sub(inflections.acronyms_camelize_regex) { |match| match.downcase! || match }
+            else
+              string = string.sub(/^[a-z\d]*/) { |match| inflections.acronyms[match] || match.capitalize! || match }
+            end
+            string.gsub!(/(?:_|(\/))([a-z\d]*)/i) do
+              word = $2
+              substituted = inflections.acronyms[word] || word.capitalize! || word
+              $1 ? "::#{substituted}" : substituted
+            end
+            string
+          end
+          strings.join('_')
+        end
+
+        def underscore(camel_cased_word)
+          return camel_cased_word.to_s unless /[A-Z-]|::/.match?(camel_cased_word)
+          camel_cased_word.to_s.gsub("::", "/").split('_').map do |word|
+            word.gsub!(inflections.acronyms_underscore_regex) { "#{$1 && '_' }#{$2.downcase}" }
+            word.gsub!(/([A-Z]+)(?=[A-Z][a-z])|([a-z\d])(?=[A-Z])/) { ($1 || $2) << "_" }
+            word.tr!("-", "_")
+            word.downcase!
+            word
+          end.join('__')
+        end
+      end
+      @double_underscore_applied = true
+    end
+  end
 end
 
 # ==========================================
@@ -1891,6 +1933,11 @@ module Brick
 
       return if is_class || ::Brick.config.exclude_hms&.any? { |exclusion| fk[1] == exclusion[0] && fk[2] == exclusion[1] && primary_table == exclusion[2] } || hms.nil?
 
+      # if fk[1].end_with?('Suppliers') && fk[4] == 'People'
+      #   puts fk.inspect
+      #   binding.pry
+      # end
+
       if (assoc_hm = hms.fetch((hm_cnstr_name = "hm_#{cnstr_name}"), nil))
         if assoc_hm[:fk].is_a?(String)
           assoc_hm[:fk] = [assoc_hm[:fk], fk[2]] unless fk[2] == assoc_hm[:fk]
@@ -1898,7 +1945,6 @@ module Brick
           assoc_hm[:fk] << fk[2]
         end
         assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
-        assoc_hm[:inverse] = assoc_bt
       else
         inv_tbl = if ::Brick.config.schema_behavior[:multitenant] && apartment && fk[0] == Apartment.default_schema
                     for_tbl
@@ -1909,7 +1955,7 @@ module Brick
                                           inverse_table: inv_tbl, inverse: assoc_bt }
         assoc_hm[:polymorphic] = true if is_polymorphic
         hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
-        hm_counts[fk[1]] = hm_counts.fetch(fk[1]) { 0 } + 1
+        this_hm_count = hm_counts[fk[1]] = hm_counts.fetch(fk[1]) { 0 } + 1
       end
       assoc_bt[:inverse] = assoc_hm
     end
