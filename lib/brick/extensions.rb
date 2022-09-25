@@ -1382,7 +1382,7 @@ class Object
     def _brick_get_hm_assoc_name(relation, hm_assoc, source = nil)
       if (relation[:hm_counts][hm_assoc[:inverse_table]]&.> 1) &&
          hm_assoc[:alternate_name] != (source || name.underscore)
-        plural = ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name])
+        plural = "#{hm_assoc[:assoc_name]}_#{ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name])}"
         new_alt_name = (hm_assoc[:alternate_name] == name.underscore) ? "#{hm_assoc[:assoc_name].singularize}_#{plural}" : plural
         # uniq = 1
         # while same_name = relation[:fks].find { |x| x.last[:assoc_name] == hm_assoc[:assoc_name] && x.last != hm_assoc }

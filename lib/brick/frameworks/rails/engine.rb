@@ -587,7 +587,7 @@ erDiagram
     <%= \"#\{model_short_name} }o..o{ #\{hm_name} : \\\"#\{hm.first}\\\"\".html_safe %><%
      else # has_many
 %>  <%= \"#\{model_short_name} ||--o{ #\{hm_name} : \\\"#\{
-            hm_name unless hm.first.to_s == hm_class.name.underscore.pluralize.tr('/', '_')
+            hm.first.to_s unless hm.first.to_s.downcase == hm_class.name.underscore.pluralize.tr('/', '_')
           }\\\"\".html_safe %><%
      end %>
 <% end
