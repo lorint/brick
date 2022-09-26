@@ -159,7 +159,7 @@ module Brick
                     hms_columns << hm_entry
                   when 'show', 'new', 'update'
                     hm_stuff << if hm_fk_name
-                                  "<%= link_to '#{assoc_name}', #{hm_assoc.klass.name.underscore.tr('/', '_').pluralize}_path({ #{path_keys(hm_assoc, hm_fk_name, "@#{obj_name}", pk)} }) %>\n"
+                                  "<%= link_to '#{assoc_name}', #{hm_assoc.klass._brick_index}_path({ #{path_keys(hm_assoc, hm_fk_name, "@#{obj_name}", pk)} }) %>\n"
                                 else # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
                                   assoc_name
                                 end
@@ -473,7 +473,7 @@ function changeout(href, param, value, trimAfter) {
   var params = hrefParts.length > 1 ? hrefParts[1].split(\"&\") : [];
   if (param === undefined || param === null || param === -1) {
     hrefParts = hrefParts[0].split(\"://\");
-    var pathParts = hrefParts[hrefParts.length - 1].split(\"/\");
+    var pathParts = hrefParts[hrefParts.length - 1].split(\"/\").filter(function (pp) {return pp !== \"\";});
     if (value === undefined)
       // A couple possibilities if it's namespaced, starting with two parts in the path -- and then try just one
       return [pathParts.slice(1, 3).join('/'), pathParts.slice(1, 2)[0]];
@@ -629,7 +629,7 @@ erDiagram
                                   end
                          if Object.const_defined?('DutyFree')
                            template_link = "
-  <%= link_to 'CSV', #{table_name}_path(format: :csv) %> &nbsp; <a href=\"#\" id=\"sheetsLink\">Sheets</a>
+  <%= link_to 'CSV', #{@_brick_model._brick_index}_path(format: :csv) %> &nbsp; <a href=\"#\" id=\"sheetsLink\">Sheets</a>
   <div id=\"dropper\" contenteditable=\"true\"></div>
   <input type=\"button\" id=\"btnImport\" value=\"Import\">
 
@@ -692,7 +692,7 @@ erDiagram
         console.log(\"x1\", sheetUrl);
 
         // Get JSON data
-        fetch(changeout(<%= #{table_name}_path(format: :js).inspect.html_safe %>, \"_brick_schema\", brickSchema)).then(function (response) {
+        fetch(changeout(<%= #{@_brick_model._brick_index}_path(format: :js).inspect.html_safe %>, \"_brick_schema\", brickSchema)).then(function (response) {
           response.json().then(function (data) {
             gapi.client.sheets.spreadsheets.values.append({
               spreadsheetId: spreadsheetId,
@@ -723,7 +723,7 @@ erDiagram
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><tr>
-  <td><h1>#{model_plural = model_name.pluralize}</h1></td>
+  <td><h1>#{model_name}</h1></td>
   <td id=\"imgErd\" title=\"Show ERD\"></td>
 </tr></table>#{template_link}<%
    if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %><%=
@@ -737,10 +737,10 @@ erDiagram
        origin = (key_parts = k.split('.')).length == 1 ? #{model_name} : #{model_name}.reflect_on_association(key_parts.first).klass
        if (destination_fk = Brick.relations[origin.table_name][:fks].values.find { |fk| fk[:fk] == key_parts.last }) &&
           (obj = (destination = origin.reflect_on_association(destination_fk[:assoc_name])&.klass)&.find(id)) %>
-         <h3>for <%= link_to \"#{"#\{obj.brick_descrip\} (#\{destination.name\})\""}, send(\"#\{destination.name.underscore.tr('/', '_')\}_path\".to_sym, id) %></h3><%
+         <h3>for <%= link_to \"#{"#\{obj.brick_descrip\} (#\{destination.name\})\""}, send(\"#\{destination._brick_index\}_path\".to_sym, id) %></h3><%
        end
      end %>
-  (<%= link_to 'See all #{model_plural.split('::').last}', #{path_obj_name.pluralize}_path %>)
+  (<%= link_to 'See all #{model_name.split('::').last.pluralize}', #{@_brick_model._brick_index}_path %>)
 <% end
    # COLUMN EXCLUSIONS
    if @_brick_excl&.present? %>
@@ -793,7 +793,7 @@ erDiagram
               end
        elsif col # HM column
          s << \"<th#\{' x-order=\"' + col_name + '\"' if true}>#\{col[2]} \"
-         s << (col.first ? \"#\{col[3]}\" : \"#\{link_to(col[3], send(\"#\{col[1].name.underscore.tr('/', '_').pluralize}_path\"))}\")
+         s << (col.first ? \"#\{col[3]}\" : \"#\{link_to(col[3], send(\"#\{col[1]._brick_index}_path\"))}\")
        else # Bad column name!
          s << \"<th title=\\\"<< Unknown column >>\\\">#\{col_name}\"
        end
@@ -840,7 +840,7 @@ erDiagram
                    else
                      \"#\{hms_col[1] || 'View'\} #\{hms_col.first}\"
                    end %>
-         <%= link_to txt, send(\"#\{klass.name.underscore.tr('/', '_').pluralize}_path\".to_sym, hms_col[2]) unless hms_col[1]&.zero? %>
+         <%= link_to txt, send(\"#\{klass._brick_index}_path\".to_sym, hms_col[2]) unless hms_col[1]&.zero? %>
         <% end
          elsif (col = cols[col_name])
            col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
@@ -938,7 +938,7 @@ erDiagram
 if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %><%=
   description %><br><%
 end
-%><%= link_to '(See all #{obj_name.pluralize})', #{path_obj_name.pluralize}_path %>
+%><%= link_to '(See all #{obj_name.pluralize})', #{@_brick_model._brick_index}_path %>
 #{erd_markup}
 <% if obj %>
   <br><br>
@@ -1108,7 +1108,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
   var imgErd = document.getElementById(\"imgErd\");
   var mermaidErd = document.getElementById(\"mermaidErd\");
   var mermaidCode;
-  var cbs = {<%= callbacks.map { |k, v| \"#\{k}: \\\"#\{v.name.underscore.pluralize}\\\"\" }.join(', ').html_safe %>};
+  var cbs = {<%= callbacks.map { |k, v| \"#\{k}: \\\"#\{send(\"#\{v._brick_index}_path\".to_sym)}\\\"\" }.join(', ').html_safe %>};
   if (imgErd) imgErd.addEventListener(\"click\", showErd);
   function showErd() {
     imgErd.style.display = \"none\";
@@ -1132,7 +1132,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
               function (evt) {
                 location.href = changeout(changeout(
                   changeout(location.href, '_brick_order', null), // Remove any ordering
-                -1, cbs[this.id]), \"_brick_erd\", \"1\");
+                -1, cbs[this.id].replace(/^[\/]+/, \"\")), \"_brick_erd\", \"1\");
               }
             );
           }

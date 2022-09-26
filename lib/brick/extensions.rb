@@ -234,13 +234,21 @@ module ActiveRecord
     end
 
     def self.bt_link(assoc_name)
-      model_underscore = name.underscore
       assoc_name = CGI.escapeHTML(assoc_name.to_s)
-      model_path = Rails.application.routes.url_helpers.send("#{model_underscore.tr('/', '_').pluralize}_path".to_sym)
+      model_path = Rails.application.routes.url_helpers.send("#{_brick_index}_path".to_sym)
       av_class = Class.new.extend(ActionView::Helpers::UrlHelper)
       av_class.extend(ActionView::Helpers::TagHelper) if ActionView.version < ::Gem::Version.new('7')
       link = av_class.link_to(name, model_path)
-      model_underscore == assoc_name ? link : "#{assoc_name}-#{link}".html_safe
+      table_name == assoc_name ? link : "#{assoc_name}-#{link}".html_safe
+    end
+
+    def self._brick_index
+      tbl_parts = table_name.split('.')
+      tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.first == Apartment.default_schema
+      if (index = tbl_parts.map(&:underscore).join('_')) == index.singularize
+        index << '_index' # Rails applies an _index suffix to that route when the resource name is singular
+      end
+      index
     end
 
     def self.brick_import_template
