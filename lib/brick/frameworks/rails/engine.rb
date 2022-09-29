@@ -72,7 +72,6 @@ module Brick
             def set_brick_model(find_args)
               # Need to return true if we can fill in the blanks for a missing one
               # args will be something like:  ["index", ["categories"]]
-              find_args[1] = find_args[1].each_with_object([]) { |a, s| s.concat(a.split('/')) }
               if (class_name = find_args[1].last&.singularize)
                 find_args[1][find_args[1].length - 1] = class_name # Make sure the last item, defining the class name, is singular
                 if (model = find_args[1].map(&:camelize).join('::').constantize) && (
@@ -100,10 +99,13 @@ module Brick
             def find_template(*args, **options)
               unless (model_name = @_brick_model&.name) ||
                      (is_status = ::Brick.config.add_status && args[0..1] == ['status', ['brick_gem']]) ||
-                     (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']]) ||
-                     # Used to also have:  ActionView.version < ::Gem::Version.new('5.0') &&
-                     (model_name = (args[1].is_a?(Array) ? set_brick_model(args) : nil)&.name)
-                return _brick_find_template(*args, **options)
+                     (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']])
+                if (possible_template = _brick_find_template(*args, **options))
+                  return possible_template
+                else
+                  # Used to also have:  ActionView.version < ::Gem::Version.new('5.0') &&
+                  model_name = (args[1].is_a?(Array) ? set_brick_model(args) : nil)&.name
+                end
               end
 
               if @_brick_model

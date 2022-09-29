@@ -16,12 +16,7 @@ module Brick
       # %%% If Apartment is active and there's no schema_to_analyse, ask which schema they want
 
       # Load all models
-      if ::ActiveSupport.version < ::Gem::Version.new('6') ||
-        ::Rails.configuration.instance_variable_get(:@autoloader) == :classic
-        Rails.configuration.eager_load_namespaces.select { |ns| ns < Rails::Application }.each(&:eager_load!)
-      else
-        Zeitwerk::Loader.eager_load_all
-      end
+      ::Brick.eager_load_classes
 
       # Generate a list of viable models that can be chosen
       longest_length = 0

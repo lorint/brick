@@ -235,7 +235,7 @@ module ActiveRecord
 
     def self.bt_link(assoc_name)
       assoc_name = CGI.escapeHTML(assoc_name.to_s)
-      model_path = Rails.application.routes.url_helpers.send("#{_brick_index}_path".to_sym)
+      model_path = ::Rails.application.routes.url_helpers.send("#{_brick_index}_path".to_sym)
       av_class = Class.new.extend(ActionView::Helpers::UrlHelper)
       av_class.extend(ActionView::Helpers::TagHelper) if ActionView.version < ::Gem::Version.new('7')
       link = av_class.link_to(name, model_path)
@@ -641,7 +641,7 @@ JOIN (SELECT #{selects.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}
           module_prefixes.unshift('') unless module_prefixes.first.blank?
           module_name = module_prefixes[0..-2].join('::')
           if (snp = ::Brick.config.sti_namespace_prefixes)&.key?("::#{module_name}::") || snp&.key?("#{module_name}::") ||
-             File.exist?(candidate_file = Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb'))
+             File.exist?(candidate_file = ::Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb'))
             _brick_find_sti_class(type_name) # Find this STI class normally
           else
             # Build missing prefix modules if they don't yet exist
@@ -710,13 +710,17 @@ end
 Module.class_exec do
   alias _brick_const_missing const_missing
   def const_missing(*args)
-    if (self.const_defined?(args.first) && (possible = self.const_get(args.first)) && possible != self) ||
-       (self != Object && Object.const_defined?(args.first) &&
-         (
-           (possible = Object.const_get(args.first)) &&
-           (possible != self || (possible == self && possible.is_a?(Class)))
-         )
-       )
+    desired_classname = (self == Object) ? args.first.to_s : "#{name}::#{args.first}"
+    if ((is_defined = self.const_defined?(args.first)) && (possible = self.const_get(args.first)) && possible.name == desired_classname) ||
+       # Try to require the respective Ruby file
+       ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
+                    (self != Object && ActiveSupport::Dependencies.search_for_file((desired_classname = args.first.to_s).underscore))
+        ) && (require_dependency(filename) || true) &&
+        ((possible = self.const_get(args.first)) && possible.name == desired_classname)
+       ) ||
+       # If any class has turned up so far (and we're not in the middle of eager loading)
+       # then return what we've found.
+       (is_defined && !::Brick.is_eager_loading)
       return possible
     end
     class_name = ::Brick.namify(args.first.to_s)
@@ -766,7 +770,7 @@ Module.class_exec do
                    (schema_name = [(singular_table_name = class_name.underscore),
                                    (table_name = singular_table_name.pluralize),
                                    ::Brick.is_oracle ? class_name.upcase : class_name,
-                                   (plural_class_name = class_name.pluralize)].find { |s| Brick.db_schemas.include?(s) }&.camelize ||
+                                   (plural_class_name = class_name.pluralize)].find { |s| Brick.db_schemas&.include?(s) }&.camelize ||
                                   (::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}::") && class_name))
                return self.const_get(schema_name) if self.const_defined?(schema_name)
 
@@ -789,7 +793,7 @@ Module.class_exec do
 #         module_prefixes = type_name.split('::')
 #         path = base_module.name.split('::')[0..-2] + []
 #         module_prefixes.unshift('') unless module_prefixes.first.blank?
-#         candidate_file = Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb')
+#         candidate_file = ::Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb')
       base_module._brick_const_missing(*args)
     # elsif base_module != Object
     #   module_parent.const_missing(*args)
@@ -811,7 +815,7 @@ class Object
         schema_name = [(singular_schema_name = base_name.underscore),
                        (schema_name = singular_schema_name.pluralize),
                        base_name,
-                       base_name.pluralize].find { |s| Brick.db_schemas.include?(s) }
+                       base_name.pluralize].find { |s| Brick.db_schemas&.include?(s) }
       end
       plural_class_name = ActiveSupport::Inflector.pluralize(model_name = class_name)
       # If it's namespaced then we turn the first part into what would be a schema name
@@ -1468,13 +1472,13 @@ module ActiveRecord::ConnectionHandling
     initializer_loaded = false
     if (relations = ::Brick.relations).empty?
       # If there's schema things configured then we only expect our initializer to be named exactly this
-      if File.exist?(brick_initializer = Rails.root.join('config/initializers/brick.rb'))
+      if File.exist?(brick_initializer = ::Rails.root.join('config/initializers/brick.rb'))
         initializer_loaded = load brick_initializer
       end
       # Load the initializer for the Apartment gem a little early so that if .excluded_models and
       # .default_schema are specified then we can work with non-tenanted models more appropriately
       apartment = Object.const_defined?('Apartment')
-      if apartment && File.exist?(apartment_initializer = Rails.root.join('config/initializers/apartment.rb'))
+      if apartment && File.exist?(apartment_initializer = ::Rails.root.join('config/initializers/apartment.rb'))
         load apartment_initializer
         apartment_excluded = Apartment.excluded_models
       end
@@ -2001,14 +2005,7 @@ module Brick
                        end
                      end
                    end
-      if ::ActiveSupport.version < ::Gem::Version.new('6') ||
-         ::Rails.configuration.instance_variable_get(:@autoloader) == :classic
-        Rails.configuration.eager_load_namespaces.select { |ns| ns < Rails::Application }.each(&:eager_load!)
-      else
-        Zeitwerk::Loader.eager_load_all
-      end
-      abstract_activerecord_bases = ActiveRecord::Base.descendants.select { |ar| ar.abstract_class? }.map(&:name)
-      # abstract_activerecord_bases << ActiveRecord::Base
+      abstract_activerecord_bases = ::Brick.eager_load_classes(true)
       models = if Dir.exist?(model_path = "#{rails_root}/app/models")
                  Dir["#{model_path}/**/*.rb"].each_with_object({}) do |v, s|
                    File.read(v).split("\n").each do |line|

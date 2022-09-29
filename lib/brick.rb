@@ -123,7 +123,7 @@ module Brick
   end
 
   class << self
-    attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle
+    attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle, :is_eager_loading
 
     def set_db_schema(params = nil)
       schema = (params ? params['_brick_schema'] : ::Brick.default_schema) || 'public'
@@ -495,6 +495,21 @@ In config/initializers/brick.rb appropriate entries would look something like:
       VERSION::STRING
     end
 
+    def eager_load_classes(do_ar_abstract_bases = false)
+      ::Brick.is_eager_loading = true
+      if ::ActiveSupport.version < ::Gem::Version.new('6') ||
+         ::Rails.configuration.instance_variable_get(:@autoloader) == :classic
+        ::Rails.configuration.eager_load_namespaces.select { |ns| ns < ::Rails::Application }.each(&:eager_load!)
+      else
+        Zeitwerk::Loader.eager_load_all
+      end
+      abstract_ar_bases = if do_ar_abstract_bases
+                            ActiveRecord::Base.descendants.select { |ar| ar.abstract_class? }.map(&:name)
+                          end
+      ::Brick.is_eager_loading = false
+      abstract_ar_bases
+    end
+
     def display_classes(rels, max_length)
       rels.sort.each do |rel|
         puts "#{rel.first}#{' ' * (max_length - rel.first.length)}  /#{rel.last}"
@@ -593,12 +608,12 @@ require 'active_record/relation/query_methods' if ActiveRecord.version < ::Gem::
 require 'rails/railtie' if ActiveRecord.version < ::Gem::Version.new('4.2')
 
 # Rake tasks
-class Railtie < Rails::Railtie
+class Railtie < ::Rails::Railtie
   Dir.glob("#{File.expand_path(__dir__)}/brick/tasks/**/*.rake").each { |task| load task }
 end
 
 # Rails < 4.2 does not have env
-module Rails
+module ::Rails
   unless respond_to?(:env)
     def self.env
       @_env ||= ActiveSupport::StringInquirer.new(ENV["RAILS_ENV"] || ENV["RACK_ENV"] || "development")

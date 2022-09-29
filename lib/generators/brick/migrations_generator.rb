@@ -55,7 +55,7 @@ module Brick
       # If Apartment is active, see if a default schema to analyse is indicated
 
       # # Load all models
-      # Rails.configuration.eager_load_namespaces.select { |ns| ns < Rails::Application }.each(&:eager_load!)
+      # ::Brick.eager_load_classes
 
       if (tables = ::Brick.relations.reject { |k, v| v.key?(:isView) && v[:isView] == true }.map(&:first).sort).empty?
         puts "No tables found in database #{ActiveRecord::Base.connection.current_database}."
