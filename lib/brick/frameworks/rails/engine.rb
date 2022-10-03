@@ -33,6 +33,9 @@ module Brick
         # Additional references (virtual foreign keys)
         ::Brick.additional_references = app.config.brick.fetch(:additional_references, nil)
 
+        # Custom columns to add to a table, minimally defined with a name and DSL string
+        ::Brick.custom_columns = app.config.brick.fetch(:custom_columns, nil)
+
         # When table names have specific prefixes, automatically place them in their own module with a table_name_prefix.
         ::Brick.order = app.config.brick.fetch(:order, {})
 
@@ -812,7 +815,8 @@ erDiagram
        cols[col_name] = col
      end
      unless @_brick_sequence # If no sequence is defined, start with all inclusions
-       @_brick_sequence = col_keys + #{(hms_keys).inspect}.reject { |assoc_name| @_brick_incl&.exclude?(assoc_name) }
+       cust_cols = #{model_name}._br_cust_cols
+       @_brick_sequence = col_keys + cust_cols.keys + #{(hms_keys).inspect}.reject { |assoc_name| @_brick_incl&.exclude?(assoc_name) }
      end
      @_brick_sequence.reject! { |nm| @_brick_excl.include?(nm) } if @_brick_excl # Reject exclusions
      @_brick_sequence.each_with_object(+'') do |col_name, s|
@@ -829,6 +833,8 @@ erDiagram
        elsif col # HM column
          s << \"<th#\{' x-order=\"' + col_name + '\"' if true}>#\{col[2]} \"
          s << (col.first ? \"#\{col[3]}\" : \"#\{link_to(col[3], send(\"#\{col[1]._brick_index}_path\"))}\")
+       elsif (cc = cust_cols.key?(col_name)) # Custom column
+         s << \"<th x-order=\\\"#\{col_name}\\\">#\{col_name}\"
        else # Bad column name!
          s << \"<th title=\\\"<< Unknown column >>\\\">#\{col_name}\"
        end
@@ -846,7 +852,7 @@ erDiagram
     <td><%= link_to '⇛', #{path_obj_name}_path(#{obj_pk}), { class: 'big-arrow' } %></td>" if obj_pk}
     <% @_brick_sequence.each do |col_name|
          val = #{obj_name}.attributes[col_name] %>
-      <td<%= ' class=\"dimmed\"'.html_safe unless cols.key?(col_name)%>><%
+      <td<%= ' class=\"dimmed\"'.html_safe unless cols.key?(col_name) || (cust_col = cust_cols[col_name])%>><%
          if (bt = bts[col_name])
            if bt[2] # Polymorphic?
              bt_class = #{obj_name}.send(\"#\{bt.first\}_type\")
@@ -880,6 +886,9 @@ erDiagram
          elsif (col = cols[col_name])
            col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
     %><%=  display_value(col_type || col&.sql_type, val) %><%
+         elsif cust_col
+           data = cust_col.first.map { |cc_part| #{obj_name}.send(cc_part.last) }
+    %><%=  #{model_name}.brick_descrip(cust_col.last, data) %><%
          else # Bad column name!
       %>?<%
          end

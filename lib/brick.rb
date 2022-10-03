@@ -329,6 +329,15 @@ module Brick
       end
     end
 
+    # Custom columns to add to a table, minimally defined with a name and DSL string.
+    # @api public
+    def custom_columns=(cust_cols)
+      if cust_cols
+        cust_cols = cust_cols.call if cust_cols.is_a?(Proc)
+        Brick.config.custom_columns = cust_cols
+      end
+    end
+
     # @api public
     def order=(value)
       Brick.config.order = value

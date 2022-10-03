@@ -139,6 +139,9 @@ module ActiveRecord
             end
             if klass.column_names.exclude?(parts.last) &&
                (klass = (orig_class = klass).reflect_on_association(possible_dsl = parts.pop.to_sym)&.klass)
+              if prefix.empty? # Custom columns start with an empty prefix
+                prefix << parts.shift until parts.empty?
+              end
               # Expand this entry which refers to an association name
               members2, dsl2a = klass.brick_parse_dsl(build_array, prefix + [possible_dsl], translations, is_polymorphic, nil, true)
               members += members2
@@ -187,7 +190,8 @@ module ActiveRecord
     end
 
     def self.brick_descrip(obj, data = nil, pk_alias = nil)
-      if (dsl = ::Brick.config.model_descrips[(klass = self).name] || klass.brick_get_dsl)
+      dsl = obj if obj.is_a?(String)
+      if (dsl ||= ::Brick.config.model_descrips[(klass = self).name] || klass.brick_get_dsl)
         idx = -1
         caches = {}
         output = +''
@@ -282,10 +286,20 @@ module ActiveRecord
       def _br_associatives
         @_br_associatives ||= {}
       end
+      # Custom columns
+      def _br_cust_cols
+        @_br_cust_cols ||= {}
+      end
     end
 
-    # Search for BT, HM, and HMT DSL stuff
+    # Search for custom column, BT, HM, and HMT DSL stuff
     def self._brick_calculate_bts_hms(translations, join_array)
+      # Add any custom columns
+      ::Brick.config.custom_columns&.fetch(table_name, nil)&.each do |k, cc|
+        # false = not polymorphic, and true = yes -- please emit_dsl
+        pieces, my_dsl = brick_parse_dsl(join_array, [], translations, false, cc, true)
+        _br_cust_cols[k] = [pieces, my_dsl]
+      end
       bts, hms, associatives = ::Brick.get_bts_and_hms(self)
       bts.each do |_k, bt|
         next if bt[2] # Polymorphic?
@@ -324,7 +338,7 @@ module ActiveRecord
                    else # Expecting only Symbol
                      if _br_hm_counts.key?(ord_part)
                        ord_part = "\"b_r_#{ord_part}_ct\""
-                     elsif !_br_bt_descrip.key?(ord_part) && !column_names.include?(ord_part.to_s)
+                     elsif !_br_bt_descrip.key?(ord_part) && !_br_cust_cols.key?(ord_part) && !column_names.include?(ord_part.to_s)
                        # Disallow ordering by a bogus column
                        # %%% Note this bogus entry so that Javascript can remove any bogus _brick_order
                        # parameter from the querystring, pushing it into the browser history.
@@ -437,6 +451,12 @@ module ActiveRecord
     end
 
     def brick_select(params, selects = [], order_by = nil, translations = {}, join_array = ::Brick::JoinArray.new)
+      is_add_bts = is_add_hms = true
+
+      # Build out cust_cols, bt_descrip and hm_counts now so that they are available on the
+      # model early in case the user wants to do an ORDER BY based on any of that.
+      model._brick_calculate_bts_hms(translations, join_array) if is_add_bts || is_add_hms
+
       is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2'
       is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer'
@@ -496,7 +516,36 @@ module ActiveRecord
         id_for_tables = Hash.new { |h, k| h[k] = [] }
         field_tbl_names = Hash.new { |h, k| h[k] = {} }
         used_col_aliases = {} # Used to make sure there is not a name clash
-        bt_columns = klass._br_bt_descrip.each_with_object([]) do |v, s|
+
+        # CUSTOM COLUMNS
+        # ==============
+        klass._br_cust_cols.each do |k, cc|
+          if respond_to?(k) # Name already taken?
+            # %%% Use ensure_unique here in this kind of fashion:
+            # cnstr_name = ensure_unique(+"(brick) #{for_tbl}_#{pri_tbl}", bts, hms)
+            # binding.pry
+            next
+          end
+
+          cc.first.each do |cc_part|
+            dest_klass = cc_part[0..-2].inject(klass) { |kl, cc_part_term| kl.reflect_on_association(cc_part_term).klass }
+            tbl_name = (field_tbl_names[k][cc_part.last] ||= shift_or_first(chains[dest_klass])).split('.').last
+            # Deal with the conflict if there are two parts in the custom column named the same,
+            # "category.name" and "product.name" for instance will end up with aliases of "name"
+            # and "product__name".
+            cc_part_idx = cc_part.length - 1
+            while cc_part_idx > 0 &&
+                  (col_alias = "br_cc_#{k}__#{cc_part[cc_part_idx..-1].map(&:to_s).join('__')}") &&
+                  used_col_aliases.key?(col_alias)
+              cc_part_idx -= 1
+            end
+            selects << "#{tbl_name}.#{cc_part.last} AS #{col_alias}"
+            cc_part << col_alias
+            used_col_aliases[col_alias] = nil
+          end
+        end
+
+        klass._br_bt_descrip.each do |v|
           v.last.each do |k1, v1| # k1 is class, v1 is array of columns to snag
             next if chains[k1].nil?
 
@@ -617,7 +666,8 @@ JOIN (SELECT #{selects.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}
       end
       where!(wheres) unless wheres.empty?
       # Must parse the order_by and see if there are any symbols which refer to BT associations
-      # as they must be expanded to find the corresponding b_r_model__column naming for each.
+      # or custom columns as they must be expanded to find the corresponding b_r_model__column
+      # or br_cc_column naming for each.
       if order_by.present?
         final_order_by = *order_by.each_with_object([]) do |v, s|
           if v.is_a?(Symbol)
@@ -626,6 +676,8 @@ JOIN (SELECT #{selects.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}
               bt_cols.values.each do |v1|
                 v1.each { |v2| s << "\"#{v2.last}\"" if v2.length > 1 }
               end
+            elsif (cc_cols = klass._br_cust_cols[v])
+              cc_cols.first.each { |v1| s << "\"#{v1.last}\"" if v1.length > 1 }
             else
               s << v
             end
@@ -1225,22 +1277,6 @@ class Object
             return
           end
 
-          # Normal (non-swagger) request
-
-          # We do all of this now so that bt_descrip and hm_counts are available on the model early in case the user
-          # wants to do an ORDER BY based on any of that
-          translations = {}
-          join_array = ::Brick::JoinArray.new
-          is_add_bts = is_add_hms = true
-          # This builds out bt_descrip and hm_counts on the model
-          model._brick_calculate_bts_hms(translations, join_array) if is_add_bts || is_add_hms
-
-          # %%% Allow params to define which columns to use for order_by
-          # Overriding the default by providing a querystring param?
-          ordering = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
-          order_by, _ = model._brick_calculate_ordering(ordering, true) # Don't do the txt part
-
-          ::Brick.set_db_schema(params)
           if request.format == :csv # Asking for a template?
             require 'csv'
             exported_csv = CSV.generate(force_quotes: false) do |csv_out|
@@ -1254,7 +1290,16 @@ class Object
             return
           end
 
-          @_brick_params = (ar_relation = model.all).brick_select(params, (selects = []), order_by, translations, join_array)
+          # Normal (not swagger or CSV) request
+
+          # %%% Allow params to define which columns to use for order_by
+          # Overriding the default by providing a querystring param?
+          ordering = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
+          order_by, _ = model._brick_calculate_ordering(ordering, true) # Don't do the txt part
+
+          @_brick_params = (ar_relation = model.all).brick_select(params, (selects = []), nil,
+                                                                  translations = {},
+                                                                  join_array = ::Brick::JoinArray.new)
           # %%% Add custom HM count columns
           # %%% What happens when the PK is composite?
           counts = model._br_hm_counts.each_with_object([]) do |v, s|
@@ -1923,9 +1968,7 @@ module Brick
         # For any appended references (those that come from config), arrive upon a definitely unique constraint name
         pri_tbl = is_class ? fk[4][:class].underscore : pri_tbl
         pri_tbl = "#{bt_assoc_name}_#{pri_tbl}" if pri_tbl&.singularize != bt_assoc_name
-        cnstr_base = cnstr_name = "(brick) #{for_tbl}_#{pri_tbl}"
-        cnstr_added_num = 1
-        cnstr_name = "#{cnstr_base}_#{cnstr_added_num += 1}" while bts&.key?(cnstr_name) || hms&.key?(cnstr_name)
+        cnstr_name = ensure_unique(+"(brick) #{for_tbl}_#{pri_tbl}", bts, hms)
         missing = []
         missing << fk[1] unless relations.key?(fk[1])
         missing << primary_table unless is_class || relations.key?(primary_table)
@@ -2048,6 +2091,28 @@ module Brick
                  end
                end
       ::Brick.relations.keys.map { |v| [(r = v.pluralize), (model = models[r])&.last&.table_name || v, migrations&.fetch(r, nil), model&.first] }
+    end
+
+    def ensure_unique(name, *sources)
+      base = name
+      if (added_num = name.slice!(/_(\d+)$/))
+        added_num = added_num[1..-1].to_i
+      else
+        added_num = 1
+      end
+      while (
+        name = "#{base}_#{added_num += 1}"
+        sources.each_with_object(nil) do |v, s|
+          s || case v
+               when Hash
+                 v.key?(name)
+               when Array
+                 v.include?(name)
+               end
+        end
+      )
+      end
+      name
     end
 
     # Locate orphaned records

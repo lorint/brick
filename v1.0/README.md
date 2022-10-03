@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.75         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.76         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -325,7 +325,7 @@ The API itself gets served from `/api/v1/` by default, and you can change that r
 wish by going into the Brick initializer file and uncommenting this entry:
 
 ```
-# Brick.api_root = '/api/v1/' # Path from which to serve out API resources when the RSwag gem is present
+# ::Brick.api_root = '/api/v1/' # Path from which to serve out API resources when the RSwag gem is present
 ```
 
 With all of this in place, when you run `bin/rails s` then right before the message about the rack

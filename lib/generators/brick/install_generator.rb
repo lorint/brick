@@ -207,6 +207,12 @@ module Brick
 # # to be the primary key.)
 #{bar}
 
+# # Custom columns to add to a table, minimally defined with a name and DSL string.
+# Brick.custom_columns = { 'users' =>  { messages:    ['[COUNT(messages)] messages', 'messages'] },
+#                          'orders' => { salesperson:  '[salesperson.first] [salesperson.last]',
+#                                        products:    ['[COUNT(order_items.product)] products', 'order_items.product' ] }
+#                        }
+
 # # Skip creating a has_many association for these (only retain the belongs_to built from this additional_reference).
 # # (Uses the same exact three-part format as would define an additional_reference)
 # # Say for instance that we didn't care to display the favourite colours that users have:

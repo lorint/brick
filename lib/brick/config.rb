@@ -90,6 +90,15 @@ module Brick
       @mutex.synchronize { @additional_references = references }
     end
 
+    # Custom columns to add to a table, minimally defined with a name and DSL string
+    def custom_columns
+      @mutex.synchronize { @custom_columns }
+    end
+
+    def custom_columns=(cust_cols)
+      @mutex.synchronize { @custom_columns = cust_cols }
+    end
+
     # Skip creating a has_many association for these
     def exclude_hms
       @mutex.synchronize { @exclude_hms }
