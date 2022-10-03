@@ -100,73 +100,83 @@ module ActiveRecord
       dsl
     end
 
-    def self.brick_parse_dsl(build_array = nil, prefix = [], translations = {}, emit_dsl = false, is_polymorphic = false)
-      build_array = ::Brick::JoinArray.new.tap { |ary| ary.replace([build_array]) } if build_array.is_a?(::Brick::JoinHash)
-      build_array = ::Brick::JoinArray.new unless build_array.nil? || build_array.is_a?(Array)
-      members = []
-      bracket_name = nil
+    def self.brick_parse_dsl(build_array = nil, prefix = [], translations = {}, is_polymorphic = false, dsl = nil, emit_dsl = false)
+      unless build_array.is_a?(::Brick::JoinArray)
+        build_array = ::Brick::JoinArray.new.tap { |ary| ary.replace([build_array]) } if build_array.is_a?(::Brick::JoinHash)
+        build_array = ::Brick::JoinArray.new unless build_array.nil? || build_array.is_a?(Array)
+      end
       prefix = [prefix] unless prefix.is_a?(Array)
-      if (dsl = ::Brick.config.model_descrips[name] || brick_get_dsl)
-        dsl2 = +'' # To replace our own DSL definition in case it needs to be expanded
-        dsl3 = +'' # To return expanded DSL that is nested from another model
-        klass = nil
-        dsl.each_char do |ch|
-          if bracket_name
-            if ch == ']' # Time to process a bracketed thing?
-              parts = bracket_name.split('.')
-              first_parts = parts[0..-2].map do |part|
-                klass = (orig_class = klass).reflect_on_association(part_sym = part.to_sym)&.klass
-                puts "Couldn't reference #{orig_class.name}##{part} that's part of the DSL \"#{dsl}\"." if klass.nil?
-                part_sym
-              end
-              parts = prefix + first_parts + [parts[-1]]
-              if parts.length > 1
-                unless is_polymorphic
-                  s = build_array
-                  parts[0..-3].each { |v| s = s[v.to_sym] }
-                  s[parts[-2]] = nil # unless parts[-2].empty? # Using []= will "hydrate" any missing part(s) in our whole series
-                end
-                translations[parts[0..-2].join('.')] = klass
-              end
-              if klass.column_names.exclude?(parts.last) &&
-                 (klass = (orig_class = klass).reflect_on_association(possible_dsl = parts.pop.to_sym)&.klass)
-                # Expand this entry which refers to an association name
-                members2, dsl2a = klass.brick_parse_dsl(build_array, prefix + [possible_dsl], translations, true)
-                members += members2
-                dsl2 << dsl2a
-                dsl3 << dsl2a
-              else
-                dsl2 << "[#{bracket_name}]"
-                if emit_dsl
-                  dsl3 << "[#{prefix[1..-1].map { |p| "#{p.to_s}." }.join if prefix.length > 1}#{bracket_name}]"
-                end
-                members << parts
-              end
-              bracket_name = nil
-            else
-              bracket_name << ch
-            end
-          elsif ch == '['
-            bracket_name = +''
-            klass = self
-          else
-            dsl2 << ch
-            dsl3 << ch
-          end
-        end
-        # Rewrite the DSL in case it's now different from having to expand it
-        # if ::Brick.config.model_descrips[name] != dsl2
-        #   puts ::Brick.config.model_descrips[name]
-        #   puts dsl2.inspect
-        #   puts dsl3.inspect
-        #   binding.pry
-        # end
-        ::Brick.config.model_descrips[name] = dsl2 unless emit_dsl
-      else # With no DSL available, still put this prefix into the JoinArray so we can get primary key (ID) info from this table
+      members = []
+      unless dsl || (dsl = ::Brick.config.model_descrips[name] || brick_get_dsl)
+        # With no DSL available, still put this prefix into the JoinArray so we can get primary key (ID) info from this table
         x = prefix.each_with_object(build_array) { |v, s| s[v.to_sym] }
         x[prefix.last] = nil unless prefix.empty? # Using []= will "hydrate" any missing part(s) in our whole series
+        return members
       end
-      emit_dsl ? [members, dsl3] : members
+
+      # Do the actual dirty work of recursing through nested DSL
+      bracket_name = nil
+      dsl2 = +'' # To replace our own DSL definition in case it needs to be expanded
+      dsl3 = +'' # To return expanded DSL that is nested from another model
+      klass = nil
+      dsl.each_char do |ch|
+        if bracket_name
+          if ch == ']' # Time to process a bracketed thing?
+            parts = bracket_name.split('.')
+            first_parts = parts[0..-2].map do |part|
+              klass = (orig_class = klass).reflect_on_association(part_sym = part.to_sym)&.klass
+              puts "Couldn't reference #{orig_class.name}##{part} that's part of the DSL \"#{dsl}\"." if klass.nil?
+              part_sym
+            end
+            parts = prefix + first_parts + [parts[-1]]
+            if parts.length > 1
+              unless is_polymorphic
+                s = build_array
+                parts[0..-3].each { |v| s = s[v.to_sym] }
+                s[parts[-2]] = nil # unless parts[-2].empty? # Using []= will "hydrate" any missing part(s) in our whole series
+              end
+              translations[parts[0..-2].join('.')] = klass
+            end
+            if klass.column_names.exclude?(parts.last) &&
+               (klass = (orig_class = klass).reflect_on_association(possible_dsl = parts.pop.to_sym)&.klass)
+              # Expand this entry which refers to an association name
+              members2, dsl2a = klass.brick_parse_dsl(build_array, prefix + [possible_dsl], translations, is_polymorphic, nil, true)
+              members += members2
+              dsl2 << dsl2a
+              dsl3 << dsl2a
+            else
+              dsl2 << "[#{bracket_name}]"
+              if emit_dsl
+                dsl3 << "[#{prefix[1..-1].map { |p| "#{p.to_s}." }.join if prefix.length > 1}#{bracket_name}]"
+              end
+              members << parts
+            end
+            bracket_name = nil
+          else
+            bracket_name << ch
+          end
+        elsif ch == '['
+          bracket_name = +''
+          klass = self
+        else
+          dsl2 << ch
+          dsl3 << ch
+        end
+      end
+      # Rewrite the DSL in case it's now different from having to expand it
+      # if ::Brick.config.model_descrips[name] != dsl2
+      #   puts ::Brick.config.model_descrips[name]
+      #   puts dsl2.inspect
+      #   puts dsl3.inspect
+      #   binding.pry
+      # end
+      if emit_dsl
+        # Had been:  [members, dsl2, dsl3]
+        [members, dsl3]
+      else
+        ::Brick.config.model_descrips[name] = dsl2
+        members
+      end
     end
 
     # If available, parse simple DSL attached to a model in order to provide a friendlier name.
@@ -282,8 +292,8 @@ module ActiveRecord
 
         # join_array will receive this relation name when calling #brick_parse_dsl
         _br_bt_descrip[bt.first] = if bt[1].is_a?(Array)
-                                     # Last two params here:  "false" is for don't emit DSL, and "true" is for yes, we are polymorphic
-                                     bt[1].each_with_object({}) { |bt_class, s| s[bt_class] = bt_class.brick_parse_dsl(join_array, bt.first, translations, false, true) }
+                                     # Last params here:  "true" is for yes, we are polymorphic
+                                     bt[1].each_with_object({}) { |bt_class, s| s[bt_class] = bt_class.brick_parse_dsl(join_array, bt.first, translations, true) }
                                    else
                                      { bt.last => bt[1].brick_parse_dsl(join_array, bt.first, translations) }
                                    end
