@@ -249,8 +249,8 @@ tr th {
   right: 0;
   cursor: pointer;
 }
-#headerTop tr th:hover {
-  background-color: #18B090;
+#headerTop tr th:hover, #headerTop tr th.highlight {
+  background-color: #28B898;
 }
 #exclusions {
   font-size: 0.7em;
@@ -271,6 +271,10 @@ tr th a {
 
 tr th, tr td {
   padding: 0.2em 0.5em;
+}
+
+tr td.highlight {
+  background-color: #B0B0FF;
 }
 
 .show-field {
@@ -500,6 +504,34 @@ function changeout(href, param, value, trimAfter) {
 var grid = document.getElementById(\"#{table_name}\");
 #{table_name}HtColumns = grid && [grid.getElementsByTagName(\"TR\")[0]];
 var headerTop = document.getElementById(\"headerTop\");
+var headerCols;
+if (grid) {
+  // COLUMN HEADER AND TABLE CELL HIGHLIGHTING
+  var gridHighHeader = null,
+      gridHighCell = null;
+  grid.addEventListener(\"mouseenter\", gridMove);
+  grid.addEventListener(\"mousemove\", gridMove);
+  grid.addEventListener(\"mouseleave\", function (evt) {
+    if (gridHighCell) gridHighCell.classList.remove(\"highlight\");
+    gridHighCell = null;
+    if (gridHighHeader) gridHighHeader.classList.remove(\"highlight\");
+    gridHighHeader = null;
+  });
+  function gridMove(evt) {
+    var lastHighCell = gridHighCell;
+    gridHighCell = document.elementFromPoint(evt.x, evt.y);
+    if (lastHighCell !== gridHighCell) {
+      gridHighCell.classList.add(\"highlight\");
+      if (lastHighCell) lastHighCell.classList.remove(\"highlight\");
+    }
+    var lastHighHeader = gridHighHeader;
+    gridHighHeader = headerCols[gridHighCell.cellIndex];
+    if (lastHighHeader !== gridHighHeader) {
+      if (gridHighHeader) gridHighHeader.classList.add(\"highlight\");
+      if (lastHighHeader) lastHighHeader.classList.remove(\"highlight\");
+    }
+  }
+}
 function setHeaderSizes() {
   // console.log(\"start\");
   // See if the headerTop is already populated
@@ -531,6 +563,7 @@ function setHeaderSizes() {
         }
       }
     }
+    headerCols = tr.childNodes;
     if (isEmpty) headerTop.appendChild(tr);
   }
   grid.style.marginTop = \"-\" + getComputedStyle(headerTop).height;
