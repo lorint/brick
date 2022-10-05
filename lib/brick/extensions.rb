@@ -341,6 +341,11 @@ module ActiveRecord
       [order_by, order_by_txt]
     end
 
+    def self.brick_select(params = {}, selects = [], *args)
+      (relation = all).brick_select(params, selects, *args)
+      relation.select(selects)
+    end
+
   private
 
     def self._brick_get_fks
@@ -431,7 +436,7 @@ module ActiveRecord
       end
     end
 
-    def brick_select(params, selects = nil, order_by = nil, translations = {}, join_array = ::Brick::JoinArray.new)
+    def brick_select(params, selects = [], order_by = nil, translations = {}, join_array = ::Brick::JoinArray.new)
       is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2'
       is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer'
@@ -456,7 +461,7 @@ module ActiveRecord
       end
 
       # %%% Skip the metadata columns
-      if selects&.empty? # Default to all columns
+      if selects.empty? # Default to all columns
         tbl_no_schema = table.name.split('.').last
         # %%% Have once gotten this error with MSSQL referring to http://localhost:3000/warehouse/cold_room_temperatures__archive
         #     ActiveRecord::StatementInvalid (TinyTds::Error: DBPROCESS is dead or not enabled)
@@ -554,7 +559,13 @@ module ActiveRecord
       klass._br_hm_counts.each do |k, hm|
         associative = nil
         count_column = if hm.options[:through]
-                         hm.foreign_key if (fk_col = (associative = klass._br_associatives&.[](hm.name))&.foreign_key)
+                         if (fk_col = (associative = klass._br_associatives&.[](hm.name))&.foreign_key)
+                           if hm.source_reflection.macro == :belongs_to # Traditional HMT using an associative table
+                             hm.foreign_key
+                           else # A HMT that goes HM -> HM, something like Categories -> Products -> LineItems
+                             hm.source_reflection.active_record.primary_key
+                           end
+                         end
                        else
                          fk_col = hm.foreign_key
                          poly_type = hm.inverse_of.foreign_type if hm.options.key?(:as)
