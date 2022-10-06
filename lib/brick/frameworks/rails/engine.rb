@@ -114,7 +114,7 @@ module Brick
               if @_brick_model
                 pk = @_brick_model._brick_primary_key(::Brick.relations.fetch(@_brick_model&.table_name, nil))
                 obj_name = model_name.split('::').last.underscore
-                path_obj_name = model_name.underscore.tr('/', '_')
+                path_obj_name = @_brick_model._brick_index(:singular)
                 table_name = obj_name.pluralize
                 template_link = nil
                 bts, hms = ::Brick.get_bts_and_hms(@_brick_model) # This gets BT and HM and also has_many :through (HMT)
@@ -125,9 +125,11 @@ module Brick
                               "H#{hm_assoc.macro == :has_one ? 'O' : 'M'}#{'T' if hm_assoc.options[:through]}",
                               (assoc_name = hm.first)]
                   hm_fk_name = if (through = hm_assoc.options[:through])
-                                 next unless @_brick_model.instance_methods.include?(through)
+                                 # %%% How to deal with weird self_ref type has_many -> has_one polymorphic stuff?
+                                 #     (or perhaps we don't need to!)
+                                 next unless @_brick_model.instance_methods.include?(through) &&
+                                             (associative = @_brick_model._br_associatives.fetch(hm.first, nil))
 
-                                 associative = @_brick_model._br_associatives[hm.first]
                                  tbl_nm = if hm_assoc.options[:source]
                                             associative.klass.reflect_on_association(hm_assoc.options[:source]).inverse_of&.name
                                           else
@@ -405,6 +407,11 @@ def display_value(col_type, val)
     end
   end
 end
+# Accommodate composite primary keys that include strings with forward-slash characters
+def slashify(val)
+  val = [val] unless val.is_a?(Array)
+  val.map { |val_part| val_part.is_a?(String) ? val_part.gsub('/', '^^sl^^') : val_part }
+end
 callbacks = {} %>"
 
               if ['index', 'show', 'new', 'update'].include?(args.first)
@@ -461,7 +468,7 @@ window.addEventListener(\"pageshow\", function() {
   });
 
   if (tblSelect) { // Always present
-    var i = schemaSelect ? 1 : 0,
+    var i = #{::Brick.config.path_prefix ? '0' : 'schemaSelect ? 1 : 0'},
         changeoutList = changeout(location.href);
     for (; i < changeoutList.length; ++i) {
       tblSelect.value = changeoutList[i];
@@ -523,15 +530,19 @@ if (grid) {
   function gridMove(evt) {
     var lastHighCell = gridHighCell;
     gridHighCell = document.elementFromPoint(evt.x, evt.y);
-    if (lastHighCell !== gridHighCell) {
-      gridHighCell.classList.add(\"highlight\");
-      if (lastHighCell) lastHighCell.classList.remove(\"highlight\");
-    }
-    var lastHighHeader = gridHighHeader;
-    gridHighHeader = headerCols[gridHighCell.cellIndex];
-    if (lastHighHeader !== gridHighHeader) {
-      if (gridHighHeader) gridHighHeader.classList.add(\"highlight\");
-      if (lastHighHeader) lastHighHeader.classList.remove(\"highlight\");
+    while (gridHighCell && gridHighCell.tagName !== \"TD\" && gridHighCell.tagName !== \"TH\")
+      gridHighCell = gridHighCell.parentElement;
+    if (gridHighCell) {
+      if (lastHighCell !== gridHighCell) {
+        gridHighCell.classList.add(\"highlight\");
+        if (lastHighCell) lastHighCell.classList.remove(\"highlight\");
+      }
+      var lastHighHeader = gridHighHeader;
+      gridHighHeader = headerCols[gridHighCell.cellIndex];
+      if (lastHighHeader !== gridHighHeader) {
+        if (gridHighHeader) gridHighHeader.classList.add(\"highlight\");
+        if (lastHighHeader) lastHighHeader.classList.remove(\"highlight\");
+      }
     }
   }
 }
@@ -849,24 +860,25 @@ erDiagram
      @#{table_name}.each do |#{obj_name}|
        hms_cols = {#{hms_columns.join(', ')}} %>
   <tr>#{"
-    <td><%= link_to '⇛', #{path_obj_name}_path(#{obj_pk}), { class: 'big-arrow' } %></td>" if obj_pk}
+    <td><%= link_to '⇛', #{path_obj_name}_path(slashify(#{obj_pk})), { class: 'big-arrow' } %></td>" if obj_pk}
     <% @_brick_sequence.each do |col_name|
          val = #{obj_name}.attributes[col_name] %>
       <td<%= ' class=\"dimmed\"'.html_safe unless cols.key?(col_name) || (cust_col = cust_cols[col_name])%>><%
          if (bt = bts[col_name])
            if bt[2] # Polymorphic?
-             bt_class = #{obj_name}.send(\"#\{bt.first\}_type\")
-             base_class = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class.name.underscore
-             poly_id = #{obj_name}.send(\"#\{bt.first\}_id\")
-             %><%= link_to(\"#\{bt_class\} ##\{poly_id\}\", send(\"#\{base_class\}_path\".to_sym, poly_id)) if poly_id %><%
+             bt_class = #{obj_name}.send(\"#\{bt.first}_type\")
+             base_class_underscored = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class._brick_index(:singular)
+             poly_id = #{obj_name}.send(\"#\{bt.first}_id\")
+             %><%= link_to(\"#\{bt_class} ##\{poly_id}\", send(\"#\{base_class_underscored}_path\".to_sym, poly_id)) if poly_id %><%
            else
+             # binding.pry if @_brick_bt_descrip[bt.first][bt[1].first.first].nil?
              bt_txt = (bt_class = bt[1].first.first).brick_descrip(
                # 0..62 because Postgres column names are limited to 63 characters
                #{obj_name}, (descrips = @_brick_bt_descrip[bt.first][bt_class])[0..-2].map { |id| #{obj_name}.send(id.last[0..62]) }, (bt_id_col = descrips.last)
              )
              bt_txt ||= \"<span class=\\\"orphan\\\">&lt;&lt; Orphaned ID: #\{val} >></span>\".html_safe if val
              bt_id = bt_id_col.map { |id_col| #{obj_name}.send(id_col.to_sym) } %>
-          <%= bt_id&.first ? link_to(bt_txt, send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_id)) : bt_txt %>
+          <%= bt_id&.first ? link_to(bt_txt, send(\"#\{bt_class.base_class._brick_index(:singular)}_path\".to_sym, bt_id)) : bt_txt %>
         <% end
          elsif (hms_col = hms_cols[col_name])
            if hms_col.length == 1 %>
@@ -877,9 +889,9 @@ erDiagram
                      descrips = @_brick_bt_descrip[col_name.to_sym][klass]
                      ho_txt = klass.brick_descrip(#{obj_name}, descrips[0..-2].map { |id| #{obj_name}.send(id.last[0..62]) }, (ho_id_col = descrips.last))
                      ho_id = ho_id_col.map { |id_col| #{obj_name}.send(id_col.to_sym) }
-                     ho_id&.first ? link_to(ho_txt, send(\"#\{klass.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, ho_id)) : ho_txt
+                     ho_id&.first ? link_to(ho_txt, send(\"#\{klass.base_class._brick_index(:singular)}_path\".to_sym, ho_id)) : ho_txt
                    else
-                     \"#\{hms_col[1] || 'View'\} #\{hms_col.first}\"
+                     \"#\{hms_col[1] || 'View'} #\{hms_col.first}\"
                    end %>
          <%= link_to txt, send(\"#\{klass._brick_index}_path\".to_sym, hms_col[2]) unless hms_col[1]&.zero? %>
         <% end
@@ -927,7 +939,7 @@ erDiagram
   @resources.each do |r|
   %>
   <tr>
-  <td><%= link_to(r[0], \"/#\{r[0].underscore.tr('.', '/')}\") %></td>
+  <td><%= link_to(r[0], r[0] && send(\"#\{r[0]&._brick_index}_path\".to_sym)) %></td>
   <td<%= if r[1]
            ' class=\"orphan\"' unless ::Brick.relations.key?(r[1])
          else
@@ -988,7 +1000,7 @@ end
   <br><br>
   <%= # path_options = [obj.#{pk}]
     # path_options << { '_brick_schema':  } if
-    # url = send(:#{model_name.underscore}_path, obj.#{pk})
+    # url = send(:#\{model_name._brick_index(:singular)}_path, obj.#{pk})
     form_for(obj.becomes(#{model_name})) do |f| %>
   <table class=\"shadow\">
   <% has_fields = false
@@ -1008,7 +1020,7 @@ end
           bt_pair = nil
           loop do
             bt_pair = bt[1].find { |pair| pair.first.name == poly_class_name }
-            # Acxommodate any valid STI by going up the chain of inheritance
+            # Accommodate any valid STI by going up the chain of inheritance
             break unless bt_pair.nil? && poly_class_name = ::Brick.existing_stis[poly_class_name]
           end
           puts \"*** Might be missing an STI class called #\{orig_poly_name\} whose base class should have this:
@@ -1043,7 +1055,7 @@ end
       html_options[:prompt] = \"Select #\{bt_name\}\" %>
       <%= f.select k.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options %>
       <%= if (bt_obj = bt_class&.find_by(bt_pair[1] => val))
-            link_to('⇛', send(\"#\{bt_class.base_class.name.underscore.tr('/', '_')\}_path\".to_sym, bt_obj.send(bt_class.primary_key.to_sym)), { class: 'show-arrow' })
+            link_to('⇛', send(\"#\{bt_class.base_class._brick_index(:singular)\}_path\".to_sym, bt_obj.send(bt_class.primary_key.to_sym)), { class: 'show-arrow' })
           elsif val
             \"<span class=\\\"orphan\\\">Orphaned ID: #\{val}</span>\".html_safe
           end %>
@@ -1101,9 +1113,10 @@ end
     <tr><td colspan=\"2\">(No displayable fields)</td></tr>
   <% end %>
   </table>
-  <% end %>
+<%   end %>
 
-  #{hms_headers.each_with_object(+'') do |hm, s|
+#{unless args.first == 'new'
+  hms_headers.each_with_object(+'') do |hm, s|
     # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
     next if hm.first.options[:through] && !hm.first.through_reflection
 
@@ -1118,14 +1131,15 @@ end
           <tr><td>(none)</td></tr>
         <% else %>
           <% collection.uniq.each do |#{hm_singular_name}| %>
-            <tr><td><%= link_to(#{hm_singular_name}.brick_descrip, #{hm.first.klass.name.underscore.tr('/', '_')}_path([#{obj_pk}])) %></td></tr>
+            <tr><td><%= link_to(#{hm_singular_name}.brick_descrip, #{hm.first.klass._brick_index(:singular)}_path(slashify(#{obj_pk}))) %></td></tr>
           <% end %>
         <% end %>
       </table>"
     else
       s
     end
-  end}
+  end
+end}
 <% end %>
 #{script}"
 

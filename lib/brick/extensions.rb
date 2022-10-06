@@ -256,12 +256,12 @@ module ActiveRecord
       table_name == assoc_name ? link : "#{assoc_name}-#{link}".html_safe
     end
 
-    def self._brick_index
-      tbl_parts = table_name.split('.')
+    def self._brick_index(mode = nil)
+      tbl_parts = ((mode == :singular) ? table_name.singularize : table_name).split('.')
       tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.first == Apartment.default_schema
-      if (index = tbl_parts.map(&:underscore).join('_')) == index.singularize
-        index << '_index' # Rails applies an _index suffix to that route when the resource name is singular
-      end
+      index = tbl_parts.map(&:underscore).join('_')
+      # Rails applies an _index suffix to that route when the resource name is singular
+      index << '_index' if mode != :singular && index == index.singularize
       index
     end
 
@@ -783,50 +783,44 @@ end
 Module.class_exec do
   alias _brick_const_missing const_missing
   def const_missing(*args)
-    desired_classname = (self == Object) ? args.first.to_s : "#{name}::#{args.first}"
+    requested = args.first.to_s
+    is_controller = requested.end_with?('Controller')
+    # self.name is nil when a model name is requested in an .erb file
+    base_module = if self < ActiveRecord::Migration || !self.name
+                    brick_root || Object
+                  elsif (split_self_name || self.name.split('::')).length > 1
+                    return self._brick_const_missing(*args)
+                  else
+                    self
+                  end
+    desired_classname = (self == Object) ? requested : "#{name}::#{requested}"
     if ((is_defined = self.const_defined?(args.first)) && (possible = self.const_get(args.first)) && possible.name == desired_classname) ||
        # Try to require the respective Ruby file
        ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
-                    (self != Object && ActiveSupport::Dependencies.search_for_file((desired_classname = args.first.to_s).underscore))
+                    (self != Object && ActiveSupport::Dependencies.search_for_file((desired_classname = requested).underscore))
         ) && (require_dependency(filename) || true) &&
         ((possible = self.const_get(args.first)) && possible.name == desired_classname)
        ) ||
        # If any class has turned up so far (and we're not in the middle of eager loading)
        # then return what we've found.
-       (is_defined && !::Brick.is_eager_loading)
-      return possible
-    end
-    class_name = ::Brick.namify(args.first.to_s)
-    # self.name is nil when a model name is requested in an .erb file
-    base_module = (self < ActiveRecord::Migration || !self.name) ? Object : self
-    # See if a file is there in the same way that ActiveSupport::Dependencies#load_missing_constant
-    # checks for it in ~/.rvm/gems/ruby-2.7.5/gems/activesupport-5.2.6.2/lib/active_support/dependencies.rb
-    # that is, checking #qualified_name_for with:  from_mod, const_name
-    # If we want to support namespacing in the future, might have to utilise something like this:
-    # path_suffix = ActiveSupport::Dependencies.qualified_name_for(Object, args.first).underscore
-    # return self._brick_const_missing(*args) if ActiveSupport::Dependencies.search_for_file(path_suffix)
-    # If the file really exists, go and snag it:
-    if ActiveSupport::Dependencies.search_for_file(class_name.underscore)
-      return base_module._brick_const_missing(*args)
-      # elsif ActiveSupport::Dependencies.search_for_file(filepath) # Last-ditch effort to pick this thing up before we fill in the gaps on our own
-      #   my_const = parent.const_missing(class_name) # ends up having:  MyModule::MyClass
-      #   return my_const
-    else
-      filepath = base_module.name&.split('::')&.[](0..-2) unless base_module == Object
-      filepath = ((filepath || []) + [class_name]).join('/').underscore + '.rb'
-      if ActiveSupport::Dependencies.search_for_file(filepath) # Last-ditch effort to pick this thing up before we fill in the gaps on our own
-        return base_module._brick_const_missing(*args)
+       (is_defined && !::Brick.is_eager_loading) # Used to also have:   && possible != self
+      if (!brick_root && (filename || possible.instance_of?(Class))) ||
+         (possible.instance_of?(Module) &&
+          ((possible.respond_to?(:module_parent) ? possible.module_parent : possible.parent) == self)
+         ) ||
+         (possible.instance_of?(Class) && possible == self) # Are we simply searching for ourselves?
+        return possible
       end
     end
-
+    class_name = ::Brick.namify(requested)
     relations = ::Brick.relations
-    # puts "ON OBJECT: #{args.inspect}" if self.module_parent == Object
-    result = if ::Brick.enable_controllers? && class_name.end_with?('Controller') && (plural_class_name = class_name[0..-11]).length.positive?
+    result = if ::Brick.enable_controllers? &&
+                is_controller && (plural_class_name = class_name[0..-11]).length.positive?
                # Otherwise now it's up to us to fill in the gaps
+               full_class_name = +''
+               full_class_name << "::#{(split_self_name&.first && split_self_name.join('::')) || self.name}" unless self == Object
                # (Go over to underscores for a moment so that if we have something come in like VABCsController then the model name ends up as
                # Vabc instead of VABC)
-               full_class_name = +''
-               full_class_name << "::#{self.name}" unless self == Object
                singular_class_name = ::Brick.namify(plural_class_name, :underscore).singularize.camelize
                full_class_name << "::#{singular_class_name}"
                if plural_class_name == 'BrickSwagger' ||
@@ -1197,8 +1191,7 @@ class Object
       is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2'
 
-      namespace_name = "#{namespace.name}::" if namespace
-      code = +"class #{namespace_name}#{class_name} < ApplicationController\n"
+      code = +"class #{class_name} < ApplicationController\n"
       built_controller = Class.new(ActionController::Base) do |new_controller_class|
         (namespace || Object).const_set(class_name.to_sym, new_controller_class)
 
@@ -1341,13 +1334,6 @@ class Object
             code << "  end\n"
             self.define_method :show do
               ::Brick.set_db_schema(params)
-              id = if model.columns_hash[pk.first]&.type == :string
-                     is_pk_string = true
-                     params[:id]
-                   else
-                     params[:id]&.split(/[\/,_]/)
-                   end
-              id = id.first if id.is_a?(Array) && id.length == 1
               instance_variable_set("@#{singular_table_name}".to_sym, find_obj)
             end
           end
@@ -1442,7 +1428,14 @@ class Object
     @#{singular_table_name} = #{model.name}.find(id.is_a?(Array) && id.length == 1 ? id.first : id)
   end\n"
             self.define_method :find_obj do
-              id = is_pk_string ? params[:id] : params[:id]&.split(/[\/,_]/)
+              id = if model.columns_hash[pk.first]&.type == :string
+                     is_pk_string = true
+                     params[:id].gsub('^^sl^^', '/')
+                   else
+                     params[:id]&.split(/[\/,_]/).map do |val_part|
+                       val_part.gsub('^^sl^^', '/')
+                     end
+                   end
               model.find(id.is_a?(Array) && id.length == 1 ? id.first : id)
             end
           end
@@ -1465,33 +1458,34 @@ class Object
             # Get column names for params from relations[model.table_name][:cols].keys
           end
         end # unless is_swagger
-        code << "end # #{namespace_name}#{class_name}\n"
+        code << "end # #{class_name}\n"
       end # class definition
       [built_controller, code]
     end
 
     def _brick_get_hm_assoc_name(relation, hm_assoc, source = nil)
-      if (relation[:hm_counts][hm_assoc[:inverse_table]]&.> 1) &&
-         hm_assoc[:alternate_name] != (source || name.underscore)
-        plural = "#{hm_assoc[:assoc_name]}_#{ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name])}"
-        new_alt_name = (hm_assoc[:alternate_name] == name.underscore) ? "#{hm_assoc[:assoc_name].singularize}_#{plural}" : plural
-        # uniq = 1
-        # while same_name = relation[:fks].find { |x| x.last[:assoc_name] == hm_assoc[:assoc_name] && x.last != hm_assoc }
-        #   hm_assoc[:assoc_name] = "#{hm_assoc_name}_#{uniq += 1}"
-        # end
-        # puts new_alt_name
-        # hm_assoc[:assoc_name] = new_alt_name
-        [new_alt_name, true]
-      else
-        assoc_name = ::Brick.namify(hm_assoc[:inverse_table]).pluralize
-        if (needs_class = assoc_name.include?('.')) # If there is a schema name present, use a downcased version for the :has_many
-          assoc_parts = assoc_name.split('.')
-          assoc_parts[0].downcase! if assoc_parts[0] =~ /^[A-Z0-9_]+$/
-          assoc_name = assoc_parts.join('.')
-        end
-        # hm_assoc[:assoc_name] = assoc_name
-        [assoc_name, needs_class]
-      end
+      assoc_name, needs_class = if (relation[:hm_counts][hm_assoc[:inverse_table]]&.> 1) &&
+                                   hm_assoc[:alternate_name] != (source || name.underscore)
+                                  plural = "#{hm_assoc[:assoc_name]}_#{ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name])}"
+                                  new_alt_name = (hm_assoc[:alternate_name] == name.underscore) ? "#{hm_assoc[:assoc_name].singularize}_#{plural}" : plural
+                                  # uniq = 1
+                                  # while same_name = relation[:fks].find { |x| x.last[:assoc_name] == hm_assoc[:assoc_name] && x.last != hm_assoc }
+                                  #   hm_assoc[:assoc_name] = "#{hm_assoc_name}_#{uniq += 1}"
+                                  # end
+                                  # puts new_alt_name
+                                  # hm_assoc[:assoc_name] = new_alt_name
+                                  [new_alt_name, true]
+                                else
+                                  assoc_name = ::Brick.namify(hm_assoc[:inverse_table]).pluralize
+                                  if (needs_class = assoc_name.include?('.')) # If there is a schema name present, use a downcased version for the :has_many
+                                    assoc_parts = assoc_name.split('.')
+                                    assoc_parts[0].downcase! if assoc_parts[0] =~ /^[A-Z0-9_]+$/
+                                    assoc_name = assoc_parts.join('.')
+                                  end
+                                  # hm_assoc[:assoc_name] = assoc_name
+                                  [assoc_name, needs_class]
+                                end
+      [assoc_name, needs_class]
     end
   end
 end
@@ -1504,6 +1498,7 @@ module ActiveRecord::ConnectionHandling
   alias _brick_establish_connection establish_connection
   def establish_connection(*args)
     conn = _brick_establish_connection(*args)
+    begin
       # Overwrite SQLite's #begin_db_transaction so it opens in IMMEDIATE mode instead of
       # the default DEFERRED mode.
       #   https://discuss.rubyonrails.org/t/failed-write-transaction-upgrades-in-sqlite3/81480/2
@@ -1525,9 +1520,10 @@ module ActiveRecord::ConnectionHandling
           end
         end
       end
-    begin
+      # ::Brick.is_db_present = true
       _brick_reflect_tables
     rescue ActiveRecord::NoDatabaseError
+      # ::Brick.is_db_present = false
     end
     conn
   end
@@ -1535,6 +1531,8 @@ module ActiveRecord::ConnectionHandling
   # This is done separately so that during testing it can be called right after a migration
   # in order to make sure everything is good.
   def _brick_reflect_tables
+    # return if ActiveRecord::Base.connection.current_database == 'postgres'
+
     initializer_loaded = false
     if (relations = ::Brick.relations).empty?
       # If there's schema things configured then we only expect our initializer to be named exactly this
@@ -1543,8 +1541,8 @@ module ActiveRecord::ConnectionHandling
       end
       # Load the initializer for the Apartment gem a little early so that if .excluded_models and
       # .default_schema are specified then we can work with non-tenanted models more appropriately
-      apartment = Object.const_defined?('Apartment')
-      if apartment && File.exist?(apartment_initializer = ::Rails.root.join('config/initializers/apartment.rb'))
+      if (apartment = Object.const_defined?('Apartment')) &&
+         File.exist?(apartment_initializer = ::Rails.root.join('config/initializers/apartment.rb'))
         load apartment_initializer
         apartment_excluded = Apartment.excluded_models
       end
@@ -1556,19 +1554,21 @@ module ActiveRecord::ConnectionHandling
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'SQLServer'
         is_postgres = !is_mssql
-        db_schemas = ActiveRecord::Base.execute_sql('SELECT DISTINCT table_schema FROM INFORMATION_SCHEMA.tables;')
+        db_schemas = if is_postgres
+                       ActiveRecord::Base.execute_sql('SELECT nspname AS table_schema, MAX(oid) AS dt FROM pg_namespace GROUP BY 1 ORDER BY 1;')
+                     else
+                       ActiveRecord::Base.execute_sql('SELECT DISTINCT table_schema, NULL AS dt FROM INFORMATION_SCHEMA.tables;')
+                     end
         ::Brick.db_schemas = db_schemas.each_with_object({}) do |row, s|
           row = case row
-                when String
-                  row
                 when Array
-                  row.first
+                  row
                 else
-                  row['table_schema']
+                  [row['table_schema'], row['dt']]
                 end
           # Remove any system schemas
-          s[row] = nil unless ['information_schema', 'pg_catalog',
-                               'INFORMATION_SCHEMA', 'sys'].include?(row)
+          s[row.first] = row.last unless ['information_schema', 'pg_catalog', 'pg_toast',
+                                          'INFORMATION_SCHEMA', 'sys'].include?(row.first)
         end
         if (is_multitenant = (multitenancy = ::Brick.config.schema_behavior[:multitenant]) &&
            (sta = multitenancy[:schema_to_analyse]) != 'public') &&
@@ -1602,6 +1602,10 @@ module ActiveRecord::ConnectionHandling
           if ::Brick.db_schemas.key?(possible_schema)
             ::Brick.default_schema = schema = possible_schema
             ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
+          elsif Rails.env == 'test' # When testing, just find the most recently-created schema
+            ::Brick.default_schema = schema = ::Brick.db_schemas.to_a.sort { |a, b| b.last <=> a.last }.first.first
+            puts "While running tests, had noticed that in the brick.rb initializer the line \"::Brick.schema_behavior = ...\" refers to a schema called \"#{possible_schema}\" which does not exist.  Reverting to instead use the most recently-created schema, #{schema}."
+            ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
           else
             puts "*** In the brick.rb initializer the line \"::Brick.schema_behavior = ...\" refers to a schema called \"#{possible_schema}\".  This schema does not exist. ***"
           end
@@ -1614,7 +1618,7 @@ module ActiveRecord::ConnectionHandling
       measures = []
       ::Brick.is_oracle = true if ActiveRecord::Base.connection.adapter_name == 'OracleEnhanced'
       case ActiveRecord::Base.connection.adapter_name
-      when 'PostgreSQL', 'SQLite' # These bring back a hash for each row because the query uses column aliases
+      when 'PostgreSQL', 'SQLite', 'SQLServer' # These bring back a hash for each row because the query uses column aliases
         # schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
         ActiveRecord::Base.retrieve_schema_and_tables(sql, is_postgres, is_mssql, schema).each do |r|
           # If Apartment gem lists the table as being associated with a non-tenanted model then use whatever it thinks
@@ -1823,7 +1827,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       LEFT OUTER JOIN INFORMATION_SCHEMA.columns AS c ON t.table_schema = c.table_schema
         AND t.table_name = c.table_name
         LEFT OUTER JOIN
-        (SELECT kcu1.constraint_schema, kcu1.table_name, kcu1.ordinal_position,
+        (SELECT kcu1.constraint_schema, kcu1.table_name, kcu1.column_name, kcu1.ordinal_position,
         tc.constraint_type, kcu1.constraint_name
         FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu1
         INNER JOIN INFORMATION_SCHEMA.table_constraints AS tc
@@ -1834,9 +1838,9 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         ) AS kcu ON
         -- kcu.CONSTRAINT_CATALOG = t.table_catalog AND
         kcu.CONSTRAINT_SCHEMA = c.table_schema
-        AND kcu.TABLE_NAME = c.table_name#{"
+        AND kcu.TABLE_NAME = c.table_name
+        AND kcu.column_name = c.column_name#{"
     --    AND kcu.position_in_unique_constraint IS NULL" unless is_mssql}
-        AND kcu.ordinal_position = c.ordinal_position
     WHERE t.table_schema #{is_postgres || is_mssql ?
         "NOT IN ('information_schema', 'pg_catalog',
                  'INFORMATION_SCHEMA', 'sys')"
@@ -1845,7 +1849,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       AND t.table_schema = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }
   --          AND t.table_type IN ('VIEW') -- 'BASE TABLE', 'FOREIGN TABLE'
       AND t.table_name NOT IN ('pg_stat_statements', ?, ?)
-    ORDER BY 1, t.table_type DESC, 2, c.ordinal_position"
+    ORDER BY 1, t.table_type DESC, 2, kcu.ordinal_position"
     ActiveRecord::Base.execute_sql(sql, *ar_tables)
   end
 
@@ -2090,7 +2094,7 @@ module Brick
                    end
                  end
                end
-      ::Brick.relations.keys.map { |v| [(r = v.pluralize), (model = models[r])&.last&.table_name || v, migrations&.fetch(r, nil), model&.first] }
+      ::Brick.relations.keys.map { |v| [(model = models[v])&.last, model&.last&.table_name, migrations&.fetch(v, nil), model&.first] }
     end
 
     def ensure_unique(name, *sources)

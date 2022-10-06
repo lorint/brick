@@ -538,6 +538,20 @@ In config/initializers/brick.rb appropriate entries would look something like:
       view_class_length = 37 # Length of "Classes that can be built from views:"
       existing_controllers = routes.each_with_object({}) { |r, s| c = r.defaults[:controller]; s[c] = nil if c }
       ::Rails.application.routes.append do
+        brick_routes_create = lambda do |controller_name, v, options|
+          if (schema_name = v.fetch(:schema, nil)) # && !Object.const_defined('Apartment')
+            send(:namespace, schema_name) do
+              send(:resources, v[:resource].to_sym, **options)
+            end
+            full_resource = "#{schema_name}/#{v[:resource]}"
+            send(:get, "#{::Brick.api_root}#{full_resource}", { to: "#{schema_name}/#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
+          else
+            send(:resources, v[:resource].to_sym, **options)
+            # Normally goes to something like:  /api/v1/employees
+            send(:get, "#{::Brick.api_root}#{v[:resource]}", { to: "#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
+          end
+        end
+
         # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
         # If auto-controllers and auto-models are both enabled then this makes sense:
         ::Brick.relations.each do |k, v|
@@ -545,17 +559,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
             options = {}
             options[:only] = [:index, :show] if v.key?(:isView)
             full_resource = nil
-            if (schema_name = v.fetch(:schema, nil)) # && !Object.const_defined('Apartment')
-              send(:namespace, schema_name) do
-                send(:resources, v[:resource].to_sym, **options)
-              end
-              full_resource = "#{schema_name}/#{v[:resource]}"
-              send(:get, "#{::Brick.api_root}#{full_resource}", { to: "#{schema_name}/#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
-            else
-              send(:resources, v[:resource].to_sym, **options)
-              # Normally goes to something like:  /api/v1/employees
-              send(:get, "#{::Brick.api_root}#{v[:resource]}", { to: "#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
-            end
+            brick_routes_create.call(controller_name, v, options)
 
             if (class_name = v.fetch(:class_name, nil))
               if v.key?(:isView)
