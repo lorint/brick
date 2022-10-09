@@ -1485,6 +1485,27 @@ class Object
                                   # hm_assoc[:assoc_name] = assoc_name
                                   [assoc_name, needs_class]
                                 end
+      # Already have the HM class around?
+      begin
+        if (hm_class = Object._brick_const_missing(hm_class_name = relation[:class_name].to_sym))
+          existing_hm_assocs = hm_class.reflect_on_all_associations.select do |assoc|
+            assoc.macro != :belongs_to && assoc.klass == self && assoc.foreign_key == hm_assoc[:fk]
+          end
+          # Missing a has_many in an existing class?
+          if existing_hm_assocs.empty?
+            options = { inverse_of: hm_assoc[:inverse][:assoc_name].to_sym }
+            # Add class_name and foreign_key where necessary
+            unless hm_assoc[:alternate_name] == (source || name.underscore)
+              options[:class_name] = self.name
+              options[:foreign_key] = hm_assoc[:fk].to_sym
+            end
+            hm_class.send(:has_many, assoc_name.to_sym, options)
+            puts "# ** Adding a missing has_many to #{hm_class.name}:\nclass #{hm_class.name} < #{hm_class.superclass.name}"
+            puts "  has_many :#{assoc_name}, #{options.inspect}\nend\n"
+          end
+        end
+      rescue NameError
+      end
       [assoc_name, needs_class]
     end
   end
