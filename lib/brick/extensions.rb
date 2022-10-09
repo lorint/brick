@@ -259,6 +259,7 @@ module ActiveRecord
     def self._brick_index(mode = nil)
       tbl_parts = ((mode == :singular) ? table_name.singularize : table_name).split('.')
       tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.first == Apartment.default_schema
+      tbl_parts.unshift(::Brick.config.path_prefix) if ::Brick.config.path_prefix
       index = tbl_parts.map(&:underscore).join('_')
       # Rails applies an _index suffix to that route when the resource name is singular
       index << '_index' if mode != :singular && index == index.singularize
@@ -786,6 +787,22 @@ Module.class_exec do
     requested = args.first.to_s
     is_controller = requested.end_with?('Controller')
     # self.name is nil when a model name is requested in an .erb file
+    if self.name && ::Brick.config.path_prefix
+      camelize_prefix = ::Brick.config.path_prefix.camelize
+      # Asking for the prefix module?
+      if self == Object && requested == camelize_prefix
+        Object.const_set(args.first, (built_module = Module.new))
+        puts "module #{camelize_prefix}; end\n"
+        return built_module
+      end
+      split_self_name.shift if (split_self_name = self.name.split('::')).first.blank?
+      if split_self_name.first == camelize_prefix
+        split_self_name.shift # Remove the identified path prefix from the split name
+        if is_controller
+          brick_root = split_self_name.empty? ? self : camelize_prefix.constantize
+        end
+      end
+    end
     base_module = if self < ActiveRecord::Migration || !self.name
                     brick_root || Object
                   elsif (split_self_name || self.name.split('::')).length > 1
@@ -923,7 +940,9 @@ class Object
                                       schema_name
                                     else
                                       matching = "#{schema_name}.#{matching}"
-                                      (Brick.db_schemas[schema_name] ||= self.const_get(schema_name.camelize))
+                                      # %%% Coming up with integers when tables are in schemas
+                                      # ::Brick.db_schemas[schema_name] ||= self.const_get(schema_name.camelize.to_sym)
+                                      self.const_get(schema_name.camelize)
                                     end
                     "#{schema_module&.name}::#{inheritable_name || model_name}"
                   end

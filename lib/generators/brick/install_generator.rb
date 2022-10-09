@@ -139,6 +139,10 @@ module Brick
 # # Settings for the Brick gem
 # # (By default this auto-creates models, controllers, views, and routes on-the-fly.)
 
+# # Custom path prefix to apply to all auto-generated Brick routes.  Also causes auto-generated controllers
+# # to be created inside a module with the same name.
+# ::Brick.path_prefix = 'admin'
+
 # # Normally all are enabled in development mode, and for security reasons only models are enabled in production
 # # and test.  This allows you to either (a) turn off models entirely, or (b) enable controllers, views, and routes
 # # in production.

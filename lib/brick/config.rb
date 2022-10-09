@@ -20,6 +20,15 @@ module Brick
       @serializer = Brick::Serializers::YAML
     end
 
+    # Any path prefixing to apply to all auto-generated Brick routes
+    def path_prefix
+      @mutex.synchronize { @path_prefix }
+    end
+
+    def path_prefix=(path)
+      @mutex.synchronize { @path_prefix = path }
+    end
+
     # Indicates whether Brick models are on or off. Default: true.
     def enable_models
       @mutex.synchronize { !!@enable_models }

@@ -179,6 +179,7 @@ module Brick
               # %%% If we are not auto-creating controllers (or routes) then omit by default, and if enabled anyway, such as in a development
               # environment or whatever, then get either the controllers or routes list instead
               apartment_default_schema = ::Brick.apartment_multitenant && Apartment.default_schema
+              prefix = "#{::Brick.config.path_prefix}/" if ::Brick.config.path_prefix
               table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).each_with_object({}) do |tbl, s|
                                 binding.pry if tbl.is_a?(Symbol)
                                 if (tbl_parts = tbl.split('.')).first == apartment_default_schema
@@ -186,7 +187,7 @@ module Brick
                                 end
                                 s[tbl] = nil
                               end.keys.sort.each_with_object(+'') do |v, s|
-                                s << "<option value=\"#{v.underscore.gsub('.', '/')}\">#{v}</option>"
+                                s << "<option value=\"#{prefix}#{v.underscore.gsub('.', '/')}\">#{v}</option>"
                               end.html_safe
               table_options << '<option value="brick_status">(Status)</option>'.html_safe if ::Brick.config.add_status
               table_options << '<option value="brick_orphans">(Orphans)</option>'.html_safe if is_orphans
@@ -996,12 +997,15 @@ if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(
 end
 %><%= link_to '(See all #{obj_name.pluralize})', #{@_brick_model._brick_index}_path %>
 #{erd_markup}
-<% if obj %>
+<% if obj
+      # path_options = [obj.#{pk}]
+      # path_options << { '_brick_schema':  } if
+      # url = send(:#\{model_name._brick_index(:singular)}_path, obj.#{pk})
+      options = {}
+      options[:url] = send(\"#\{#{model_name}._brick_index(:singular)}_path\".to_sym, obj) if ::Brick.config.path_prefix
+ %>
   <br><br>
-  <%= # path_options = [obj.#{pk}]
-    # path_options << { '_brick_schema':  } if
-    # url = send(:#\{model_name._brick_index(:singular)}_path, obj.#{pk})
-    form_for(obj.becomes(#{model_name})) do |f| %>
+  <%= form_for(obj.becomes(#{model_name}), options) do |f| %>
   <table class=\"shadow\">
   <% has_fields = false
     @#{obj_name}.attributes.each do |k, val|
