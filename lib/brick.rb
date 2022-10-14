@@ -126,10 +126,15 @@ module Brick
     attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle, :is_eager_loading
 
     def set_db_schema(params = nil)
-      schema = (params ? params['_brick_schema'] : ::Brick.default_schema) || 'public'
-      if schema && ::Brick.db_schemas&.include?(schema)
+      schema = (params ? params['_brick_schema'] : ::Brick.default_schema)
+      if schema && ::Brick.db_schemas&.key?(schema)
         ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema)
         schema
+      elsif ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+        # Just return the current schema
+        orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
+        # ::Brick.apartment_multitenant && tbl_parts.first == Apartment.default_schema
+        (orig_schema - ['pg_catalog']).first
       end
     end
 
@@ -525,9 +530,9 @@ In config/initializers/brick.rb appropriate entries would look something like:
       abstract_ar_bases
     end
 
-    def display_classes(rels, max_length)
+    def display_classes(prefix, rels, max_length)
       rels.sort.each do |rel|
-        puts "#{rel.first}#{' ' * (max_length - rel.first.length)}  /#{rel.last}"
+        puts "#{rel.first}#{' ' * (max_length - rel.first.length)}  /#{prefix}#{rel.last}"
       end
       puts "\n"
     end
@@ -556,13 +561,13 @@ In config/initializers/brick.rb appropriate entries would look something like:
 
         # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
         # If auto-controllers and auto-models are both enabled then this makes sense:
+        controller_prefix = (::Brick.config.path_prefix ? "#{::Brick.config.path_prefix}/" : '')
         ::Brick.relations.each do |k, v|
           unless !(controller_name = v.fetch(:resource, nil)&.pluralize) || existing_controllers.key?(controller_name)
             options = {}
             options[:only] = [:index, :show] if v.key?(:isView)
             # First do the API routes
             full_resource = nil
-            controller_prefix = (::Brick.config.path_prefix ? "#{::Brick.config.path_prefix}/" : '')
             if (schema_name = v.fetch(:schema, nil))
               full_resource = "#{schema_name}/#{v[:resource]}"
               send(:get, "#{::Brick.api_root}#{full_resource}", { to: "#{controller_prefix}#{schema_name}/#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
@@ -595,19 +600,19 @@ In config/initializers/brick.rb appropriate entries would look something like:
         if tables.present?
           puts "Classes that can be built from tables:#{' ' * (table_class_length - 38)}  Path:"
           puts "======================================#{' ' * (table_class_length - 38)}  ====="
-          ::Brick.display_classes(tables, table_class_length)
+          ::Brick.display_classes(controller_prefix, tables, table_class_length)
         end
         if views.present?
           puts "Classes that can be built from views:#{' ' * (view_class_length - 37)}  Path:"
           puts "=====================================#{' ' * (view_class_length - 37)}  ====="
-          ::Brick.display_classes(views, view_class_length)
+          ::Brick.display_classes(controller_prefix, views, view_class_length)
         end
 
         if ::Brick.config.add_status && instance_variable_get(:@set).named_routes.names.exclude?(:brick_status)
-          get('/brick_status', to: 'brick_gem#status', as: 'brick_status')
+          get("/#{controller_prefix}brick_status", to: 'brick_gem#status', as: 'brick_status')
         end
         if ::Brick.config.add_orphans && instance_variable_get(:@set).named_routes.names.exclude?(:brick_orphans)
-          get('/brick_orphans', to: 'brick_gem#orphans', as: 'brick_orphans')
+          get("/#{controller_prefix}brick_orphans", to: 'brick_gem#orphans', as: 'brick_orphans')
         end
         if Object.const_defined?('Rswag::Ui') && doc_endpoint = Rswag::Ui.config.config_object[:urls].last
           # Serves JSON swagger info from a path such as  '/api-docs/v1/swagger.json'

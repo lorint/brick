@@ -406,9 +406,8 @@ def display_value(col_type, val)
   end
 end
 # Accommodate composite primary keys that include strings with forward-slash characters
-def slashify(val)
-  val = [val] unless val.is_a?(Array)
-  val.map { |val_part| val_part.is_a?(String) ? val_part.gsub('/', '^^sl^^') : val_part }
+def slashify(*vals)
+  vals.map { |val_part| val_part.is_a?(String) ? val_part.gsub('/', '^^sl^^') : val_part }
 end
 callbacks = {} %>"
 
@@ -670,7 +669,7 @@ erDiagram
               inline = case args.first
                        when 'index'
                          obj_pk = if pk&.is_a?(Array) # Composite primary key?
-                                    "[#{pk.map { |pk_part| "#{obj_name}.#{pk_part}" }.join(', ')}]" unless pk.empty?
+                                    "#{pk.map { |pk_part| "#{obj_name}.#{pk_part}" }.join(', ')}" unless pk.empty?
                                   elsif pk
                                     "#{obj_name}.#{pk}"
                                   end
@@ -784,7 +783,7 @@ erDiagram
        origin = (key_parts = k.split('.')).length == 1 ? #{model_name} : #{model_name}.reflect_on_association(key_parts.first).klass
        if (destination_fk = Brick.relations[origin.table_name][:fks].values.find { |fk| fk[:fk] == key_parts.last }) &&
           (obj = (destination = origin.reflect_on_association(destination_fk[:assoc_name])&.klass)&.find(id)) %>
-         <h3>for <%= link_to \"#{"#\{obj.brick_descrip\} (#\{destination.name\})\""}, send(\"#\{destination._brick_index\}_path\".to_sym, id) %></h3><%
+         <h3>for <%= link_to \"#{"#\{obj.brick_descrip\} (#\{destination.name\})\""}, send(\"#\{destination._brick_index(:singular)\}_path\".to_sym, id) %></h3><%
        end
      end %>
   (<%= link_to 'See all #{model_name.split('::').last.pluralize}', #{@_brick_model._brick_index}_path %>)
@@ -1278,6 +1277,9 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
   }
 });
 </script>"
+              # puts "==============="
+              # puts inline
+              # puts "==============="
               # As if it were an inline template (see #determine_template in actionview-5.2.6.2/lib/action_view/renderer/template_renderer.rb)
               keys = options.has_key?(:locals) ? options[:locals].keys : []
               handler = ActionView::Template.handler_for_extension(options[:type] || 'erb')
