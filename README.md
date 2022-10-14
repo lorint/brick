@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.77         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.78         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -133,18 +133,8 @@ avaiable therein.
 | 1.0            | 1-stable   | v1.x   | >= 2.3.5 | >= 4.2, < 7.2 |
 
 Brick supports all Rails versions which have been current during the past 8 years, which at
-the time of writing (September 2022) includes Rails 4.2.0 and above.  Rails 7.x and 5.x apps work
-staightaway with no additional changes.
-
-Rails 6.x uses an interim version of Zeitwerk that is not yet compatible with The Brick, so for
-those versions you must use classic mode.  (This is generally the default for Rails 6.0.)  If
-you see the error "uninitialized constant _____" then you need to add this line in
-application.rb:
-
-    config.autoloader = :classic
-
-In Rails 7 and later the Zeitwerk loader is fully functional, so no autoloader compatibility
-issues.  As well Rails 7.0 and 7.1 are the versions which have been tested most extensively.
+the time of writing (October 2022) includes Rails 4.2.0 and above.  Rails 7.0 and 7.1 are the
+versions which have been tested most extensively.
 
 When used with really old versions of Rails, 4.x and older, Brick automatically applies various
 compatibility patches so it will run under newer versions of Ruby.  This makes it easier to
@@ -370,16 +360,6 @@ First a table picker comes up where you choose which table(s) you wish to build 
 After successful file generation, the `schema_migrations` table is updated to have appropriate numerical `version` entries, one for each file which was generated.  This is so that after generating, you don't end up seeing the "Migrations are pending" error later.
 
 ## Issues
----
-If you are using Rails 6.0 or Rails 6.1 and see:
-
-    uninitialized constant _______
-
-(Where _______ is the name of some model or controller class you're hoping to reference) then
-in your application.rb file, make sure this configuration setting is in place:
-
-    config.autoloader = :classic
-
 ---
 If you see an error such as this (note the square brackets around the multiple listed keys specialofferid and productid represented):
 

@@ -853,12 +853,30 @@ Module.class_exec do
     end
     base_module = if self < ActiveRecord::Migration || !self.name
                     brick_root || Object
-                  elsif (split_self_name || self.name.split('::')).length > 1
-                    return self._brick_const_missing(*args)
+                  elsif (split_self_name || self.name.split('::')).length > 1 # Classic mode
+                    begin
+                      return self._brick_const_missing(*args)
+
+                    rescue NameError # %%% Avoid the error "____ cannot be autoloaded from an anonymous class or module"
+                      return self.const_get(args.first) if self.const_defined?(args.first)
+
+                      # unless self == (prnt = (respond_to?(:parent) ? parent : module_parent))
+                      unless self == Object
+                        begin
+                          return Object._brick_const_missing(*args)
+
+                        rescue NameError
+                          return Object.const_get(args.first) if Object.const_defined?(args.first)
+
+                        end
+                      end
+                    end
+                    Object
                   else
                     self
                   end
-    desired_classname = (self == Object) ? requested : "#{name}::#{requested}"
+    # puts "#{self.name} - #{args.first}"
+    desired_classname = (self == Object || !name) ? requested : "#{name}::#{requested}"
     if ((is_defined = self.const_defined?(args.first)) && (possible = self.const_get(args.first)) && possible.name == desired_classname) ||
        # Try to require the respective Ruby file
        ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
@@ -870,9 +888,7 @@ Module.class_exec do
        # then return what we've found.
        (is_defined && !::Brick.is_eager_loading) # Used to also have:   && possible != self
       if (!brick_root && (filename || possible.instance_of?(Class))) ||
-         (possible.instance_of?(Module) &&
-          ((possible.respond_to?(:module_parent) ? possible.module_parent : possible.parent) == self)
-         ) ||
+         (possible.instance_of?(Module) && possible.module_parent == self) ||
          (possible.instance_of?(Class) && possible == self) # Are we simply searching for ourselves?
         return possible
       end
@@ -929,9 +945,21 @@ Module.class_exec do
       base_module._brick_const_missing(*args)
     # elsif base_module != Object
     #   module_parent.const_missing(*args)
-    else
-      puts "MISSING! #{base_module.name} #{args.inspect} #{table_name}"
-      base_module._brick_const_missing(*args)
+    elsif Rails.respond_to?(:autoloaders) && # After finding nothing else, if Zeitwerk is enabled ...
+        (Rails::Autoloaders.respond_to?(:zeitwerk_enabled?) ? Rails::Autoloaders.zeitwerk_enabled? : true)
+      self._brick_const_missing(*args) # ... rely solely on Zeitwerk.
+    else # Classic mode
+      unless (found = base_module._brick_const_missing(*args))
+        puts "MISSING! #{base_module.name} #{args.inspect} #{table_name}"
+      end
+      found
+    end
+  end
+
+  # Support Rails < 6.0 which adds #parent instead of #module_parent
+  unless respond_to?(:module_parent)
+    def module_parent # Weirdly for Grape::API does NOT come in with the proper class, but some anonymous Class thing
+      parent
     end
   end
 end

@@ -61,9 +61,7 @@ module TestApp
 
     if v < Gem::Version.new('6.0') && (ar = config.active_record).respond_to?(:sqlite3) && ar.sqlite3.respond_to?(:represent_boolean_as_integer)
       ar.sqlite3.represent_boolean_as_integer = true
-    elsif v < Gem::Version.new('6.1') # Rails 6.0.x
-      config.autoloader = :classic
-    else # Rails >= 6.1
+    elsif v >= Gem::Version.new('6.1')
       config.active_record.legacy_connection_handling = false
       # Deals with either of these warnings:
       #   URL-safe CSRF tokens are now the default. Use 6.1 defaults or above. (when urlsafe_csrf_tokens = true)
