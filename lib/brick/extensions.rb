@@ -614,15 +614,16 @@ module ActiveRecord
         count_column = if hm.options[:through]
                          # Build the chain of JOINs going to the final destination HMT table
                          # (Usually just one JOIN, but could be many.)
-                         x = [hmt_assoc = hm]
+                         hmt_assoc = hm
+                         x = []
                          x.unshift(hmt_assoc) while hmt_assoc.options[:through] && (hmt_assoc = klass.reflect_on_association(hmt_assoc.options[:through]))
-                         from_clause = +"#{x.first.klass.table_name} br_t0"
+                         from_clause = +"#{x.first.table_name} br_t0"
                          fk_col = x.shift.foreign_key
                          link_back = [klass.primary_key] # %%% Inverse path back to the original object -- used to build out a link with a filter
                          idx = 0
                          bail_out = nil
-                         x[0..-2].map do |a|
-                           from_clause << "\n LEFT OUTER JOIN #{a.klass.table_name} br_t#{idx += 1} "
+                         x.map do |a|
+                           from_clause << "\n LEFT OUTER JOIN #{a.table_name} br_t#{idx += 1} "
                            from_clause << if (src_ref = a.source_reflection).macro == :belongs_to
                                             "ON br_t#{idx}.id = br_t#{idx - 1}.#{a.foreign_key}"
                                           elsif src_ref.options[:as]
@@ -637,18 +638,22 @@ module ActiveRecord
                                             "ON br_t#{idx}.#{a.foreign_key} = br_t#{idx - 1}.id"
                                           end
                            link_back.unshift(a.source_reflection.name)
-                           [a.klass.table_name, a.foreign_key, a.source_reflection.macro]
+                           [a.table_name, a.foreign_key, a.source_reflection.macro]
                          end
                          next if bail_out
-                         # count_column is determined from the last HMT member
-                         if (src_ref = x.last.source_reflection).macro == :belongs_to # Traditional HMT using an associative table
-                           "br_t#{idx}.#{x.last.foreign_key}"
+                         # count_column is determined from the originating HMT member
+                         if (src_ref = hm.source_reflection).nil?
+                           puts "*** Warning:  Could not determine destination model for this HMT association in model #{klass.name}:\n  has_many :#{hm.name}, through: :#{hm.options[:through]}"
+                           nix << k
+                           bail_out = true
+                         elsif src_ref.macro == :belongs_to # Traditional HMT using an associative table
+                           "br_t#{idx}.#{hm.foreign_key}"
                          else # A HMT that goes HM -> HM, something like Categories -> Products -> LineItems
                            "br_t#{idx}.#{src_ref.active_record.primary_key}"
                          end
                        else
-                         fk_col = hm.foreign_key
-                         poly_type = hm.inverse_of.foreign_type if hm.options.key?(:as)
+                         fk_col = (inv = hm.inverse_of)&.foreign_key || hm.foreign_key
+                         poly_type = inv.foreign_type if hm.options.key?(:as)
                          pk = hm.klass.primary_key
                          (pk.is_a?(Array) ? pk.first : pk) || '*'
                        end
@@ -684,11 +689,11 @@ module ActiveRecord
         end
         unless from_clause
           hm_table_name = if is_mysql
-                            "`#{hm.klass.table_name}`"
+                            "`#{hm.table_name}`"
                           elsif is_postgres || is_mssql
-                            "\"#{(hm.klass.table_name).gsub('.', '"."')}\""
+                            "\"#{(hm.table_name).gsub('.', '"."')}\""
                           else
-                            hm.klass.table_name
+                            hm.table_name
                           end
         end
         group_bys = ::Brick.is_oracle || is_mssql ? selects : (1..selects.length).to_a
@@ -1658,7 +1663,10 @@ module ActiveRecord::ConnectionHandling
       # .default_schema are specified then we can work with non-tenanted models more appropriately
       if (apartment = Object.const_defined?('Apartment')) &&
          File.exist?(apartment_initializer = ::Rails.root.join('config/initializers/apartment.rb'))
-        load apartment_initializer
+        unless @_apartment_loaded
+          load apartment_initializer
+          @_apartment_loaded = true
+        end
         apartment_excluded = Apartment.excluded_models
       end
       # Only for Postgres  (Doesn't work in sqlite3 or MySQL)

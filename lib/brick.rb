@@ -179,13 +179,21 @@ module Brick
 
         case a.macro
         when :belongs_to
-          s.first[a.foreign_key] = if a.polymorphic?
-                                     primary_tables = relations[model.table_name][:fks].find { |_k, fk| fk[:assoc_name] == a.name.to_s }&.last&.fetch(:inverse_table, [])
-                                     models = primary_tables&.map { |table| table.singularize.camelize.constantize }
-                                     [a.name, models, true]
-                                   else
-                                     [a.name, a.klass]
-                                   end
+          if a.polymorphic?
+            rel_poly_bt = relations[model.table_name][:fks].find { |_k, fk| fk[:assoc_name] == a.name.to_s }
+            if (primary_tables = rel_poly_bt&.last&.fetch(:inverse_table, [])).is_a?(Array)
+              models = primary_tables&.map { |table| table.singularize.camelize.constantize }
+              s.first[a.foreign_key] = [a.name, models, true]
+            else
+              # This will come up when using Devise invitable when invited_by_class_name is not
+              # specified because in that circumstance it adds a polymorphic :invited_by association,
+              # along with appropriate invited_by_type and invited_by_id columns.
+              puts "Missing any real indication as to which models \"has_many\" this polymorphic BT in model #{a.active_record.name}:"
+              puts "  belongs_to :#{a.name}, polymorphic: true"
+            end
+          else
+            s.first[a.foreign_key] = [a.name, a.klass]
+          end
         when :has_many, :has_one # This gets has_many as well as has_many :through
           # %%% weed out ones that don't have an available model to reference
           s.last[a.name] = a
