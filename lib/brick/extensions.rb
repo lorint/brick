@@ -1388,7 +1388,7 @@ class Object
           ordering = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
           order_by, _ = model._brick_calculate_ordering(ordering, true) # Don't do the txt part
 
-          @_brick_params = (ar_relation = model.all).brick_select(params, (selects = []), nil,
+          @_brick_params = (ar_relation = model.all).brick_select(params, (selects = []), order_by,
                                                                   translations = {},
                                                                   join_array = ::Brick::JoinArray.new)
           # %%% Add custom HM count columns
