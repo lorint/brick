@@ -435,7 +435,7 @@ module Brick
           end
         end
         if (polys = ::Brick.config.polymorphics)
-          if (schema = ::Brick.config.schema_behavior[:multitenant]&.fetch(:schema_to_analyse, nil)) && ::Brick.db_schemas&.include?(schema)
+          if (schema = ::Brick.config.schema_behavior[:multitenant]&.fetch(:schema_to_analyse, nil)) && ::Brick.db_schemas&.key?(schema)
             ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema)
           end
           missing_stis = {}

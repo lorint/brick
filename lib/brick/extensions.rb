@@ -258,7 +258,7 @@ module ActiveRecord
 
     def self._brick_index(mode = nil)
       tbl_parts = ((mode == :singular) ? table_name.singularize : table_name).split('.')
-      tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.first == Apartment.default_schema
+      tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.length > 1 && tbl_parts.first == Apartment.default_schema
       tbl_parts.unshift(::Brick.config.path_prefix) if ::Brick.config.path_prefix
       index = tbl_parts.map(&:underscore).join('_')
       # Rails applies an _index suffix to that route when the resource name is singular
@@ -555,7 +555,10 @@ module ActiveRecord
             tbl_name = "\"#{tbl_name}\"" if ::Brick.is_oracle && rel_dupe._arel_applied_aliases.include?(tbl_name)
             field_tbl_name = nil
             v1.map { |x| [translations[x[0..-2].map(&:to_s).join('.')], x.last] }.each_with_index do |sel_col, idx|
-              # binding.pry if chains[sel_col.first].nil?
+              # unless chains[sel_col.first]
+              #   puts 'You might have some bogus DSL in your brick.rb file'
+              #   next
+              # end
               field_tbl_name = (field_tbl_names[v.first][sel_col.first] ||= shift_or_first(chains[sel_col.first])).split('.').last
               # If it's Oracle, quote any AREL aliases that had been applied
               field_tbl_name = "\"#{field_tbl_name}\"" if ::Brick.is_oracle && rel_dupe._arel_applied_aliases.include?(field_tbl_name)
@@ -606,15 +609,42 @@ module ActiveRecord
         end
       end
       # Add derived table JOIN for the has_many counts
+      nix = []
       klass._br_hm_counts.each do |k, hm|
-        associative = nil
         count_column = if hm.options[:through]
-                         if (fk_col = (associative = klass._br_associatives&.[](hm.name))&.foreign_key)
-                           if hm.source_reflection.macro == :belongs_to # Traditional HMT using an associative table
-                             hm.foreign_key
-                           else # A HMT that goes HM -> HM, something like Categories -> Products -> LineItems
-                             hm.source_reflection.active_record.primary_key
-                           end
+                         # Build the chain of JOINs going to the final destination HMT table
+                         # (Usually just one JOIN, but could be many.)
+                         x = [hmt_assoc = hm]
+                         x.unshift(hmt_assoc) while hmt_assoc.options[:through] && (hmt_assoc = klass.reflect_on_association(hmt_assoc.options[:through]))
+                         from_clause = +"#{x.first.klass.table_name} br_t0"
+                         fk_col = x.shift.foreign_key
+                         link_back = [klass.primary_key] # %%% Inverse path back to the original object -- used to build out a link with a filter
+                         idx = 0
+                         bail_out = nil
+                         x[0..-2].map do |a|
+                           from_clause << "\n LEFT OUTER JOIN #{a.klass.table_name} br_t#{idx += 1} "
+                           from_clause << if (src_ref = a.source_reflection).macro == :belongs_to
+                                            "ON br_t#{idx}.id = br_t#{idx - 1}.#{a.foreign_key}"
+                                          elsif src_ref.options[:as]
+                                            "ON br_t#{idx}.#{src_ref.type} = '#{src_ref.active_record.name}'" + # "polymorphable_type"
+                                            " AND br_t#{idx}.#{src_ref.foreign_key} = br_t#{idx - 1}.id"
+                                          elsif src_ref.options[:source_type]
+                                            print "Skipping #{hm.name} --HMT-> #{hm.source_reflection.name} as it uses source_type which is not supported"
+                                            nix << k
+                                            bail_out = true
+                                            break
+                                          else # Standard has_many
+                                            "ON br_t#{idx}.#{a.foreign_key} = br_t#{idx - 1}.id"
+                                          end
+                           link_back.unshift(a.source_reflection.name)
+                           [a.klass.table_name, a.foreign_key, a.source_reflection.macro]
+                         end
+                         next if bail_out
+                         # count_column is determined from the last HMT member
+                         if (src_ref = x.last.source_reflection).macro == :belongs_to # Traditional HMT using an associative table
+                           "br_t#{idx}.#{x.last.foreign_key}"
+                         else # A HMT that goes HM -> HM, something like Categories -> Products -> LineItems
+                           "br_t#{idx}.#{src_ref.active_record.primary_key}"
                          end
                        else
                          fk_col = hm.foreign_key
@@ -652,20 +682,38 @@ module ActiveRecord
           selects << poly_type
           on_clause << "#{tbl_alias}.#{poly_type} = '#{name}'"
         end
-        hm_table_name = if is_mysql
-                          "`#{associative&.table_name || hm.klass.table_name}`"
-                        elsif is_postgres || is_mssql
-                          "\"#{(associative&.table_name || hm.klass.table_name).gsub('.', '"."')}\""
-                        else
-                          associative&.table_name || hm.klass.table_name
-                        end
+        unless from_clause
+          hm_table_name = if is_mysql
+                            "`#{hm.klass.table_name}`"
+                          elsif is_postgres || is_mssql
+                            "\"#{(hm.klass.table_name).gsub('.', '"."')}\""
+                          else
+                            hm.klass.table_name
+                          end
+        end
         group_bys = ::Brick.is_oracle || is_mssql ? selects : (1..selects.length).to_a
         join_clause = "LEFT OUTER
-JOIN (SELECT #{selects.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}#{count_column
-          }) AS c_t_ FROM #{hm_table_name} GROUP BY #{group_bys.join(', ')}) #{tbl_alias}"
+JOIN (SELECT #{selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}#{count_column
+          }) AS c_t_ FROM #{from_clause || hm_table_name} GROUP BY #{group_bys.join(', ')}) #{tbl_alias}"
         joins!("#{join_clause} ON #{on_clause.join(' AND ')}")
       end
-      where!(wheres) unless wheres.empty?
+      while (n = nix.pop)
+        klass._br_hm_counts.delete(n)
+      end
+
+      unless wheres.empty?
+        # Rewrite the wheres to reference table and correlation names built out by AREL
+        wheres2 = wheres.each_with_object({}) do |v, s|
+          if (v_parts = v.first.split('.')).length == 1
+            s[v.first] = v.last
+          else
+            k1 = klass.reflect_on_association(v_parts.first)&.klass
+            tbl_name = (field_tbl_names[v_parts.first][k1] ||= shift_or_first(chains[k1])).split('.').last
+            s["#{tbl_name}.#{v_parts.last}"] = v.last
+          end
+        end
+        where!(wheres2)
+      end
       # Must parse the order_by and see if there are any symbols which refer to BT associations
       # or custom columns as they must be expanded to find the corresponding b_r_model__column
       # or br_cc_column naming for each.
@@ -940,9 +988,7 @@ class Object
                                       schema_name
                                     else
                                       matching = "#{schema_name}.#{matching}"
-                                      # %%% Coming up with integers when tables are in schemas
-                                      # ::Brick.db_schemas[schema_name] ||= self.const_get(schema_name.camelize.to_sym)
-                                      self.const_get(schema_name.camelize)
+                                      (::Brick.db_schemas[schema_name] || {})[:class] ||= self.const_get(schema_name.camelize.to_sym)
                                     end
                     "#{schema_module&.name}::#{inheritable_name || model_name}"
                   end
@@ -952,10 +998,10 @@ class Object
 
       # Are they trying to use a pluralised class name such as "Employees" instead of "Employee"?
       if table_name == singular_table_name && !ActiveSupport::Inflector.inflections.uncountable.include?(table_name)
-        unless ::Brick.config.sti_namespace_prefixes&.key?("::#{singular_table_name.camelize}::")
-          puts "Warning: Class name for a model that references table \"#{matching
-               }\" should be \"#{ActiveSupport::Inflector.singularize(inheritable_name || model_name)}\"."
-        end
+        # unless ::Brick.config.sti_namespace_prefixes&.key?("::#{singular_table_name.camelize}::")
+        #   puts "Warning: Class name for a model that references table \"#{matching
+        #        }\" should be \"#{ActiveSupport::Inflector.singularize(inheritable_name || model_name)}\"."
+        # end
         return
       end
 
@@ -1393,7 +1439,7 @@ class Object
           end
 
           if pk.present?
-            # if (schema = ::Brick.config.schema_behavior[:multitenant]&.fetch(:schema_to_analyse, nil)) && ::Brick.db_schemas&.include?(schema)
+            # if (schema = ::Brick.config.schema_behavior[:multitenant]&.fetch(:schema_to_analyse, nil)) && ::Brick.db_schemas&.key?(schema)
             #   ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema)
             # end
 
@@ -1574,6 +1620,7 @@ module ActiveRecord::ConnectionHandling
     # return if ActiveRecord::Base.connection.current_database == 'postgres'
 
     initializer_loaded = false
+    orig_schema = nil
     if (relations = ::Brick.relations).empty?
       # If there's schema things configured then we only expect our initializer to be named exactly this
       if File.exist?(brick_initializer = ::Rails.root.join('config/initializers/brick.rb'))
@@ -1607,12 +1654,14 @@ module ActiveRecord::ConnectionHandling
                   [row['table_schema'], row['dt']]
                 end
           # Remove any system schemas
-          s[row.first] = row.last unless ['information_schema', 'pg_catalog', 'pg_toast',
-                                          'INFORMATION_SCHEMA', 'sys'].include?(row.first)
+          s[row.first] = { dt: row.last } unless ['information_schema', 'pg_catalog', 'pg_toast', 'heroku_ext',
+                                                  'INFORMATION_SCHEMA', 'sys'].include?(row.first)
         end
         if (is_multitenant = (multitenancy = ::Brick.config.schema_behavior[:multitenant]) &&
            (sta = multitenancy[:schema_to_analyse]) != 'public') &&
-           ::Brick.db_schemas.include?(sta)
+           ::Brick.db_schemas.key?(sta)
+          # Take note of the current schema so we can go back to it at the end of all this
+          orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
           ::Brick.default_schema = schema = sta
           ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
         end
@@ -1622,7 +1671,7 @@ module ActiveRecord::ConnectionHandling
         # ActiveRecord::Base.connection.current_database will be something like "XEPDB1"
         ::Brick.default_schema = schema = ActiveRecord::Base.connection.raw_connection.username
         ::Brick.db_schemas = {}
-        ActiveRecord::Base.execute_sql("SELECT username FROM sys.all_users WHERE ORACLE_MAINTAINED != 'Y'").each { |s| ::Brick.db_schemas[s.first] = nil }
+        ActiveRecord::Base.execute_sql("SELECT username FROM sys.all_users WHERE ORACLE_MAINTAINED != 'Y'").each { |s| ::Brick.db_schemas[s.first] = {} }
       when 'SQLite'
         sql = "SELECT m.name AS relation_name, UPPER(m.type) AS table_type,
           p.name AS column_name, p.type AS data_type,
@@ -1641,10 +1690,12 @@ module ActiveRecord::ConnectionHandling
         if (possible_schema = ::Brick.config.schema_behavior&.[](:multitenant)&.[](:schema_to_analyse))
           if ::Brick.db_schemas.key?(possible_schema)
             ::Brick.default_schema = schema = possible_schema
+            orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
             ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
           elsif Rails.env == 'test' # When testing, just find the most recently-created schema
-            ::Brick.default_schema = schema = ::Brick.db_schemas.to_a.sort { |a, b| b.last <=> a.last }.first.first
-            puts "While running tests, had noticed that in the brick.rb initializer the line \"::Brick.schema_behavior = ...\" refers to a schema called \"#{possible_schema}\" which does not exist.  Reverting to instead use the most recently-created schema, #{schema}."
+            ::Brick.default_schema = schema = ::Brick.db_schemas.to_a.sort { |a, b| b.last[:dt] <=> a.last[:dt] }.first.first
+            puts "While running tests, had noticed in the brick.rb initializer that the line \"::Brick.schema_behavior = ...\" refers to a schema called \"#{possible_schema}\" which does not exist.  Reading table structure from the most recently-created schema, #{schema}."
+            orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
             ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
           else
             puts "*** In the brick.rb initializer the line \"::Brick.schema_behavior = ...\" refers to a schema called \"#{possible_schema}\".  This schema does not exist. ***"
@@ -1848,6 +1899,11 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       v[:class_name] = (schema_names + [rel_name.last.singularize]).map(&:camelize).join('::')
     end
     ::Brick.load_additional_references if initializer_loaded
+
+    if orig_schema && (orig_schema = (orig_schema - ['pg_catalog', 'heroku_ext']).first)
+      puts "Now switching back to \"#{orig_schema}\" schema."
+      ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", orig_schema)
+    end
   end
 
   def retrieve_schema_and_tables(sql = nil, is_postgres = nil, is_mssql = nil, schema = nil)
@@ -2134,7 +2190,12 @@ module Brick
                    end
                  end
                end
-      ::Brick.relations.keys.map { |v| [(model = models[v])&.last, model&.last&.table_name, migrations&.fetch(v, nil), model&.first] }
+      ::Brick.relations.keys.map do |v|
+        tbl_parts = v.split('.')
+        tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.length > 1 && tbl_parts.first == Apartment.default_schema
+        res = tbl_parts.join('.')
+        [v, (model = models[res])&.last&.table_name, migrations&.fetch(res, nil), model&.first]
+      end
     end
 
     def ensure_unique(name, *sources)

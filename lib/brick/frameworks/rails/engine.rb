@@ -125,8 +125,8 @@ module Brick
                               "H#{hm_assoc.macro == :has_one ? 'O' : 'M'}#{'T' if hm_assoc.options[:through]}",
                               (assoc_name = hm.first)]
                   hm_fk_name = if (through = hm_assoc.options[:through])
-                                 # %%% How to deal with weird self_ref type has_many -> has_one polymorphic stuff?
-                                 #     (or perhaps we don't need to!)
+                                 next unless @_brick_model._br_hm_counts.key?(hm_assoc.name) # Skip any weird HMTs that go through a HM with a source_type
+
                                  next unless @_brick_model.instance_methods.include?(through) &&
                                              (associative = @_brick_model._br_associatives.fetch(hm.first, nil))
 
@@ -353,11 +353,8 @@ def hide_bcrypt(val, max_len = 200)
     '(hidden)'
   else
     if val.is_a?(String)
-      if val.length > max_len
-        val = val[0...max_len]
-        val << '...'
-      end
-      val.force_encoding('UTF-8') unless val.encoding.name == 'UTF-8'
+      val = \"#\{val[0...max_len]}...\" if val.length > max_len
+      val = val.dup.force_encoding('UTF-8') unless val.encoding.name == 'UTF-8'
     end
     val
   end
@@ -372,7 +369,7 @@ def display_value(col_type, val)
       if @is_mysql || @is_mssql
         # MySQL's \"Internal Geometry Format\" and MSSQL's Geography are like WKB, but with an initial 4 bytes that indicates the SRID.
         if (srid = val&.[](0..3)&.unpack('I'))
-          val = val.force_encoding('BINARY')[4..-1].bytes
+          val = val.dup.force_encoding('BINARY')[4..-1].bytes
 
           # MSSQL spatial bitwise flags, often 0C for a point:
           # xxxx xxx1 = HasZValues
@@ -940,7 +937,11 @@ erDiagram
   @resources.each do |r|
   %>
   <tr>
-  <td><%= link_to(r[0], r[0] && send(\"#\{r[0]&._brick_index}_path\".to_sym)) %></td>
+  <td><%= begin
+            kls = Object.const_get(::Brick.relations[r[0]].fetch(:class_name, nil))
+          rescue
+          end
+          kls ? link_to(r[0], send(\"#\{kls._brick_index}_path\".to_sym)) : r[0] %></td>
   <td<%= if r[1]
            ' class=\"orphan\"' unless ::Brick.relations.key?(r[1])
          else
