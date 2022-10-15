@@ -813,6 +813,24 @@ erDiagram
                  hms_keys << (assoc_name = (assoc = hm.first).name.to_s)
                  "#{assoc_name.inspect} => [#{(assoc.options[:through] && !assoc.through_reflection).inspect}, #{assoc.klass.name}, #{hm[1].inspect}, #{hm[2].inspect}]"
                end.join(', ')}}
+     # If the resource is missing, has the user simply created an inappropriately pluralised name for a table?
+     @#{table_name} ||= if dym_list = instance_variables.reject do |entry|
+                             entry.to_s.start_with?('@_') ||
+                             ['@cache_hit', '@marked_for_same_origin_verification', '@view_renderer', '@view_flow', '@output_buffer', '@virtual_path'].include?(entry.to_s)
+                           end
+                          msg = \"Can't find resource \\\"#{table_name}\\\".\"
+                           # Can't be sure otherwise of what is up, so check DidYouMean and offer a suggestion.
+                          if (dym = DidYouMean::SpellChecker.new(dictionary: dym_list).correct('@#{table_name}')).present?
+                            msg << \"\nIf you meant \\\"#\{found_dym = dym.first[1..-1]}\\\" then to avoid this message add this entry into inflections.rb:\n\"
+                            msg << \"  inflect.singular('#\{found_dym}', '#{obj_name}')\"
+                            puts
+                            puts \"WARNING:  #\{msg}\"
+                            puts
+                            @#{table_name} = instance_variable_get(dym.first.to_sym)
+                          else
+                            raise ActiveRecord::RecordNotFound.new(msg)
+                          end
+                        end
      col_keys = @#{table_name}.columns.each_with_object([]) do |col, s|
        col_name = col.name
        next if @_brick_incl&.exclude?(col_name) ||
