@@ -1754,7 +1754,7 @@ module ActiveRecord::ConnectionHandling
       measures = []
       ::Brick.is_oracle = true if ActiveRecord::Base.connection.adapter_name == 'OracleEnhanced'
       case ActiveRecord::Base.connection.adapter_name
-      when 'PostgreSQL', 'SQLite', 'SQLServer' # These bring back a hash for each row because the query uses column aliases
+      when 'PostgreSQL', 'SQLite' # These bring back a hash for each row because the query uses column aliases
         # schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
         ActiveRecord::Base.retrieve_schema_and_tables(sql, is_postgres, is_mssql, schema).each do |r|
           # If Apartment gem lists the table as being associated with a non-tenanted model then use whatever it thinks
@@ -1785,7 +1785,7 @@ module ActiveRecord::ConnectionHandling
           # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
           relation[:col_descrips][col_name] = r['column_description'] if r['column_description']
         end
-      else # MySQL2 and OracleEnhanced act a little differently, bringing back an array for each row
+      else # MySQL2, OracleEnhanced, and MSSQL act a little differently, bringing back an array for each row
         schema_and_tables = case ActiveRecord::Base.connection.adapter_name
                             when 'OracleEnhanced'
                               sql =

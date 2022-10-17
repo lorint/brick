@@ -189,8 +189,8 @@ module Brick
                               end.keys.sort.each_with_object(+'') do |v, s|
                                 s << "<option value=\"#{prefix}#{v.underscore.gsub('.', '/')}\">#{v}</option>"
                               end.html_safe
-              table_options << '<option value="brick_status">(Status)</option>'.html_safe if ::Brick.config.add_status
-              table_options << '<option value="brick_orphans">(Orphans)</option>'.html_safe if is_orphans
+              table_options << "<option value=\"#{prefix}brick_status\">(Status)</option>".html_safe if ::Brick.config.add_status
+              table_options << "<option value=\"#{prefix}brick_orphans\">(Orphans)</option>".html_safe if is_orphans
               css = +"<style>
 h1, h3 {
   margin-bottom: 0;
@@ -989,11 +989,13 @@ erDiagram
 <select id=\"tbl\">#{table_options}</select>
 <h1>Orphans<%= \" for #\{}\" if false %></h1>
 <% @orphans.each do |o|
-  via = \" (via #\{o[4]})\" unless \"#\{o[2].split('.').last.underscore.singularize}_id\" == o[4] %>
-  <a href=\"/<%= o[0].split('.').last %>/<%= o[1] %>\">
-    <%= \"#\{o[0]} #\{o[1]} refers#\{via} to non-existent #\{o[2]} #\{o[3]}#\{\" (in table \\\"#\{o[5]}\\\")\" if o[5]}\" %>
-  </a><br>
-<% end %>
+     if (klass = ::Brick.relations[o[0]]&.fetch(:class_name, nil)&.constantize) %>
+<%=    via = \" (via #\{o[4]})\" unless \"#\{o[2].split('.').last.underscore.singularize}_id\" == o[4]
+       link_to(\"#\{o[0]} #\{o[1]} refers#\{via} to non-existent #\{o[2]} #\{o[3]}#\{\" (in table \\\"#\{o[5]}\\\")\" if o[5]}\",
+               send(\"#\{klass._brick_index(:singular)\}_path\".to_sym, o[1])) %>
+  <br>
+<%   end
+   end %>
 #{script}"
                          end
 

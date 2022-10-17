@@ -156,7 +156,7 @@ with Rails' conventions, The Brick does quite a bit to accommodate.  But to get
 multiple-column primary and foreign keys to work, then **composite_primary_keys** is
 required.  Just bundle it in and The Brick will leverage this gem.
 
-Brick auto-detects the [rails_admin](https://github.com/railsadminteam/rails_admin/) gem and will
+Brick auto-detects the **[rails_admin](https://github.com/railsadminteam/rails_admin/)** gem and will
 provide the models and some configuration for it to function.  By simply adding `gem 'rails_admin'`
 and running `bin/rails g rails_admin:install` then it's up and going, no additional configuration.
 This is by far the fastest way to get a popular administrative interface up and going in any Rails
