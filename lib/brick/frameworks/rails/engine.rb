@@ -603,7 +603,21 @@ if (headerTop) {
               erd_markup = if @_brick_model
                              "<div id=\"mermaidErd\" class=\"mermaid\">
 erDiagram
-<% model_short_name = #{@_brick_model.name.split('::').last.inspect}
+<% def sidelinks(shown_classes, klass)
+     links = []
+     # %%% Not yet showing these as they can get just a bit intense!
+     # klass.reflect_on_all_associations.select { |a| shown_classes.key?(a.klass) }.each do |assoc|
+     #   unless shown_classes[assoc.klass].key?(klass.name)
+     #     links << \"    #\{klass.name.split('::').last} #\{assoc.macro == :belongs_to ? '}o--||' : '||--o{'} #\{assoc.klass.name.split('::').last} : \\\"\\\"\"n\"
+     #     shown_classes[assoc.klass][klass.name] = nil
+     #   end
+     # end
+     # shown_classes[klass] ||= {}
+     links.join
+   end
+
+   model_short_name = #{@_brick_model.name.split('::').last.inspect}
+   shown_classes = {}
    @_brick_bt_descrip&.each do |bt|
      bt_class = bt[1].first.first
      callbacks[bt_name = bt_class.name.split('::').last] = bt_class
@@ -613,6 +627,7 @@ erDiagram
         bt_underscored = bt[1].first.first.name.underscore.singularize
         bt.first unless bt.first.to_s == bt_underscored.split('/').last # Was:  bt_underscored.tr('/', '_')
         }\\\"\".html_safe %>
+<%=  sidelinks(shown_classes, bt_class).html_safe %>
 <% end
    last_through = nil
    @_brick_hm_counts&.each do |hm|
@@ -627,6 +642,7 @@ erDiagram
 %><%=    \"\n\"
 %><%   else
 %>  <%= \"#\{model_short_name} ||--o{ #\{through_name}\".html_safe %> : \"\"
+<%=      sidelinks(shown_classes, through_assoc.active_record).html_safe %>
 <%       last_through = through
        end
 %>    <%= \"#\{through_name} }o--|| #\{hm_name}\".html_safe %> : \"\"
@@ -636,6 +652,7 @@ erDiagram
             hm.first.to_s unless hm.first.to_s.downcase == hm_class.name.underscore.pluralize.tr('/', '_')
           }\\\"\".html_safe %><%
      end %>
+<%=  sidelinks(shown_classes, hm_class).html_safe %>
 <% end
    def dt_lookup(dt)
      { 'integer' => 'int', }[dt] || dt&.tr(' ', '_') || 'int'
