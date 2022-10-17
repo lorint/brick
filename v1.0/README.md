@@ -327,7 +327,8 @@ wish by going into the Brick initializer file and uncommenting this entry:
 With all of this in place, when you run `bin/rails s` then right before the message about the rack
 server starting, you should see this indication:
 ```
-Mounting swagger info endpoint for "API V1 Docs" on /api-docs/v1/swagger.json
+Mounting OpenApi 3.0 documentation endpoint for "API V1 Docs" on /api-docs/v1/swagger.json
+API documentation now available when navigating to:  /api-docs/index.html
 ```
 
 And then navigating to http://localhost:3000/api-docs/v1 should look something like this:

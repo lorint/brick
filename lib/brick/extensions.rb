@@ -909,7 +909,7 @@ Module.class_exec do
                # Vabc instead of VABC)
                singular_class_name = ::Brick.namify(plural_class_name, :underscore).singularize.camelize
                full_class_name << "::#{singular_class_name}"
-               if plural_class_name == 'BrickSwagger' ||
+               if plural_class_name == 'BrickOpenapi' ||
                   (
                     (::Brick.config.add_status || ::Brick.config.add_orphans) &&
                     plural_class_name == 'BrickGem'
@@ -1312,13 +1312,13 @@ class Object
             instance_variable_set(:@orphans, ::Brick.find_orphans(::Brick.set_db_schema(params)))
           end
           return [new_controller_class, code + "end # BrickGem controller\n"]
-        when 'BrickSwagger'
-          is_swagger = true
+        when 'BrickOpenapi'
+          is_openapi = true
         end
 
         self.protect_from_forgery unless: -> { self.request.format.js? }
         self.define_method :index do
-          if (is_swagger || request.env['REQUEST_PATH'].start_with?(::Brick.api_root)) &&
+          if (is_openapi || request.env['REQUEST_PATH'].start_with?(::Brick.api_root)) &&
              !params&.key?('_brick_schema') &&
              (referrer_params = request.env['HTTP_REFERER']&.split('?')&.last&.split('&')&.map { |x| x.split('=') }).present?
             if params
@@ -1329,7 +1329,7 @@ class Object
           end
           ::Brick.set_db_schema(params || api_params)
 
-          if is_swagger
+          if is_openapi
             json = { 'openapi': '3.0.1', 'info': { 'title': Rswag::Ui.config.config_object[:urls].last&.fetch(:name, 'API documentation'), 'version': ::Brick.config.api_version },
                      'servers': [
                        { 'url': '{scheme}://{defaultHost}', 'variables': {
@@ -1426,7 +1426,7 @@ class Object
           @_brick_erd = params['_brick_erd']&.to_i
         end
 
-        unless is_swagger
+        unless is_openapi
           ::Brick.set_db_schema
           _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk)) if pk
           code << "  def index\n"
@@ -1564,7 +1564,7 @@ class Object
             private params_name
             # Get column names for params from relations[model.table_name][:cols].keys
           end
-        end # unless is_swagger
+        end # unless is_openapi
         code << "end # #{class_name}\n"
       end # class definition
       [built_controller, code]

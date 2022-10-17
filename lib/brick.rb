@@ -612,13 +612,35 @@ In config/initializers/brick.rb appropriate entries would look something like:
             get("/#{controller_prefix}brick_orphans", to: 'brick_gem#orphans', as: 'brick_orphans')
           end
 
-          if Object.const_defined?('Rswag::Ui') && doc_endpoint = Rswag::Ui.config.config_object[:urls].last
-            # Serves JSON swagger info from a path such as  '/api-docs/v1/swagger.json'
-            puts "Mounting swagger info endpoint for \"#{doc_endpoint[:name]}\" on #{doc_endpoint[:url]}"
-            send(:get, doc_endpoint[:url], { to: 'brick_swagger#index' })
-          end
-
           unless ::Brick.routes_done
+            if Object.const_defined?('Rswag::Ui')
+              rswag_path = ::Rails.application.routes.routes.find { |r| r.app.app == Rswag::Ui::Engine }&.instance_variable_get(:@path_formatter)&.instance_variable_get(:@parts)&.join
+              if (doc_endpoint = Rswag::Ui.config.config_object[:urls]&.last)
+                puts "Mounting OpenApi 3.0 documentation endpoint for \"#{doc_endpoint[:name]}\" on #{doc_endpoint[:url]}"
+                send(:get, doc_endpoint[:url], { to: 'brick_openapi#index' })
+                endpoint_parts = doc_endpoint[:url]&.split('/')
+                if rswag_path && endpoint_parts
+                  puts "API documentation now available when navigating to:  /#{endpoint_parts&.find(&:present?)}/index.html"
+                else
+                  puts "In order to make documentation available you can put this into your routes.rb:"
+                  puts "  mount Rswag::Ui::Engine => '/#{endpoint_parts&.find(&:present?) || 'api-docs'}'"
+                end
+              else
+                sample_path = rswag_path || '/api-docs'
+                puts
+                puts "Brick:  rswag-ui gem detected -- to make OpenAPI 3.0 documentation available from a path such as  '#{sample_path}/v1/swagger.json',"
+                puts '        put code such as this in an initializer:'
+                puts '  Rswag::Ui.configure do |config|'
+                puts "    config.swagger_endpoint '#{sample_path}/v1/swagger.json', 'API V1 Docs'"
+                puts '  end'
+                unless rswag_path
+                  puts
+                  puts '        and put this into your routes.rb:'
+                  puts "  mount Rswag::Ui::Engine => '/api-docs'"
+                end
+              end
+            end
+
             ::Brick.routes_done = true
             puts "\n" if tables.present? || views.present?
             if tables.present?

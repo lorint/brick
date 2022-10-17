@@ -152,7 +152,13 @@ if Object.const_defined?('Brick')
   # Brick.enable_controllers = true # Setting this to \"false\" will disable controllers in development
   # Brick.enable_views = true # Setting this to \"false\" will disable views in development
 
-  # ::Brick.api_root = '/api/v1/' # Path from which to serve out API resources when the RSwag gem is present
+  # # If The Brick sees that RSwag gem is present, it allows for API resources to be automatically served out.
+  # # You can configure the root path for these resources:
+  # ::Brick.api_root = '/api/v1/'
+  # # You may also want to add an OpenAPI 3.0 documentation endpoint using Rswag::Ui:
+  # Rswag::Ui.configure do |config|
+  #   config.swagger_endpoint '/api-docs/v1/swagger.json', 'API V1 Docs'
+  # end
 
   # # By default models are auto-created for database views, and set to be read-only.  This can be skipped.
   # Brick.skip_database_views = true
