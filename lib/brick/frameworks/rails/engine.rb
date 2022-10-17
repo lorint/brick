@@ -1324,6 +1324,45 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
         # go make sure we've loaded additional references (virtual foreign keys and polymorphic associations).
         # (This should only happen if for whatever reason the initializer file was not exactly config/initializers/brick.rb.)
         ::Brick.load_additional_references
+
+        # If the RailsAdmin gem is present, add our auto-creatable model names into its list of viable models.
+        if Object.const_defined?('RailsAdmin')
+          RailsAdmin::Config.class_exec do
+            class << self
+
+            private
+
+              alias _brick_viable_models viable_models
+              def viable_models
+                return _brick_viable_models if class_variables.include?(:@@system_models)
+
+                @@system_models = (vm = _brick_viable_models) + (::Brick.auto_models - vm)
+              end
+            end
+          end
+
+          RailsAdmin::Config::Actions::Show.class_exec do
+            register_instance_option :enabled? do
+              !(bindings[:object] && bindings[:object].class.is_view?)
+            end
+          end
+
+          RailsAdmin::Config::Actions::HistoryShow.class_exec do
+            register_instance_option :enabled? do
+              !(bindings[:object] && bindings[:object].class.is_view?)
+            end
+          end
+
+          RailsAdmin.config do |config|
+            ::Brick.relations.select { |_k, v| v.key?(:isView) }.each do |_k, relation|
+              config.model(relation[:class_name]) do # new_model_class
+                list do
+                  sort_by (sort_col = relation[:cols].first.first)
+                end
+              end
+            end
+          end
+        end
       end
     end
   end

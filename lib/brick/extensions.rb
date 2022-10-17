@@ -1070,31 +1070,40 @@ class Object
             true
           end
           code << "  def self.is_view?; true; end\n"
+
+          new_model_class.primary_key = nil
+          code << "  self.primary_key = nil\n"
+
+          new_model_class.define_method :'readonly?' do
+            true
+          end
+          code << "  def readonly?; true; end\n"
+        else
+          db_pks = relation[:cols]&.map(&:first)
+          has_pk = (bpk = _brick_primary_key(relation)).present? && (db_pks & bpk).sort == bpk.sort
+          our_pks = relation[:pkey].values.first
+          # No primary key, but is there anything UNIQUE?
+          # (Sort so that if there are multiple UNIQUE constraints we'll pick one that uses the least number of columns.)
+          our_pks = relation[:ukeys].values.sort { |a, b| a.length <=> b.length }.first unless our_pks&.present?
+          if has_pk
+            code << "  # Primary key: #{_brick_primary_key.join(', ')}\n" unless _brick_primary_key == ['id']
+          elsif our_pks&.present?
+            if our_pks.length > 1 && respond_to?(:'primary_keys=') # Using the composite_primary_keys gem?
+              new_model_class.primary_keys = our_pks
+              code << "  self.primary_keys = #{our_pks.map(&:to_sym).inspect}\n"
+            else
+              new_model_class.primary_key = (pk_sym = our_pks.first.to_sym)
+              code << "  self.primary_key = #{pk_sym.inspect}\n"
+            end
+            _brick_primary_key(relation) # Set the newly-found PK in the instance variable
+          elsif (possible_pk = ActiveRecord::Base.get_primary_key(base_class.name)) && relation[:cols][possible_pk]
+            new_model_class.primary_key = (possible_pk = possible_pk.to_sym)
+            code << "  self.primary_key = #{possible_pk.inspect}\n"
+          else
+            code << "  # Could not identify any column(s) to use as a primary key\n"
+          end
         end
 
-        db_pks = relation[:cols]&.map(&:first)
-        has_pk = _brick_primary_key(relation).length.positive? && (db_pks & _brick_primary_key).sort == _brick_primary_key.sort
-        our_pks = relation[:pkey].values.first
-        # No primary key, but is there anything UNIQUE?
-        # (Sort so that if there are multiple UNIQUE constraints we'll pick one that uses the least number of columns.)
-        our_pks = relation[:ukeys].values.sort { |a, b| a.length <=> b.length }.first unless our_pks&.present?
-        if has_pk
-          code << "  # Primary key: #{_brick_primary_key.join(', ')}\n" unless _brick_primary_key == ['id']
-        elsif our_pks&.present?
-          if our_pks.length > 1 && respond_to?(:'primary_keys=') # Using the composite_primary_keys gem?
-            new_model_class.primary_keys = our_pks
-            code << "  self.primary_keys = #{our_pks.map(&:to_sym).inspect}\n"
-          else
-            new_model_class.primary_key = (pk_sym = our_pks.first.to_sym)
-            code << "  self.primary_key = #{pk_sym.inspect}\n"
-          end
-          _brick_primary_key(relation) # Set the newly-found PK in the instance variable
-        elsif (possible_pk = ActiveRecord::Base.get_primary_key(base_class.name)) && relation[:cols][possible_pk]
-          new_model_class.primary_key = (possible_pk = possible_pk.to_sym)
-          code << "  self.primary_key = #{possible_pk.inspect}\n"
-        else
-          code << "  # Could not identify any column(s) to use as a primary key\n" unless is_view
-        end
         if (sti_col = relation.fetch(:sti_col, nil))
           new_model_class.send(:'inheritance_column=', sti_col)
           code << "  self.inheritance_column = #{sti_col.inspect}\n"

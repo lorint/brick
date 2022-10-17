@@ -122,7 +122,7 @@ module Brick
   end
 
   class << self
-    attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle, :is_eager_loading
+    attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle, :is_eager_loading, :auto_models
 
     def set_db_schema(params = nil)
       schema = (params ? params['_brick_schema'] : ::Brick.default_schema)
@@ -539,6 +539,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
 
     def display_classes(prefix, rels, max_length)
       rels.sort.each do |rel|
+        (::Brick.auto_models ||= []) << rel.first
         puts "#{rel.first}#{' ' * (max_length - rel.first.length)}  /#{prefix}#{rel.last}"
       end
       puts "\n"
