@@ -1035,7 +1035,7 @@ class Object
         #   puts "Warning: Class name for a model that references table \"#{matching
         #        }\" should be \"#{ActiveSupport::Inflector.singularize(inheritable_name || model_name)}\"."
         # end
-        return
+        return unless singular_table_name.singularize.blank?
       end
 
       full_model_name = full_name.split('::').tap { |fn| fn[-1] = model_name }.join('::')
@@ -1932,7 +1932,10 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       v[:schema] = schema_names.join('.') unless schema_names.empty?
       # %%% If more than one schema has the same table name, will need to add a schema name prefix to have uniqueness
       v[:resource] = rel_name.last
-      v[:class_name] = (schema_names + [rel_name.last.singularize]).map(&:camelize).join('::')
+      if (singular = rel_name.last.singularize).blank?
+        singular = rel_name.last
+      end
+      v[:class_name] = (schema_names + [singular]).map(&:camelize).join('::')
     end
     ::Brick.load_additional_references if initializer_loaded
 
@@ -2155,11 +2158,6 @@ module Brick
       end
 
       return if is_class || ::Brick.config.exclude_hms&.any? { |exclusion| fk[1] == exclusion[0] && fk[2] == exclusion[1] && primary_table == exclusion[2] } || hms.nil?
-
-      # if fk[1].end_with?('Suppliers') && fk[4] == 'People'
-      #   puts fk.inspect
-      #   binding.pry
-      # end
 
       if (assoc_hm = hms.fetch((hm_cnstr_name = "hm_#{cnstr_name}"), nil))
         if assoc_hm[:fk].is_a?(String)

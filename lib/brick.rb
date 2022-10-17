@@ -96,7 +96,6 @@ if ActiveRecord.version < ::Gem::Version.new('5')
   )
 end
 
-
 # puts ::Brick::Util._patch_require(
 #     'cucumber/cli/options.rb', '/cucumber/cli/options', # /cli/options
 #     ['  def extract_environment_variables',
@@ -548,84 +547,90 @@ In config/initializers/brick.rb appropriate entries would look something like:
 
   module RouteSet
     def finalize!
-      return super if ::Brick.routes_done
+      unless ::Rails.application.routes.named_routes.route_defined?(:brick_status_path)
+        existing_controllers = routes.each_with_object({}) { |r, s| c = r.defaults[:controller]; s[c] = nil if c }
+        ::Rails.application.routes.append do
+          tables = []
+          views = []
+          table_class_length = 38 # Length of "Classes that can be built from tables:"
+          view_class_length = 37 # Length of "Classes that can be built from views:"
 
-      ::Brick.routes_done = true
-      tables = []
-      views = []
-      table_class_length = 38 # Length of "Classes that can be built from tables:"
-      view_class_length = 37 # Length of "Classes that can be built from views:"
-      existing_controllers = routes.each_with_object({}) { |r, s| c = r.defaults[:controller]; s[c] = nil if c }
-      ::Rails.application.routes.append do
-        brick_routes_create = lambda do |schema_name, controller_name, v, options|
-          if schema_name # && !Object.const_defined('Apartment')
-            send(:namespace, schema_name) do
-              send(:resources, v[:resource].to_sym, **options)
-            end
-          else
-            send(:resources, v[:resource].to_sym, **options)
-          end
-        end
-
-        # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
-        # If auto-controllers and auto-models are both enabled then this makes sense:
-        controller_prefix = (::Brick.config.path_prefix ? "#{::Brick.config.path_prefix}/" : '')
-        ::Brick.relations.each do |k, v|
-          unless !(controller_name = v.fetch(:resource, nil)&.pluralize) || existing_controllers.key?(controller_name)
-            options = {}
-            options[:only] = [:index, :show] if v.key?(:isView)
-            # First do the API routes
-            full_resource = nil
-            if (schema_name = v.fetch(:schema, nil))
-              full_resource = "#{schema_name}/#{v[:resource]}"
-              send(:get, "#{::Brick.api_root}#{full_resource}", { to: "#{controller_prefix}#{schema_name}/#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
-            else
-              # Normally goes to something like:  /api/v1/employees
-              send(:get, "#{::Brick.api_root}#{v[:resource]}", { to: "#{controller_prefix}#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
-            end
-            # Now the normal routes
-            if ::Brick.config.path_prefix
-              # Was:  send(:scope, path: ::Brick.config.path_prefix) do
-              send(:namespace, ::Brick.config.path_prefix) do
-                brick_routes_create.call(schema_name, controller_name, v, options)
+          brick_routes_create = lambda do |schema_name, controller_name, v, options|
+            if schema_name # && !Object.const_defined('Apartment')
+              send(:namespace, schema_name) do
+                send(:resources, v[:resource].to_sym, **options)
               end
             else
-              brick_routes_create.call(schema_name, controller_name, v, options)
-            end
-
-            if (class_name = v.fetch(:class_name, nil))
-              if v.key?(:isView)
-                view_class_length = class_name.length if class_name.length > view_class_length
-                views
-              else
-                table_class_length = class_name.length if class_name.length > table_class_length
-                tables
-              end << [class_name, full_resource || v[:resource]]
+              send(:resources, v[:resource].to_sym, **options)
             end
           end
-        end
-        puts "\n" if tables.present? || views.present?
-        if tables.present?
-          puts "Classes that can be built from tables:#{' ' * (table_class_length - 38)}  Path:"
-          puts "======================================#{' ' * (table_class_length - 38)}  ====="
-          ::Brick.display_classes(controller_prefix, tables, table_class_length)
-        end
-        if views.present?
-          puts "Classes that can be built from views:#{' ' * (view_class_length - 37)}  Path:"
-          puts "=====================================#{' ' * (view_class_length - 37)}  ====="
-          ::Brick.display_classes(controller_prefix, views, view_class_length)
-        end
 
-        if ::Brick.config.add_status && instance_variable_get(:@set).named_routes.names.exclude?(:brick_status)
-          get("/#{controller_prefix}brick_status", to: 'brick_gem#status', as: 'brick_status')
-        end
-        if ::Brick.config.add_orphans && instance_variable_get(:@set).named_routes.names.exclude?(:brick_orphans)
-          get("/#{controller_prefix}brick_orphans", to: 'brick_gem#orphans', as: 'brick_orphans')
-        end
-        if Object.const_defined?('Rswag::Ui') && doc_endpoint = Rswag::Ui.config.config_object[:urls].last
-          # Serves JSON swagger info from a path such as  '/api-docs/v1/swagger.json'
-          puts "Mounting swagger info endpoint for \"#{doc_endpoint[:name]}\" on #{doc_endpoint[:url]}"
-          send(:get, doc_endpoint[:url], { to: 'brick_swagger#index' })
+          # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
+          # If auto-controllers and auto-models are both enabled then this makes sense:
+          controller_prefix = (::Brick.config.path_prefix ? "#{::Brick.config.path_prefix}/" : '')
+          ::Brick.relations.each do |k, v|
+            unless !(controller_name = v.fetch(:resource, nil)&.pluralize) || existing_controllers.key?(controller_name)
+              options = {}
+              options[:only] = [:index, :show] if v.key?(:isView)
+              # First do the API routes
+              full_resource = nil
+              if (schema_name = v.fetch(:schema, nil))
+                full_resource = "#{schema_name}/#{v[:resource]}"
+                send(:get, "#{::Brick.api_root}#{full_resource}", { to: "#{controller_prefix}#{schema_name}/#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
+              else
+                # Normally goes to something like:  /api/v1/employees
+                send(:get, "#{::Brick.api_root}#{v[:resource]}", { to: "#{controller_prefix}#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
+              end
+              # Now the normal routes
+              if ::Brick.config.path_prefix
+                # Was:  send(:scope, path: ::Brick.config.path_prefix) do
+                send(:namespace, ::Brick.config.path_prefix) do
+                  brick_routes_create.call(schema_name, controller_name, v, options)
+                end
+              else
+                brick_routes_create.call(schema_name, controller_name, v, options)
+              end
+
+              if (class_name = v.fetch(:class_name, nil))
+                if v.key?(:isView)
+                  view_class_length = class_name.length if class_name.length > view_class_length
+                  views
+                else
+                  table_class_length = class_name.length if class_name.length > table_class_length
+                  tables
+                end << [class_name, full_resource || v[:resource]]
+              end
+            end
+          end
+
+          if ::Brick.config.add_status && instance_variable_get(:@set).named_routes.names.exclude?(:brick_status)
+            get("/#{controller_prefix}brick_status", to: 'brick_gem#status', as: 'brick_status')
+          end
+
+          if ::Brick.config.add_orphans && instance_variable_get(:@set).named_routes.names.exclude?(:brick_orphans)
+            get("/#{controller_prefix}brick_orphans", to: 'brick_gem#orphans', as: 'brick_orphans')
+          end
+
+          if Object.const_defined?('Rswag::Ui') && doc_endpoint = Rswag::Ui.config.config_object[:urls].last
+            # Serves JSON swagger info from a path such as  '/api-docs/v1/swagger.json'
+            puts "Mounting swagger info endpoint for \"#{doc_endpoint[:name]}\" on #{doc_endpoint[:url]}"
+            send(:get, doc_endpoint[:url], { to: 'brick_swagger#index' })
+          end
+
+          unless ::Brick.routes_done
+            ::Brick.routes_done = true
+            puts "\n" if tables.present? || views.present?
+            if tables.present?
+              puts "Classes that can be built from tables:#{' ' * (table_class_length - 38)}  Path:"
+              puts "======================================#{' ' * (table_class_length - 38)}  ====="
+              ::Brick.display_classes(controller_prefix, tables, table_class_length)
+            end
+            if views.present?
+              puts "Classes that can be built from views:#{' ' * (view_class_length - 37)}  Path:"
+              puts "=====================================#{' ' * (view_class_length - 37)}  ====="
+              ::Brick.display_classes(controller_prefix, views, view_class_length)
+            end
+          end
         end
       end
       super
