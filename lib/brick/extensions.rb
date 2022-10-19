@@ -741,8 +741,10 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
             else
               s << v
             end
-          else # String stuff just comes straight through
+          else # String stuff (which defines a custom ORDER BY) just comes straight through
             s << v
+            # Avoid "PG::InvalidColumnReference: ERROR: for SELECT DISTINCT, ORDER BY expressions must appear in select list" in Postgres
+            selects << v if is_distinct
           end
         end
         order!(*final_order_by)
