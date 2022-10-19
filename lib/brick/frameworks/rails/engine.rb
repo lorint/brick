@@ -130,15 +130,15 @@ module Brick
                                  next unless @_brick_model.instance_methods.include?(through) &&
                                              (associative = @_brick_model._br_associatives.fetch(hm.first, nil))
 
-                                 tbl_nm = if hm_assoc.options[:source]
-                                            associative.klass.reflect_on_association(hm_assoc.options[:source]).inverse_of&.name
+                                 tbl_nm = if (source = hm_assoc.source_reflection).macro == :belongs_to
+                                            hm_assoc.through_reflection&.name # for standard HMT, which is HM -> BT
                                           else
-                                            associative.name
+                                            source.inverse_of&.name # For HM -> HM style HMT
                                           end
                                  # If there is no inverse available for the source belongs_to association, make one based on the class name
                                  unless tbl_nm
                                    tbl_nm = associative.class_name.underscore
-                                   tbl_nm.slice!(0) if tbl_nm[0] == ('/')
+                                   tbl_nm.slice!(0) if tbl_nm[0] == '/'
                                    tbl_nm = tbl_nm.tr('/', '_').pluralize
                                  end
                                  "'#{tbl_nm}.#{associative.foreign_key}'"
@@ -1331,10 +1331,18 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
             prepend ::Brick::RouteSet
           end
           # Do the root route before the Rails Welcome one would otherwise take precedence
-          unless (route = ::Brick.config.default_route_fallback).blank? ||
-                 ::Rails.application.routes.named_routes.send(:routes)[:root]
-            ::Rails.application.routes.append do
-              send(:root, "#{route}#{'#index' unless route.index('#')}")
+          if (route = ::Brick.config.default_route_fallback).present?
+            action = "#{route}#{'#index' unless route.index('#')}"
+            if ::Brick.config.path_prefix
+              ::Rails.application.routes.append do
+                send(:namespace, ::Brick.config.path_prefix) do
+                  send(:root, action)
+                end
+              end
+            elsif ::Rails.application.routes.named_routes.send(:routes)[:root].nil?
+              ::Rails.application.routes.append do
+                send(:root, action)
+              end
             end
           end
         end

@@ -59,6 +59,10 @@ end
 
 module ActiveRecord
   class Base
+    def self.is_brick?
+      instance_variables.include?(:@_brick_built) && instance_variable_get(:@_brick_built)
+    end
+
     def self._assoc_names
       @_assoc_names ||= {}
     end
@@ -521,7 +525,7 @@ module ActiveRecord
         # CUSTOM COLUMNS
         # ==============
         klass._br_cust_cols.each do |k, cc|
-          if respond_to?(k) # Name already taken?
+          if rel_dupe.respond_to?(k) # Name already taken?
             # %%% Use ensure_unique here in this kind of fashion:
             # cnstr_name = ensure_unique(+"(brick) #{for_tbl}_#{pri_tbl}", bts, hms)
             # binding.pry
@@ -641,11 +645,13 @@ module ActiveRecord
                            [a.table_name, a.foreign_key, a.source_reflection.macro]
                          end
                          next if bail_out
+
                          # count_column is determined from the originating HMT member
                          if (src_ref = hm.source_reflection).nil?
                            puts "*** Warning:  Could not determine destination model for this HMT association in model #{klass.name}:\n  has_many :#{hm.name}, through: :#{hm.options[:through]}"
+                           puts
                            nix << k
-                           bail_out = true
+                           next
                          elsif src_ref.macro == :belongs_to # Traditional HMT using an associative table
                            "br_t#{idx}.#{hm.foreign_key}"
                          else # A HMT that goes HM -> HM, something like Categories -> Products -> LineItems
@@ -1138,6 +1144,7 @@ class Object
       end # class definition
       # Having this separate -- will this now work out better?
         built_model.class_exec do
+          @_brick_built = true
           hmts&.each do |hmt_fk, hms|
             hmt_fk = hmt_fk.tr('.', '_')
             hms.each do |hm|

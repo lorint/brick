@@ -113,15 +113,15 @@ if Gem::Specification.all_names.any? { |g| g.start_with?('rails-') }
   require 'brick/frameworks/rails'
 end
 module Brick
-  def self.sti_models
-    @sti_models ||= {}
-  end
-
-  def self.existing_stis
-    @existing_stis ||= Brick.config.sti_namespace_prefixes.each_with_object({}) { |snp, s| s[snp.first[2..-1]] = snp.last unless snp.first.end_with?('::') }
-  end
-
   class << self
+    def sti_models
+      @sti_models ||= {}
+    end
+
+    def existing_stis
+      @existing_stis ||= Brick.config.sti_namespace_prefixes.each_with_object({}) { |snp, s| s[snp.first[2..-1]] = snp.last unless snp.first.end_with?('::') }
+    end
+
     attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle, :is_eager_loading, :auto_models
 
     def set_db_schema(params = nil)
@@ -203,11 +203,9 @@ module Brick
       skip_hms = {}
       hms.each do |hmt|
         if (through = hmt.last.options[:through])
-          skip_hms[through] = nil # if hms[through]
-          # binding.pry if !hms[through]
+          # ::Brick.relations[hmt.last.through_reflection.table_name]
+          skip_hms[through] = nil if hms[through] && model.is_brick?
           # End up with a hash of HMT names pointing to join-table associations
-          # Last part was:  hmt.last.name
-          # Changed up because looking for:  hms[:issue_issue_duplicates]
           model._br_associatives[hmt.first] = hms[through] # || hms["#{(opt = hmt.last.options)[:through].to_s.singularize}_#{opt[:source].to_s.pluralize}".to_sym]
         elsif hmt.last.inverse_of.nil?
           puts "SKIPPING #{hmt.last.name.inspect}"
