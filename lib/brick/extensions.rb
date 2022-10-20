@@ -682,15 +682,15 @@ module ActiveRecord
                          pri_tbl.table_name
                        end
         on_clause = []
-        if fk_col.is_a?(Array) # Composite key?
-          fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl_name}.#{pri_tbl.primary_key[idx]}" }
-          selects = fk_col.dup
-        else
-          selects = [fk_col]
-          on_clause << "#{tbl_alias}.#{fk_col} = #{pri_tbl_name}.#{pri_tbl.primary_key}"
-        end
+        hm_selects = if fk_col.is_a?(Array) # Composite key?
+                       fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl_name}.#{pri_tbl.primary_key[idx]}" }
+                       fk_col.dup
+                     else
+                       on_clause << "#{tbl_alias}.#{fk_col} = #{pri_tbl_name}.#{pri_tbl.primary_key}"
+                       [fk_col]
+                     end
         if poly_type
-          selects << poly_type
+          hm_selects << poly_type
           on_clause << "#{tbl_alias}.#{poly_type} = '#{name}'"
         end
         unless from_clause
@@ -702,9 +702,9 @@ module ActiveRecord
                             hm.table_name
                           end
         end
-        group_bys = ::Brick.is_oracle || is_mssql ? selects : (1..selects.length).to_a
+        group_bys = ::Brick.is_oracle || is_mssql ? hm_selects : (1..hm_selects.length).to_a
         join_clause = "LEFT OUTER
-JOIN (SELECT #{selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}#{count_column
+JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}#{count_column
           }) AS c_t_ FROM #{from_clause || hm_table_name} GROUP BY #{group_bys.join(', ')}) #{tbl_alias}"
         joins!("#{join_clause} ON #{on_clause.join(' AND ')}")
       end
