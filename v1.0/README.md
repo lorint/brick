@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.82         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.83         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -260,7 +260,18 @@ To configure additional options, such as defining related columns that you want 
 
     bin/rails g brick:install
 
-Inside the generated file many options exist, and one of which is `Brick.additional_references` which defines additional foreign key associations, and even shows some suggested ones where possible.  By default these are commented out, and by un-commenting the ones you would like (or perhaps even all of them), then it is as if these foreign keys were present to provide referential integrity.  If you then start up a `rails c` you'll find that appropriate belongs_to and has_many associations are automatically fleshed out.  Even has_many :through associations are provided when possible associative tables are identified -- that is, tables having only foreign keys that refer to other tables.
+Inside the generated file many options exist, for instance if you wish to have a prefix for all auto-generated paths, you can
+un-comment the line:
+
+    ::Brick.path_prefix = 'admin'
+
+and it will affect all routes.  For instance, instead of http://localhost:3000/hr/job_histories, you would navigate to http://localhost:3000/admin/hr/job_histories, and so forth for all routes.  This kind of prefix is very useful when you drop **The Brick** into an existing project and want a full set of administration pages tucked away into their own namespace.  If you are placing this in an existing project then as well you might want to add the very intelligent **link_to_brick** form helper into the <body> portion of your `layouts/application.html.erb` file like this:
+
+    <%= link_to_brick %>
+
+and then on every page in your site which relates to a resource that can be shown with a Brick-created index or show page, an appropriate auto-calculated link will appear.  The link creation logic first examines the current controller name to see if a resource of the same name exists and can be surfaced by Brick, and if that fails then every instance variable is examined, looking for any which are of class ActiveRecord::Relation or ActiveRecord::Base.  For all of them an index or show link is created, and they all end up being shown, with spacing between them.
+
+Another useful entry that can be placed in `config/initializers/brick.rb` is `Brick.additional_references` which defines additional foreign key associations, and even shows some suggested ones where possible.  By default these are commented out, and by un-commenting the ones you would like (or perhaps even all of them), then it is as if these foreign keys were present to provide referential integrity.  If you then start up a `rails c` you'll find that appropriate belongs_to and has_many associations are automatically fleshed out.  Even has_many :through associations are provided when possible associative tables are identified -- that is, tables having only foreign keys that refer to other tables.
 
 ### 1.c. Displaying an ERD
 
