@@ -166,7 +166,13 @@ module Brick
                     hms_columns << hm_entry
                   when 'show', 'new', 'update'
                     hm_stuff << if hm_fk_name
-                                  "<%= link_to '#{assoc_name}', #{hm_assoc.klass._brick_index}_path({ #{path_keys(hm_assoc, hm_fk_name, "@#{obj_name}", pk)} }) %>\n"
+                                  if hm_assoc.klass.column_names.include?(hm_fk_name)
+                                    "<%= link_to '#{assoc_name}', #{hm_assoc.klass._brick_index}_path({ #{path_keys(hm_assoc, hm_fk_name, "@#{obj_name}", pk)} }) %>\n"
+                                  else
+                                    puts "Warning:  has_many :#{hm_assoc.name} in model #{hm_assoc.active_record.name} currently looks for a foreign key called \"#{hm_assoc.foreign_key}\".  "\
+                                         "Instead it should use the clause  \"foreign_key: :#{hm_assoc.inverse_of&.foreign_key}\"."
+                                    assoc_name
+                                  end
                                 else # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
                                   assoc_name
                                 end
