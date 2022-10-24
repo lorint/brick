@@ -547,7 +547,11 @@ In config/initializers/brick.rb appropriate entries would look something like:
   module RouteSet
     def finalize!
       unless ::Rails.application.routes.named_routes.route_defined?(:brick_status_path)
-        existing_controllers = routes.each_with_object({}) { |r, s| c = r.defaults[:controller]; s[c] = nil if c }
+        path_prefix = ::Brick.config.path_prefix
+        existing_controllers = routes.each_with_object({}) do |r, s|
+          c = r.defaults[:controller]
+          s[c] = nil if c
+        end
         ::Rails.application.routes.append do
           tables = []
           views = []
@@ -566,7 +570,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
 
           # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
           # If auto-controllers and auto-models are both enabled then this makes sense:
-          controller_prefix = (::Brick.config.path_prefix ? "#{::Brick.config.path_prefix}/" : '')
+          controller_prefix = (path_prefix ? "#{path_prefix}/" : '')
           ::Brick.relations.each do |k, v|
             unless !(controller_name = v.fetch(:resource, nil)&.pluralize) || existing_controllers.key?(controller_name)
               options = {}
@@ -581,9 +585,9 @@ In config/initializers/brick.rb appropriate entries would look something like:
                 send(:get, "#{::Brick.api_root}#{v[:resource]}", { to: "#{controller_prefix}#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
               end
               # Now the normal routes
-              if ::Brick.config.path_prefix
-                # Was:  send(:scope, path: ::Brick.config.path_prefix) do
-                send(:namespace, ::Brick.config.path_prefix) do
+              if path_prefix
+                # Was:  send(:scope, path: path_prefix) do
+                send(:namespace, path_prefix) do
                   brick_routes_create.call(schema_name, controller_name, v, options)
                 end
               else
