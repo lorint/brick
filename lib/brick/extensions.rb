@@ -860,7 +860,7 @@ if Object.const_defined?('ActionView')
                            pk = (klass.primary_key || ActiveRecord::Base.primary_key).to_sym
                            # Used to also have this but it's a bit too permissive to identify a primary key:  (path_params.length == 1 && path_params.values.first) ||
                            if ((id = (path_params[pk] || path_params[:id] || path_params["#{klass.name.underscore}_id".to_sym])) && (obj = klass.find_by(pk => id))) ||
-                              (['show', 'edit'].include?(action_name) && (obj = klass.first))
+                              (['show', 'edit', 'update', 'destroy'].include?(action_name) && (obj = klass.first))
                              obj
                            else
                              # %%% If there is a HMT that refers to some ___id then try to identify an appropriate filter
@@ -1633,7 +1633,11 @@ class Object
             code << "  end\n"
             self.define_method :destroy do
               ::Brick.set_db_schema(params)
-              instance_variable_set("@#{singular_table_name}".to_sym, find_obj.send(:destroy))
+              if (obj = find_obj).send(:destroy)
+                redirect_to send("#{model._brick_index}_path".to_sym)
+              else
+                redirect_to send("#{model._brick_index(:singular)}_path".to_sym, obj)
+              end
             end
           end
 

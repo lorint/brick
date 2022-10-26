@@ -181,10 +181,15 @@ module Brick
                 end
               end
 
-              schema_options = ::Brick.db_schemas.keys.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }.html_safe
+              apartment_default_schema = ::Brick.apartment_multitenant && Apartment.default_schema
+              schema_options = if ::Brick.apartment_multitenant &&
+                                  (cur_schema = Apartment::Tenant.current) != apartment_default_schema
+                                 "<option selected value=\"#{cur_schema}\">#{cur_schema}</option>"
+                               else
+                                 ::Brick.db_schemas.keys.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }
+                               end.html_safe
               # %%% If we are not auto-creating controllers (or routes) then omit by default, and if enabled anyway, such as in a development
               # environment or whatever, then get either the controllers or routes list instead
-              apartment_default_schema = ::Brick.apartment_multitenant && Apartment.default_schema
               prefix = "#{::Brick.config.path_prefix}/" if ::Brick.config.path_prefix
               table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).each_with_object({}) do |tbl, s|
                                 binding.pry if tbl.is_a?(Symbol)
@@ -329,6 +334,10 @@ a.big-arrow {
   color: red;
   white-space: nowrap;
 }
+.danger {
+  background-color: red;
+  color: white;
+}
 
 #revertTemplate {
   display: none;
@@ -446,7 +455,7 @@ var #{table_name}HtColumns;
 // This PageTransitionEvent fires when the page first loads, as well as after any other history
 // transition such as when using the browser's Back and Forward buttons.
 window.addEventListener(\"pageshow\", function() {
-  if (schemaSelect) { // First drop-down is only present if multitenant
+  if (schemaSelect && schemaSelect.options.length > 1) { // First drop-down is only present if multitenant
     brickSchema = changeout(location.href, \"_brick_schema\");
     if (brickSchema) {
       [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
@@ -1163,6 +1172,7 @@ end
 <%   end %>
 
 #{unless args.first == 'new'
+  confirm_are_you_sure = ActionView.version < ::Gem::Version.new('7.0') ? "data: { confirm: 'Are you sure?' }" : "form: { data: { turbo_confirm: 'Are you sure?' } }"
   hms_headers.each_with_object(+'') do |hm, s|
     # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
     next if hm.first.options[:through] && !hm.first.through_reflection
@@ -1185,7 +1195,8 @@ end
     else
       s
     end
-  end
+  end +
+  "<%= button_to(\"Delete #\{@#{obj_name}.brick_descrip}\", send(\"#\{#{model_name}._brick_index(:singular)}_path\".to_sym, @#{obj_name}), { method: 'delete', class: 'danger', #{confirm_are_you_sure} }) %>"
 end}
 <% end %>
 #{script}"
@@ -1193,7 +1204,7 @@ end}
                        end
               inline << "
 <% if is_includes_dates %>
-<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css\">
+<link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css\">
 <style>
 .flatpickr-calendar {
   background: #A0FFA0;
@@ -1205,6 +1216,11 @@ flatpickr(\".datepicker\");
 flatpickr(\".datetimepicker\", {enableTime: true});
 flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 </script>
+<% end %>
+
+<% if false # is_includes_dropdowns %>
+<script src=\"https://cdnjs.cloudflare.com/ajax/libs/slim-select/1.27.1/slimselect.min.js\"></script>
+<link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdnjs.cloudflare.com/ajax/libs/slim-select/1.27.1/slimselect.min.css\">
 <% end %>
 
 <% if true # @_brick_erd
