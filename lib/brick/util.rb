@@ -84,6 +84,7 @@ module Brick
 
     def self._custom_require_dir
       unless (custom_require_dir = ::Brick::Util.instance_variable_get(:@_custom_require_dir))
+        require 'tmpdir'
         ::Brick::Util.instance_variable_set(:@_custom_require_dir, (custom_require_dir = Dir.mktmpdir))
         # So normal Ruby require will now pick this one up
         $LOAD_PATH.unshift(custom_require_dir)

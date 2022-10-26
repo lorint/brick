@@ -766,7 +766,7 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
 
       alias _brick_find_sti_class find_sti_class
       def find_sti_class(type_name)
-        if ::Brick.sti_models.key?(type_name)
+        if ::Brick.sti_models.key?(type_name ||= name)
           _brick_find_sti_class(type_name)
         else
           # This auto-STI is more of a brute-force approach, building modules where needed
@@ -1732,7 +1732,11 @@ end
 # Get info on all relations during first database connection
 # ==========================================================
 
-module ActiveRecord::ConnectionHandling
+if ActiveRecord.const_defined?('ConnectionHandling')
+  ActiveRecord::ConnectionHandling
+else
+  ActiveRecord::ConnectionAdapters::ConnectionHandler
+end.class_exec do
   alias _brick_establish_connection establish_connection
   def establish_connection(*args)
     conn = _brick_establish_connection(*args)
@@ -1866,7 +1870,7 @@ module ActiveRecord::ConnectionHandling
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'SQLite' # These bring back a hash for each row because the query uses column aliases
         # schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-        ActiveRecord::Base.retrieve_schema_and_tables(sql, is_postgres, is_mssql, schema).each do |r|
+        retrieve_schema_and_tables(sql, is_postgres, is_mssql, schema).each do |r|
           # If Apartment gem lists the table as being associated with a non-tenanted model then use whatever it thinks
           # is the default schema, usually 'public'.
           schema_name = if ::Brick.config.schema_behavior[:multitenant]
@@ -1915,7 +1919,7 @@ WHERE c.owner IN (#{::Brick.db_schemas.keys.map { |s| "'#{s}'" }.join(', ')})
 ORDER BY 1, 2, c.internal_column_id, acc.position"
                               ActiveRecord::Base.execute_sql(sql, *ar_tables)
                             else
-                              ActiveRecord::Base.retrieve_schema_and_tables(sql)
+                              retrieve_schema_and_tables(sql)
                             end
 
         schema_and_tables.each do |r|
@@ -2113,7 +2117,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
               else
                 'schema_migrations'
               end
-    ar_imtn = ActiveRecord.version >= ::Gem::Version.new('5.0') ? ActiveRecord::Base.internal_metadata_table_name : ''
+    ar_imtn = ActiveRecord.version >= ::Gem::Version.new('5.0') ? ActiveRecord::Base.internal_metadata_table_name : 'ar_internal_metadata'
     [ar_smtn, ar_imtn]
   end
 

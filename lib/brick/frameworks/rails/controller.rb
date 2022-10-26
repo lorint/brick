@@ -8,10 +8,16 @@ module Brick
     # `brick_enabled_for_controller`.
     module Controller
       def self.included(controller)
-        controller.before_action(
-          :set_brick_enabled_for_controller,
-          :set_brick_controller_info
-        )
+        if controller.respond_to?(:before_action)
+          controller.before_action(
+            :set_brick_enabled_for_controller,
+            :set_brick_controller_info
+          )
+        else
+          controller.before_filter(
+            :set_brick_enabled_for_controller,
+            :set_brick_controller_info
+          )
       end
 
     protected

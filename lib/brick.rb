@@ -26,27 +26,38 @@ end
 require 'brick/util'
 
 # Allow ActiveRecord < 3.2 to work with Ruby 2.7 and later
-if (ruby_version = ::Gem::Version.new(RUBY_VERSION)) >= ::Gem::Version.new('2.7') &&
-   ActiveRecord.version < ::Gem::Version.new('3.2')
-  # Remove circular reference for "now"
-  ::Brick::Util._patch_require(
-    'active_support/values/time_zone.rb', '/activesupport',
-    ['  def parse(str, now=now)',
-     '  def parse(str, now=now())']
-  )
-  # Remove circular reference for "reflection" for ActiveRecord 3.1
-  if ActiveRecord.version >= ::Gem::Version.new('3.1')
+if (ruby_version = ::Gem::Version.new(RUBY_VERSION)) >= ::Gem::Version.new('2.7')
+  if ActiveRecord.version < ::Gem::Version.new('3.2')
+    # Remove circular reference for "now"
     ::Brick::Util._patch_require(
-      'active_record/associations/has_many_association.rb', '/activerecord',
-      ['reflection = reflection)',
-       'reflection = reflection())'],
-      :HasManyAssociation # Make sure the path for this guy is available to be autoloaded
+      'active_support/values/time_zone.rb', '/activesupport',
+      ['  def parse(str, now=now)',
+      '  def parse(str, now=now())']
     )
+    # Remove circular reference for "reflection" for ActiveRecord 3.1
+    if ActiveRecord.version >= ::Gem::Version.new('3.1')
+      ::Brick::Util._patch_require(
+        'active_record/associations/has_many_association.rb', '/activerecord',
+        ['reflection = reflection)',
+        'reflection = reflection())'],
+        :HasManyAssociation # Make sure the path for this guy is available to be autoloaded
+      )
+    end
   end
+
+  # # Create unfrozen route path in Rails 3.2
+  # if ActiveRecord.version < ::Gem::Version.new('4')
+  #   ::Brick::Util._patch_require(
+  #     'action_dispatch/routing/route_set.rb', '/actiondispatch',
+  #     ["script_name.chomp('/')).to_s",
+  #      "script_name.chomp('/')).to_s.dup"],
+  #     :RouteSet # Make sure the path for this guy is available to be autoloaded
+  #   )
+  # end
 end
 
 # Add left_outer_join! to Associations::JoinDependency and Relation::QueryMethods
-if ActiveRecord.version < ::Gem::Version.new('5')
+if ActiveRecord.version >= ::Gem::Version.new('4') && ActiveRecord.version < ::Gem::Version.new('5')
   ::Brick::Util._patch_require(
     'active_record/associations/join_dependency.rb', '/activerecord', # /associations
       ["def join_constraints(outer_joins)
