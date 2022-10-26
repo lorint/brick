@@ -816,6 +816,8 @@ end
 if Object.const_defined?('ActionView')
   module ActionView::Helpers::FormTagHelper
     def link_to_brick(*args, **kwargs)
+      return unless ::Brick.config.mode == :on
+
       text = (args.first.is_a?(String) && args.first) || args[1]
       klass_or_obj = ((args.first.is_a?(ActiveRecord::Relation) ||
                        args.first.is_a?(ActiveRecord::Base) ||
@@ -1744,6 +1746,8 @@ end.class_exec do
   alias _brick_establish_connection establish_connection
   def establish_connection(*args)
     conn = _brick_establish_connection(*args)
+    return conn unless ::Brick.config.mode == :on
+
     begin
       # Overwrite SQLite's #begin_db_transaction so it opens in IMMEDIATE mode instead of
       # the default DEFERRED mode.

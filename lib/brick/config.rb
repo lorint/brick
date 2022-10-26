@@ -20,6 +20,23 @@ module Brick
       @serializer = Brick::Serializers::YAML
     end
 
+    def mode
+      @mutex.synchronize do
+        case @brick_mode
+        when nil, :development
+          (::Rails.env == 'development' || ENV.key?('BRICK')) ? :on : nil
+        when :diag_env
+          ENV.key?('BRICK') ? :on : nil
+        else
+          @brick_mode
+        end
+      end
+    end
+
+    def mode=(setting)
+      @mutex.synchronize { @brick_mode = setting unless @brick_mode == :on }
+    end
+
     # Any path prefixing to apply to all auto-generated Brick routes
     def path_prefix
       @mutex.synchronize { @path_prefix }
@@ -31,7 +48,8 @@ module Brick
 
     # Indicates whether Brick models are on or off. Default: true.
     def enable_models
-      @mutex.synchronize { !!@enable_models }
+      brick_mode = mode
+      @mutex.synchronize { brick_mode == :on && (@enable_models.nil? || @enable_models) }
     end
 
     def enable_models=(enable)
@@ -40,7 +58,8 @@ module Brick
 
     # Indicates whether Brick controllers are on or off. Default: true.
     def enable_controllers
-      @mutex.synchronize { !!@enable_controllers }
+      brick_mode = mode
+      @mutex.synchronize { brick_mode == :on && (@enable_controllers.nil? || @enable_controllers) }
     end
 
     def enable_controllers=(enable)
@@ -49,7 +68,8 @@ module Brick
 
     # Indicates whether Brick views are on or off. Default: true.
     def enable_views
-      @mutex.synchronize { !!@enable_views }
+      brick_mode = mode
+      @mutex.synchronize { brick_mode == :on && (@enable_views.nil? || @enable_views) }
     end
 
     def enable_views=(enable)
@@ -58,7 +78,8 @@ module Brick
 
     # Indicates whether Brick routes are on or off. Default: true.
     def enable_routes
-      @mutex.synchronize { !!@enable_routes }
+      brick_mode = mode
+      @mutex.synchronize { brick_mode == :on && (@enable_routes.nil? || @enable_routes) }
     end
 
     def enable_routes=(enable)

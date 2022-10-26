@@ -237,6 +237,11 @@ module Brick
       true
     end
 
+    # @api public
+    def mode=(setting)
+      Brick.config.mode = setting
+    end
+
     # Any path prefixing to apply to all auto-generated Brick routes
     # @api public
     def path_prefix=(path)
@@ -444,7 +449,7 @@ module Brick
     # This is attempted early if a brick initialiser file is found, and then again as a failsafe at the end of our engine's initialisation
     # %%% Maybe look for differences the second time 'round and just add new stuff instead of entirely deferring
     def load_additional_references
-      return if @_additional_references_loaded
+      return if @_additional_references_loaded || ::Brick.config.mode != :on
 
       relations = ::Brick.relations
       if (ars = ::Brick.config.additional_references) || ::Brick.config.polymorphics

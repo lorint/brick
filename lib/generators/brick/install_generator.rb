@@ -136,10 +136,16 @@ module Brick
 
       create_file(filename, "# frozen_string_literal: true
 
-# # Settings for the Brick gem
-# # (By default this auto-creates models, controllers, views, and routes on-the-fly.)
+# Settings for the Brick gem
+# (By default this auto-creates models, controllers, views, and routes on-the-fly.)
 
 if Object.const_defined?('Brick')
+  # Mode -- generally :on or :off, or only in :development.  Also available is :diag_env which enables only
+  # when the environment variable BRICK is set.
+  Brick.mode = :development
+  # Can be further overridden by placing this line in development.rb / test.rb / production.rb:
+  # # Brick.mode = :on # (or :off to entirely disable)
+
   # # Custom path prefix to apply to all auto-generated Brick routes.  Also causes auto-generated controllers
   # # to be created inside a module with the same name.
   # ::Brick.path_prefix = 'admin'
