@@ -137,7 +137,7 @@ module Brick
 
     def set_db_schema(params = nil)
       schema = (params ? params['_brick_schema'] : ::Brick.default_schema)
-      if schema && ::Brick.db_schemas&.key?(schema)
+      chosen = if schema && ::Brick.db_schemas&.key?(schema)
         ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema)
         schema
       elsif ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
@@ -146,6 +146,7 @@ module Brick
         # ::Brick.apartment_multitenant && tbl_parts.first == Apartment.default_schema
         (orig_schema - ['pg_catalog']).first
       end
+      chosen == ::Brick.default_schema ? nil : chosen
     end
 
     # All tables and views (what Postgres calls "relations" including column and foreign key info)

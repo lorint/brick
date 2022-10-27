@@ -2039,6 +2039,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       end
       ::Brick.is_oracle = true if ActiveRecord::Base.connection.adapter_name == 'OracleEnhanced'
       # ::Brick.default_schema ||= schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+      ::Brick.default_schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       fk_references&.each do |fk|
         fk = fk.values unless fk.is_a?(Array)
         # Multitenancy makes things a little more general overall, except for non-tenanted tables
