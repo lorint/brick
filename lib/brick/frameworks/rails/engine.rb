@@ -103,12 +103,18 @@ module Brick
               unless (model_name = @_brick_model&.name) ||
                      (is_status = ::Brick.config.add_status && args[0..1] == ['status', ['brick_gem']]) ||
                      (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']])
-                if (possible_template = _brick_find_template(*args, **options))
+                if ActionView.version < ::Gem::Version.new('5.0') # %%% Not sure if this should be perhaps 4.2 instead
+                  begin
+                    if (possible_template = _brick_find_template(*args, **options))
+                      return possible_template
+                    end
+                  rescue
+                  end
+                elsif (possible_template = _brick_find_template(*args, **options))
                   return possible_template
-                else
-                  # Used to also have:  ActionView.version < ::Gem::Version.new('5.0') &&
-                  model_name = (args[1].is_a?(Array) ? set_brick_model(args) : nil)&.name
                 end
+                # Used to also have:  ActionView.version < ::Gem::Version.new('5.0') &&
+                model_name = (args[1].is_a?(Array) ? set_brick_model(args) : nil)&.name
               end
 
               if @_brick_model
@@ -154,7 +160,7 @@ module Brick
                                                  'nil'
                                                else
                                                  # Postgres column names are limited to 63 characters
-                                                 "#{obj_name}.#{"b_r_#{assoc_name}_ct"[0..62]} || 0"
+                                                 "#{obj_name}.#{"b_r_#{assoc_name}_ct"[0..62]}&.to_i || 0"
                                                end
                                      ", #{set_ct}, #{path_keys(hm_assoc, hm_fk_name, obj_name, pk)}"
                                    end
@@ -919,12 +925,19 @@ erDiagram
              %><%= link_to(\"#\{bt_class} ##\{poly_id}\", send(\"#\{base_class_underscored}_path\".to_sym, poly_id)) if poly_id %><%
            else
              # binding.pry if @_brick_bt_descrip[bt.first][bt[1].first.first].nil?
-             bt_txt = (bt_class = bt[1].first.first).brick_descrip(
+             bt_class = bt[1].first.first
+             descrips = @_brick_bt_descrip[bt.first][bt_class]
+             bt_id_col = if descrips.length == 1
+                           [#{obj_name}.class.reflect_on_association(bt.first)&.foreign_key]
+                         else
+                           descrips.last
+                         end
+             bt_txt = bt_class.brick_descrip(
                # 0..62 because Postgres column names are limited to 63 characters
-               #{obj_name}, (descrips = @_brick_bt_descrip[bt.first][bt_class])[0..-2].map { |id| #{obj_name}.send(id.last[0..62]) }, (bt_id_col = descrips.last)
+               #{obj_name}, descrips[0..-2].map { |id| #{obj_name}.send(id.last[0..62]) }, bt_id_col
              )
              bt_txt ||= \"<span class=\\\"orphan\\\">&lt;&lt; Orphaned ID: #\{val} >></span>\".html_safe if val
-             bt_id = bt_id_col.map { |id_col| #{obj_name}.send(id_col.to_sym) } %>
+             bt_id = bt_id_col&.map { |id_col| #{obj_name}.respond_to?(id_sym = id_col.to_sym) ? #{obj_name}.send(id_sym) : id_col } %>
           <%= bt_id&.first ? link_to(bt_txt, send(\"#\{bt_class.base_class._brick_index(:singular)}_path\".to_sym, bt_id)) : bt_txt %>
         <% end
          elsif (hms_col = hms_cols[col_name])
@@ -1183,7 +1196,7 @@ end
       s << "<table id=\"#{hm_name}\" class=\"shadow\">
         <tr><th>#{hm[3]}</th></tr>
         <% collection = @#{obj_name}.#{hm_name}
-        collection = collection.is_a?(ActiveRecord::Associations::CollectionProxy) ? collection.order(#{pk.inspect}) : [collection].compact
+        collection = collection.is_a?(ActiveRecord::Associations::CollectionProxy) ? collection.order(#{pk.inspect}) : collection.to_a.compact
         if collection.empty? %>
           <tr><td>(none)</td></tr>
         <% else %>

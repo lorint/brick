@@ -239,7 +239,7 @@ module ActiveRecord
         pk_alias = [pk_alias] unless pk_alias.is_a?(Array)
         id = []
         pk_alias.each do |pk_alias_part|
-          if (pk_part = obj.send(pk_alias_part))
+          if (pk_part = obj.respond_to?(pk_alias_part) ? obj.send(pk_alias_part) : nil)
             id << pk_part
           end
         end
@@ -608,7 +608,11 @@ module ActiveRecord
           # %%% Need to support {user: :profile}
           next unless assoc_name.is_a?(Symbol)
 
-          table_alias = shift_or_first(chains[klass = reflect_on_association(assoc_name)&.klass])
+          table_alias = if (chain = chains[klass = reflect_on_association(assoc_name)&.klass])
+                          shift_or_first(chain)
+                        else
+                          klass.table_name # ActiveRecord < 4.2 can't (yet) use the cool chains thing
+                        end
           _assoc_names[assoc_name] = [table_alias, klass]
         end
       end
@@ -706,7 +710,7 @@ module ActiveRecord
         join_clause = "LEFT OUTER
 JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}#{count_column
           }) AS c_t_ FROM #{from_clause || hm_table_name} GROUP BY #{group_bys.join(', ')}) #{tbl_alias}"
-        joins!("#{join_clause} ON #{on_clause.join(' AND ')}")
+        self.joins_values |= ["#{join_clause} ON #{on_clause.join(' AND ')}"] # Same as:  joins!(...)
       end
       while (n = nix.pop)
         klass._br_hm_counts.delete(n)
@@ -723,7 +727,11 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
             s["#{tbl_name}.#{v_parts.last}"] = v.last
           end
         end
-        where!(wheres2)
+        if respond_to?(:where!)
+          where!(wheres2)
+        else # AR < 4.0
+          self.where_values << build_where(wheres2)
+        end
       end
       # Must parse the order_by and see if there are any symbols which refer to BT associations
       # or custom columns as they must be expanded to find the corresponding b_r_model__column
@@ -747,9 +755,10 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
             selects << v if is_distinct
           end
         end
-        order!(*final_order_by)
+        self.order_values |= final_order_by # Same as:  order!(*final_order_by)
       end
-      limit!(1000) # Don't want to get too carried away just yet
+      # Don't want to get too carried away just yet
+      self.limit_value = 1000 # Same as:  limit!(1000)
       wheres unless wheres.empty? # Return the specific parameters that we did use
     end
 
@@ -1509,9 +1518,10 @@ class Object
           ordering = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
           order_by, _ = model._brick_calculate_ordering(ordering, true) # Don't do the txt part
 
-          @_brick_params = (ar_relation = model.all).brick_select(params, (selects = []), order_by,
-                                                                  translations = {},
-                                                                  join_array = ::Brick::JoinArray.new)
+          ar_relation = ActiveRecord.version < Gem::Version.new('4') ? model.preload : model.all
+          @_brick_params = ar_relation.brick_select(params, (selects = []), order_by,
+                                                             translations = {},
+                                                             join_array = ::Brick::JoinArray.new)
           # %%% Add custom HM count columns
           # %%% What happens when the PK is composite?
           counts = model._br_hm_counts.each_with_object([]) do |v, s|
@@ -1523,7 +1533,8 @@ class Object
                    "b_r_#{v.first}.c_t_ AS \"b_r_#{v.first}_ct\""
                  end
           end
-          instance_variable_set("@#{table_name.pluralize}".to_sym, ar_relation.dup._select!(*selects, *counts))
+          ar_select = ar_relation.respond_to?(:_select!) ? ar_relation.dup._select!(*selects, *counts) : ar_relation.select(selects + counts)
+          instance_variable_set("@#{table_name.pluralize}".to_sym, ar_select)
           if namespace && (idx = lookup_context.prefixes.index(table_name))
             lookup_context.prefixes[idx] = "#{namespace.name.underscore}/#{lookup_context.prefixes[idx]}"
           end

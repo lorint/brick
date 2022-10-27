@@ -2,7 +2,7 @@ PATH
   remote: ..
   specs:
     brick (1.0.85)
-      activerecord (>= 3.1)
+      activerecord (>= 3.0)
       fancy_gets
 
 GEM

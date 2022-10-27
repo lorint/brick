@@ -10,12 +10,27 @@ unless ActiveRecord.respond_to?(:version)
   end
 end
 
-require 'action_view'
-# Older ActionView didn't have #version
-unless ActionView.respond_to?(:version)
-  module ActionView
+# ActiveSupport, ActionPack, and ActionView before 4.0 didn't have #version
+unless ActiveSupport.respond_to?(:version)
+  module ActiveSupport
     def self.version
-      ActionPack.version
+      ::Gem::Version.new(ActiveSupport::VERSION::STRING)
+    end
+  end
+end
+if Object.const_defined?('ActionPack')
+  unless ActionPack.respond_to?(:version)
+    module ActionPack
+      def self.version
+        ::Gem::Version.new(ActionPack::VERSION::STRING)
+      end
+    end
+  end
+  if Object.const_defined?('ActionView') && !ActionView.respond_to?(:version)
+    module ActionView
+      def self.version
+        ActionPack.version
+      end
     end
   end
 end

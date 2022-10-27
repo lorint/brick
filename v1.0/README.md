@@ -132,22 +132,22 @@ avaiable therein.
 | unreleased     | master     |        | >= 2.3.5 | >= 4.2, < 7.2 |
 | 1.0            | 1-stable   | v1.x   | >= 2.3.5 | >= 4.2, < 7.2 |
 
-Brick supports all Rails versions which have been current during the past 8 years, which at
-the time of writing (October 2022) includes Rails 4.2.0 and above.  Rails 7.0 and 7.1 are the
-versions which have been tested most extensively.
+Brick will work with Rails 3.x and onwards, and Rails 4.2.0 and above are officially supported.
+Rails 5.2.6, 7.0, and 7.1 are the versions which have been tested most extensively.
 
 When used with really old versions of Rails, 4.x and older, Brick automatically applies various
-compatibility patches so it will run under newer versions of Ruby.  This makes it easier to
-test the broad range of supported versions of ActiveRecord without having to also use older
-versions of Ruby.  If you're using Ruby 2.7.5 then any Rails from 4.2 up to 7.1 will work, all
-due to the various patches put in place as the gem starts up.  Rails 4.x has not been tested
-very extensively, and as well when using those older versions then you MUST have this to be the
-last line in boot.rb:
+compatibility patches so it will run under much newer versions of Ruby than would normally be
+allowed.  This makes it easier to test the broad range of supported versions of ActiveRecord
+without the headaches of having to use older versions of Ruby.  If you're using Ruby 2.7.5 then
+any Rails from 4.2 up to 7.1 will work, all due to these various patches put in place as the gem
+starts up.  If you get string frozen errors with older versions then move back to using Ruby
+2.6.10, and if you get the error "undefined method 'new' for BigDecimal:Class (NoMethodError)"
+then try adding this as the last line in boot.rb:
 
     require 'brick/compatibility'
 
-(Definitely try this patch any time you see the error "undefined method `new' for
-BigDecimal:Class (NoMethodError)".)
+These patches not only allow Brick to run, but also will allow many other full Rails apps to run
+perfectly fine (and more securely / much faster) by using a newer Ruby.
 
 The Brick notices when some other gems are present and makes use of them -- most notably
 **[composite_primary_keys](https://github.com/composite-primary-keys/composite_primary_keys)** which allows very tricky databases to function.
@@ -382,11 +382,7 @@ After successful file generation, the `schema_migrations` table is updated to ha
 If you see an error such as this (note the square brackets around the multiple listed keys specialofferid and productid represented):
 
     PG::UndefinedColumn: ERROR:  column salesorderdetail.["specialofferid", "productid"] does not exist
-LINE 1: ... "sales"."specialofferproduct"."specialofferid" = "sales"."s...
-
-which has been reproduced here by setting up the [Adventureworks database for Postgres](https://github.com/lorint/AdventureWorks-for-Postgres), adding The Brick gem, and then navigating to:
-
-**[http://localhost:3000/sales/salesorderdetails](http://localhost:3000/sales/salesorderdetails)**
+    LINE 1: ... "sales"."specialofferproduct"."specialofferid" = "sales"."s...
 
 then you probably have a table that uses composite keys.  Thankfully The Brick can make use of
 the incredibly popular [composite_primary_keys gem](https://github.com/composite-primary-keys/composite_primary_keys), so just add that to your Gemfile as such:

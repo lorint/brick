@@ -218,7 +218,7 @@ module Brick
           skip_hms[through] = nil if hms[through] && model.is_brick?
           # End up with a hash of HMT names pointing to join-table associations
           model._br_associatives[hmt.first] = hms[through] # || hms["#{(opt = hmt.last.options)[:through].to_s.singularize}_#{opt[:source].to_s.pluralize}".to_sym]
-        elsif hmt.last.inverse_of.nil?
+        elsif hmt.last.inverse_of.nil? && ActiveRecord.version >= ::Gem::Version.new('4.2')
           puts "SKIPPING #{hmt.last.name.inspect}"
           # %%% If we don't do this then below associative.name will find that associative is nil
           skip_hms[hmt.last.name] = nil
@@ -540,7 +540,11 @@ In config/initializers/brick.rb appropriate entries would look something like:
       ::Brick.is_eager_loading = true
       if ::ActiveSupport.version < ::Gem::Version.new('6') ||
          ::Rails.configuration.instance_variable_get(:@autoloader) == :classic
-        ::Rails.configuration.eager_load_namespaces.select { |ns| ns < ::Rails::Application }.each(&:eager_load!)
+        if ::ActiveSupport.version < ::Gem::Version.new('4')
+          ::Rails.application.eager_load!
+        else
+          ::Rails.configuration.eager_load_namespaces.select { |ns| ns < ::Rails::Application }.each(&:eager_load!)
+        end
       else
         Zeitwerk::Loader.eager_load_all
       end
@@ -562,7 +566,8 @@ In config/initializers/brick.rb appropriate entries would look something like:
 
   module RouteSet
     def finalize!
-      unless ::Rails.application.routes.named_routes.route_defined?(:brick_status_path)
+      # %%% Was: ::Rails.application.routes.named_routes.route_defined?(:brick_status_path)
+      unless ::Rails.application.routes.named_routes.names.include?(:brick_status)
         path_prefix = ::Brick.config.path_prefix
         existing_controllers = routes.each_with_object({}) do |r, s|
           c = r.defaults[:controller]
@@ -837,11 +842,19 @@ ActiveSupport.on_load(:active_record) do
         end
       end
 
-      # This only gets added for ActiveRecord < 3.2
       module Reflection
+        # This only gets added for ActiveRecord < 3.2
         unless AssociationReflection.instance_methods.include?(:foreign_key)
           class AssociationReflection < MacroReflection
             alias foreign_key association_foreign_key
+          end
+        end
+        # And this for ActiveRecord < 4.0
+        unless AssociationReflection.instance_methods.include?(:polymorphic?)
+          class AssociationReflection < MacroReflection
+            def polymorphic?
+              options[:polymorphic]
+            end
           end
         end
       end
@@ -1022,6 +1035,7 @@ ActiveSupport.on_load(:active_record) do
         delegate :left_outer_joins, to: :all
       end
       class Relation
+        alias :model :klass unless respond_to?(:model) # To support AR < 4.2
         unless MULTI_VALUE_METHODS.include?(:left_outer_joins)
           _multi_value_methods = MULTI_VALUE_METHODS + [:left_outer_joins]
           send(:remove_const, :MULTI_VALUE_METHODS)
