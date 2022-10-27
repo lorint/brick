@@ -1,7 +1,7 @@
 PATH
   remote: ..
   specs:
-    brick (1.0.85)
+    brick (1.0.86)
       activerecord (>= 3.0)
       fancy_gets
 

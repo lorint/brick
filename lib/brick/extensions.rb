@@ -944,8 +944,13 @@ if ActiveSupport::Dependencies.respond_to?(:autoload_module!) # %%% Only works w
           autoloaded_constants << qualified_name unless autoloaded_constants.include?(qualified_name)
           klass
         elsif (base_class = ::Brick.config.sti_namespace_prefixes&.fetch("::#{const_name}", nil)&.constantize)
-          # Build subclass and place it into Object
-          Object.const_set(const_name.to_sym, klass = Class.new(base_class))
+          begin
+            # Attempt to find an existing implementation for this subclass
+            base_class.module_parent.const_get(const_name)
+          rescue
+            # Build subclass and place it in the same module as its parent
+            base_class.module_parent.const_set(const_name.to_sym, klass = Class.new(base_class))
+          end
         else
           _brick_autoload_module!(*args)
         end
