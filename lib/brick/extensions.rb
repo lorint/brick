@@ -211,7 +211,14 @@ module ActiveRecord
                         this_obj = obj
                         bracket_name.split('.').each do |part|
                           obj_name += ".#{part}"
-                          this_obj = caches.fetch(obj_name) { caches[obj_name] = this_obj&.send(part.to_sym) }
+                          this_obj = begin
+                                       caches.fetch(obj_name) { caches[obj_name] = this_obj&.send(part.to_sym) }
+                                     rescue
+                                       clsnm = part.camelize
+                                       if (possible = this_obj.class.reflect_on_all_associations.select { |a| a.class_name == clsnm || a.klass.base_class.name == clsnm }.first)
+                                         caches[obj_name] = this_obj&.send(possible.name)
+                                       end
+                                     end
                           break if this_obj.nil?
                         end
                         if this_obj.is_a?(ActiveRecord::Base) && (obj_descrip = this_obj.class.brick_descrip(this_obj))
@@ -1797,6 +1804,8 @@ end.class_exec do
   # This is done separately so that during testing it can be called right after a migration
   # in order to make sure everything is good.
   def _brick_reflect_tables
+    return unless ::Brick.config.mode == :on
+
     # return if ActiveRecord::Base.connection.current_database == 'postgres'
 
     initializer_loaded = false
@@ -1870,8 +1879,9 @@ end.class_exec do
       ::Brick.db_schemas ||= {}
 
       if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-        if (possible_schema = ::Brick.config.schema_behavior&.[](:multitenant)&.[](:schema_to_analyse))
-          if ::Brick.db_schemas.key?(possible_schema)
+        if (possible_schemas = ::Brick.config.schema_behavior&.[](:multitenant)&.[](:schema_to_analyse))
+          possible_schemas = [possible_schemas] unless possible_schemas.is_a?(Array)
+          if (possible_schema = possible_schemas.find { |ps| ::Brick.db_schemas.key?(ps) })
             ::Brick.default_schema = schema = possible_schema
             orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
             ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
@@ -1881,7 +1891,7 @@ end.class_exec do
             orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
             ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
           else
-            puts "*** In the brick.rb initializer the line \"::Brick.schema_behavior = ...\" refers to a schema called \"#{possible_schema}\".  This schema does not exist. ***"
+            puts "*** In the brick.rb initializer the line \"::Brick.schema_behavior = ...\" refers to schema(s) called #{possible_schemas.map { |s| "\"#{s}\"" }.join(', ')}.  No mentioned schema exists. ***"
           end
         end
       end
