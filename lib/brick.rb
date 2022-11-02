@@ -563,6 +563,41 @@ In config/initializers/brick.rb appropriate entries would look something like:
       end
       puts "\n"
     end
+
+    # Attempt to determine an ActiveRecord::Base class and additional STI information when given a controller's path
+    def ctrl_to_klass(ctrl_path, res_names = {})
+      klass = nil
+      sti_type = nil
+
+      if res_names.empty?
+        ::Brick.relations.each_with_object({}) do |v, s|
+          v_parts = v.first.split('.')
+          v_parts.shift if v_parts.first == 'public'
+          res_names[v_parts.join('.')] = v.first
+        end
+      end
+
+      c_path_parts = ctrl_path.split('/')
+      while c_path_parts.present?
+        possible_c_path = c_path_parts.join('.')
+        possible_c_path_singular = c_path_parts[0..-2] + [c_path_parts.last.singularize]
+        possible_sti = possible_c_path_singular.join('/').camelize
+        break if (
+                   res_name = res_names[possible_c_path] ||
+                              ((klass = Brick.config.sti_namespace_prefixes.key?("::#{possible_sti}") && possible_sti.constantize) &&
+                               (sti_type = possible_sti)) ||
+                              # %%% Used to have the more flexible:  (DidYouMean::SpellChecker.new(dictionary: res_names.keys).correct(possible_c_path)).first
+                              res_names[possible_c_path] || res_names[possible_c_path_singular.join('.')]
+                 ) &&
+                 (
+                   klass ||
+                   ((rel = ::Brick.relations.fetch(res_name, nil)) &&
+                   (klass ||= rel[:class_name]&.constantize))
+                 )
+        c_path_parts.shift
+      end
+      [klass, sti_type]
+    end
   end
 
   module RouteSet

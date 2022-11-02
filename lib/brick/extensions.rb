@@ -841,34 +841,9 @@ if Object.const_defined?('ActionView')
                       args.first) ||
                      @_brick_model
       # If not provided, do a best-effort to automatically determine the resource class or object
-      sti_type = nil
       filter_parts = []
       klass_or_obj ||= begin
-                         res_names = ::Brick.relations.each_with_object({}) do |v, s|
-                           v_parts = v.first.split('.')
-                           v_parts.shift if v_parts.first == 'public'
-                           s[v_parts.join('.')] = v.first
-                         end
-                         c_path_parts = controller_path.split('/')
-                         klass = nil
-                         while c_path_parts.present?
-                           possible_c_path = c_path_parts.join('.')
-                           possible_c_path_singular = c_path_parts[0..-2] + [c_path_parts.last.singularize]
-                           possible_sti = possible_c_path_singular.join('/').camelize
-                           break if (
-                                      res_name = res_names[possible_c_path] ||
-                                                 ((klass = Brick.config.sti_namespace_prefixes.key?("::#{possible_sti}") && possible_sti.constantize) &&
-                                                  (sti_type = possible_sti)) ||
-                                                 # %%% Used to have the more flexible:  (DidYouMean::SpellChecker.new(dictionary: res_names.keys).correct(possible_c_path)).first
-                                                 res_names[possible_c_path] || res_names[possible_c_path_singular.join('.')]
-                                    ) &&
-                                    (
-                                      klass ||
-                                      ((rel = ::Brick.relations.fetch(res_name, nil)) &&
-                                      (klass ||= rel[:class_name]&.constantize))
-                                    )
-                           c_path_parts.shift
-                         end
+                         klass, sti_type = ::Brick.ctrl_to_klass(controller_path)
                          if klass
                            type_col = klass.inheritance_column # Usually 'type'
                            filter_parts << "#{type_col}=#{sti_type}" if sti_type && klass.column_names.include?(type_col)

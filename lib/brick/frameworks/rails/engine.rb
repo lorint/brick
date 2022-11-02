@@ -1250,7 +1250,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
     if (mermaidCode) return; // Cut it short if we've already rendered the diagram
 
     mermaidCode = document.createElement(\"SCRIPT\");
-    mermaidCode.setAttribute(\"src\", \"https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js\");
+    mermaidCode.setAttribute(\"src\", \"https://cdn.jsdelivr.net/npm/mermaid@9.1.7/dist/mermaid.min.js\");
     mermaidCode.addEventListener(\"load\", function () {
       mermaid.initialize({
         startOnLoad: true,
