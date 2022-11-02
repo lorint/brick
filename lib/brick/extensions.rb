@@ -1786,7 +1786,11 @@ end.class_exec do
     initializer_loaded = false
     orig_schema = nil
     if (relations = ::Brick.relations).empty?
-      # If there's schema things configured then we only expect our initializer to be named exactly this
+      # Very first thing, load inflections since we'll be using .pluralize and .singularize on table and model names
+      if File.exist?(inflections = ::Rails.root.join('config/initializers/inflections.rb'))
+        load inflections
+      end
+      # Now the Brick initializer since there may be important schema things configured
       if File.exist?(brick_initializer = ::Rails.root.join('config/initializers/brick.rb'))
         initializer_loaded = load brick_initializer
       end
