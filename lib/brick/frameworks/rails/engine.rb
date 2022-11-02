@@ -502,6 +502,16 @@ window.addEventListener(\"pageshow\", function() {
   }
 });
 
+// Add \"Are you sure?\" behaviour to any data-confirm buttons out there
+document.querySelectorAll(\"input[type=submit][data-confirm]\").forEach(function (btn) {
+  btn.addEventListener(\"click\", function (evt) {
+    if (!confirm(this.getAttribute(\"data-confirm\"))) {
+      evt.preventDefault();
+      return false;
+    }
+  });
+});
+
 function changeout(href, param, value, trimAfter) {
   var hrefParts = href.split(\"?\");
   var params = hrefParts.length > 1 ? hrefParts[1].split(\"&\") : [];
@@ -556,13 +566,19 @@ if (grid) {
         if (lastHighCell) lastHighCell.classList.remove(\"highlight\");
       }
       var lastHighHeader = gridHighHeader;
-      gridHighHeader = headerCols[gridHighCell.cellIndex];
-      if (lastHighHeader !== gridHighHeader) {
+      if ((gridHighHeader = headerCols[gridHighCell.cellIndex]) && lastHighHeader !== gridHighHeader) {
         if (gridHighHeader) gridHighHeader.classList.add(\"highlight\");
         if (lastHighHeader) lastHighHeader.classList.remove(\"highlight\");
       }
     }
   }
+  // // LESS TOUCHY NAVIGATION BACK OR FORWARD IN HISTORY WHEN USING MOUSE WHEEL
+  // grid.addEventListener(\"wheel\", function (evt) {
+  //   grid.scrollLeft += evt.deltaX;
+  //   document.body.scrollTop += (evt.deltaY * 0.6);
+  //   evt.preventDefault();
+  //   return false;
+  // });
 }
 function setHeaderSizes() {
   // console.log(\"start\");
@@ -1185,7 +1201,7 @@ end
 <%   end %>
 
 #{unless args.first == 'new'
-  confirm_are_you_sure = ActionView.version < ::Gem::Version.new('7.0') ? "data: { confirm: 'Are you sure?' }" : "form: { data: { turbo_confirm: 'Are you sure?' } }"
+  confirm_are_you_sure = ActionView.version < ::Gem::Version.new('7.0') ? "data: { confirm: 'Delete #{model_name} -- Are you sure?' }" : "form: { data: { turbo_confirm: 'Delete #{model_name} -- Are you sure?' } }"
   hms_headers.each_with_object(+'') do |hm, s|
     # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
     next if hm.first.options[:through] && !hm.first.through_reflection
