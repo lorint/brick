@@ -1212,7 +1212,14 @@ end
       s << "<table id=\"#{hm_name}\" class=\"shadow\">
         <tr><th>#{hm[3]}</th></tr>
         <% collection = @#{obj_name}.#{hm_name}
-        collection = collection.is_a?(ActiveRecord::Associations::CollectionProxy) ? collection.order(#{pk.inspect}) : collection.to_a.compact
+        collection = case collection
+                     when ActiveRecord::Associations::CollectionProxy
+                       collection.order(#{pk.inspect})
+                     when ActiveRecord::Base # Object from a has_one
+                       [collection]
+                     else # We get an array back when AR < 4.2
+                       collection.to_a.compact
+                     end
         if collection.empty? %>
           <tr><td>(none)</td></tr>
         <% else %>
