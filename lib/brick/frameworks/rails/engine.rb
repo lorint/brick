@@ -1201,7 +1201,8 @@ end
 <%   end %>
 
 #{unless args.first == 'new'
-  confirm_are_you_sure = ActionView.version < ::Gem::Version.new('7.0') ? "data: { confirm: 'Delete #{model_name} -- Are you sure?' }" : "form: { data: { turbo_confirm: 'Delete #{model_name} -- Are you sure?' } }"
+  # Was:  confirm_are_you_sure = ActionView.version < ::Gem::Version.new('7.0') ? "data: { confirm: 'Delete #{model_name} -- Are you sure?' }" : "form: { data: { turbo_confirm: 'Delete #{model_name} -- Are you sure?' } }"
+  confirm_are_you_sure = "data: { confirm: 'Delete #{model_name} -- Are you sure?' }"
   hms_headers.each_with_object(+'') do |hm, s|
     # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
     next if hm.first.options[:through] && !hm.first.through_reflection
