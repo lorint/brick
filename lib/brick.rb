@@ -186,7 +186,7 @@ module Brick
 
     def get_bts_and_hms(model)
       bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
-        next if !const_defined?(a.name.to_s.singularize.camelize) && ::Brick.config.exclude_tables.include?(a.plural_name)
+        next if !a.polymorphic? && (a.klass.nil? || ::Brick.config.exclude_tables.include?(a.klass.table_name))
 
         case a.macro
         when :belongs_to
@@ -194,7 +194,7 @@ module Brick
             rel_poly_bt = relations[model.table_name][:fks].find { |_k, fk| fk[:assoc_name] == a.name.to_s }
             if (primary_tables = rel_poly_bt&.last&.fetch(:inverse_table, [])).is_a?(Array)
               models = primary_tables&.map { |table| table.singularize.camelize.constantize }
-              s.first[a.foreign_key] = [a.name, models, true]
+              s.first[a.foreign_key.to_s] = [a.name, models, true]
             else
               # This will come up when using Devise invitable when invited_by_class_name is not
               # specified because in that circumstance it adds a polymorphic :invited_by association,
@@ -203,7 +203,7 @@ module Brick
               puts "  belongs_to :#{a.name}, polymorphic: true"
             end
           else
-            s.first[a.foreign_key] = [a.name, a.klass]
+            s.first[a.foreign_key.to_s] = [a.name, a.klass]
           end
         when :has_many, :has_one # This gets has_many as well as has_many :through
           # %%% weed out ones that don't have an available model to reference
