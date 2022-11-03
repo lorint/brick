@@ -127,10 +127,12 @@ module ActiveRecord
         if bracket_name
           if ch == ']' # Time to process a bracketed thing?
             parts = bracket_name.split('.')
-            first_parts = parts[0..-2].map do |part|
-              klass = (orig_class = klass).reflect_on_association(part_sym = part.to_sym)&.klass
-              puts "Couldn't reference #{orig_class.name}##{part} that's part of the DSL \"#{dsl}\"." if klass.nil?
-              part_sym
+            first_parts = parts[0..-2].each_with_object([]) do |part, s|
+              unless (klass = (orig_class = klass).reflect_on_association(part_sym = part.to_sym)&.klass)
+                puts "Couldn't reference #{orig_class.name}##{part} that's part of the DSL \"#{dsl}\"."
+                break
+              end
+              s << part_sym
             end
             if (parts = prefix + first_parts + [parts[-1]]).length > 1 && klass
               unless is_polymorphic
@@ -1284,7 +1286,7 @@ class Object
                                # hm.first[:inverse][:assoc_name].to_sym
                                options[:source] = hm.last.to_sym
                              else
-                               through = hm.first[:alternate_name].pluralize
+                               through = hm.first.fetch(:alternate_chosen_name, hm.first[:alternate_name])
                              end
                              singular_assoc_name = hm.first[:inverse][:assoc_name].singularize
                              "#{singular_assoc_name}_#{hmt_fk}"
@@ -1705,12 +1707,13 @@ class Object
                                    hm_assoc[:alternate_name] != (source || name.underscore)
                                   plural = "#{hm_assoc[:assoc_name]}_#{ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name])}"
                                   new_alt_name = (hm_assoc[:alternate_name] == name.underscore) ? "#{hm_assoc[:assoc_name].singularize}_#{plural}" : plural
+                                  # %%% In rare cases might even need to add a number at the end for uniqueness
                                   # uniq = 1
                                   # while same_name = relation[:fks].find { |x| x.last[:assoc_name] == hm_assoc[:assoc_name] && x.last != hm_assoc }
                                   #   hm_assoc[:assoc_name] = "#{hm_assoc_name}_#{uniq += 1}"
                                   # end
                                   # puts new_alt_name
-                                  # hm_assoc[:assoc_name] = new_alt_name
+                                  hm_assoc[:alternate_chosen_name] = new_alt_name
                                   [new_alt_name, true]
                                 else
                                   assoc_name = ::Brick.namify(hm_assoc[:inverse_table]).pluralize

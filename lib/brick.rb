@@ -186,7 +186,8 @@ module Brick
 
     def get_bts_and_hms(model)
       bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
-        next if !a.polymorphic? && (a.klass.nil? || ::Brick.config.exclude_tables.include?(a.klass.table_name))
+        next unless a.polymorphic? || (!a.belongs_to? && (through = a.options[:through])) ||
+                    (a.klass && ::Brick.config.exclude_tables.exclude?(a.klass.table_name))
 
         if a.belongs_to?
           if a.polymorphic?
@@ -205,7 +206,23 @@ module Brick
             s.first[a.foreign_key.to_s] = [a.name, a.klass]
           end
         else # This gets has_many as well as has_one and has_many :through
-          # %%% weed out ones that don't have an available model to reference
+          if through
+            is_invalid_source = nil
+            begin
+              if a.through_reflection&.belongs_to?
+                puts "WARNING:  HMT relationship :#{a.name} in model #{model.name} tries to go through belongs_to association :#{through}.  This is not possible."
+                next
+              elsif !a.source_reflection # Had considered:  a.active_record.reflect_on_association(a.source_reflection_name).nil?
+                is_invalid_source = true
+              end
+            rescue
+              is_invalid_source = true
+            end
+            if is_invalid_source
+              puts "WARNING:  HMT relationship :#{a.name} in model #{model.name} has invalid source :#{a.source_reflection_name}."
+              next
+            end
+          end
           s.last[a.name] = a
         end
       end
@@ -215,13 +232,10 @@ module Brick
       hms.each do |hmt|
         if (through = hmt.last.options[:through])
           # ::Brick.relations[hmt.last.through_reflection.table_name]
-          skip_hms[through] = nil if hms[through] && model.is_brick?
+          skip_hms[through] = nil if hms[through] && model.is_brick? &&
+                                     hmt.last.klass != hmt.last.active_record # Don't pull HMs for HMTs that point back to the same table
           # End up with a hash of HMT names pointing to join-table associations
           model._br_associatives[hmt.first] = hms[through] # || hms["#{(opt = hmt.last.options)[:through].to_s.singularize}_#{opt[:source].to_s.pluralize}".to_sym]
-        elsif hmt.last.inverse_of.nil? && ActiveRecord.version >= ::Gem::Version.new('4.2')
-          puts "SKIPPING #{hmt.last.name.inspect}"
-          # %%% If we don't do this then below associative.name will find that associative is nil
-          skip_hms[hmt.last.name] = nil
         end
       end
       skip_hms.each { |k, _v| hms.delete(k) }
