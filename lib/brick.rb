@@ -188,8 +188,7 @@ module Brick
       bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
         next if !a.polymorphic? && (a.klass.nil? || ::Brick.config.exclude_tables.include?(a.klass.table_name))
 
-        case a.macro
-        when :belongs_to
+        if a.belongs_to?
           if a.polymorphic?
             rel_poly_bt = relations[model.table_name][:fks].find { |_k, fk| fk[:assoc_name] == a.name.to_s }
             if (primary_tables = rel_poly_bt&.last&.fetch(:inverse_table, [])).is_a?(Array)
@@ -205,7 +204,7 @@ module Brick
           else
             s.first[a.foreign_key.to_s] = [a.name, a.klass]
           end
-        when :has_many, :has_one # This gets has_many as well as has_many :through
+        else # This gets has_many as well as has_one and has_many :through
           # %%% weed out ones that don't have an available model to reference
           s.last[a.name] = a
         end

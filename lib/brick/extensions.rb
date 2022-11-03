@@ -132,8 +132,7 @@ module ActiveRecord
               puts "Couldn't reference #{orig_class.name}##{part} that's part of the DSL \"#{dsl}\"." if klass.nil?
               part_sym
             end
-            parts = prefix + first_parts + [parts[-1]]
-            if parts.length > 1
+            if (parts = prefix + first_parts + [parts[-1]]).length > 1 && klass
               unless is_polymorphic
                 s = build_array
                 parts[0..-3].each { |v| s = s[v.to_sym] }
@@ -141,7 +140,7 @@ module ActiveRecord
               end
               translations[parts[0..-2].join('.')] = klass
             end
-            if klass.column_names.exclude?(parts.last) &&
+            if klass&.column_names.exclude?(parts.last) &&
                (klass = (orig_class = klass).reflect_on_association(possible_dsl = parts.pop.to_sym)&.klass)
               if prefix.empty? # Custom columns start with an empty prefix
                 prefix << parts.shift until parts.empty?
@@ -378,6 +377,23 @@ module ActiveRecord
       @_brick_get_fks ||= reflect_on_all_associations.select { |a2| a2.macro == :belongs_to }.each_with_object([]) do |bt, s|
         s << bt.foreign_key
         s << bt.foreign_type if bt.polymorphic?
+      end
+    end
+  end
+
+  module AttributeMethods
+    module ClassMethods
+      alias _brick_dangerous_attribute_method? dangerous_attribute_method?
+      # Bypass the error "ActiveRecord::DangerousAttributeError" if this object comes from a view.
+      # (Allows for column names such as 'attribute', 'delete', and 'update' to still work.)
+      def dangerous_attribute_method?(name)
+        if (is_dangerous = _brick_dangerous_attribute_method?(name)) && is_view?
+          if column_names.include?(name.to_s)
+            puts "WARNING:  Column \"#{name}\" in view #{table_name} conflicts with a reserved ActiveRecord method name."
+          end
+          return false
+        end
+        is_dangerous
       end
     end
   end
@@ -1058,7 +1074,7 @@ Module.class_exec do
     # elsif base_module != Object
     #   module_parent.const_missing(*args)
     elsif Rails.respond_to?(:autoloaders) && # After finding nothing else, if Zeitwerk is enabled ...
-        (Rails::Autoloaders.respond_to?(:zeitwerk_enabled?) ? Rails::Autoloaders.zeitwerk_enabled? : true)
+          (Rails::Autoloaders.respond_to?(:zeitwerk_enabled?) ? Rails::Autoloaders.zeitwerk_enabled? : true)
       self._brick_const_missing(*args) # ... rely solely on Zeitwerk.
     else # Classic mode
       unless (found = base_module._brick_const_missing(*args))
