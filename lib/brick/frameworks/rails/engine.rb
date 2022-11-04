@@ -818,7 +818,16 @@ erDiagram
                          end # DutyFree data export and import
 # %%% Instead of our current "for Janet Leverling (Employee)" kind of link we previously had this code that did a "where x = 123" thing:
 #   (where <%= @_brick_params.each_with_object([]) { |v, s| s << \"#\{v.first\} = #\{v.last.inspect\}\" }.join(', ') %>)
-+"#{css}
++"<html>
+<head>
+#{css}
+<title>#{model_name} <%
+  if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)).present?
+    %> - <%= description
+%><% end
+%></title>
+</head>
+<body>
 <p style=\"color: green\"><%= notice %></p>#{"
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
@@ -826,7 +835,7 @@ erDiagram
   <td><h1>#{model_name}</h1></td>
   <td id=\"imgErd\" title=\"Show ERD\"></td>
 </tr></table>#{template_link}<%
-   if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)).present? %><%=
+   if description.present? %><%=
      description %><br><%
    end
    # FILTER PARAMETERS
@@ -988,7 +997,10 @@ erDiagram
 </table>
 
 #{"<hr><%= link_to \"New #{obj_name}\", new_#{path_obj_name}_path %>" unless @_brick_model.is_view?}
-#{script}"
+#{script}
+</body>
+</html>
+"
 
                        when 'status'
                          if is_status
@@ -1061,7 +1073,14 @@ erDiagram
                          end
 
                        when 'show', 'new', 'update'
-+"#{css}
++"<html>
+<head>
+#{css}
+<title><%=
+  page_title = (\"#{model_name}: #\{(obj = @#{obj_name})&.brick_descrip || controller_name}\")
+%></title>
+</head>
+<body>
 
 <svg id=\"revertTemplate\" version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"
   width=\"32px\" height=\"32px\" viewBox=\"0 0 512 512\" xml:space=\"preserve\">
@@ -1072,7 +1091,7 @@ erDiagram
 <p style=\"color: green\"><%= notice %></p>#{"
 <select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
 <select id=\"tbl\">#{table_options}</select>
-<h1>#{model_name}: <%= (obj = @#{obj_name})&.brick_descrip || controller_name %></h1><%
+<h1><%= page_title %></h1><%
 if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %><%=
   description %><br><%
 end
@@ -1236,7 +1255,10 @@ end
   "<%= button_to(\"Delete #\{@#{obj_name}.brick_descrip}\", send(\"#\{#{model_name}._brick_index(:singular)}_path\".to_sym, @#{obj_name}), { method: 'delete', class: 'danger', #{confirm_are_you_sure} }) %>"
 end}
 <% end %>
-#{script}"
+#{script}
+</body>
+</html>
+"
 
                        end
               inline << "
