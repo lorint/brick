@@ -271,6 +271,18 @@ and it will affect all routes.  For instance, instead of http://localhost:3000/h
 
 and then on every page in your site which relates to a resource that can be shown with a Brick-created index or show page, an appropriate auto-calculated link will appear.  The link creation logic first examines the current controller name to see if a resource of the same name exists and can be surfaced by Brick, and if that fails then every instance variable is examined, looking for any which are of class ActiveRecord::Relation or ActiveRecord::Base.  For all of them an index or show link is created, and they all end up being shown, with spacing between them.
 
+If you do use `<%= link_to_brick %>` tags and have Brick only loaded in `:development`, you will want to add this block of code in `application.rb` so that when it is running in Production then these tags will have no effect:
+
+```
+unless ActiveRecord::Base.respond_to?(:brick_select)
+  module ActionView::Helpers::FormTagHelper
+    def link_to_brick(*args, **kwargs)
+      return
+    end
+  end
+end
+```
+
 Another useful entry that can be placed in `config/initializers/brick.rb` is `Brick.additional_references` which defines additional foreign key associations, and even shows some suggested ones where possible.  By default these are commented out, and by un-commenting the ones you would like (or perhaps even all of them), then it is as if these foreign keys were present to provide referential integrity.  If you then start up a `rails c` you'll find that appropriate belongs_to and has_many associations are automatically fleshed out.  Even has_many :through associations are provided when possible associative tables are identified -- that is, tables having only foreign keys that refer to other tables.
 
 ### 1.c. Displaying an ERD

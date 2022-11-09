@@ -139,7 +139,7 @@ module Brick
 # Settings for the Brick gem
 # (By default this auto-creates models, controllers, views, and routes on-the-fly.)
 
-if Object.const_defined?('Brick')
+if ActiveRecord::Base.respond_to?(:brick_select)
   # Mode -- generally :on or :off, or only in :development.  Also available is :diag_env which enables only
   # when the environment variable BRICK is set.
   Brick.mode = :development
