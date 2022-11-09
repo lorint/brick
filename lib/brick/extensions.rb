@@ -1167,7 +1167,7 @@ class Object
       if (base_model = ::Brick.sti_models[full_model_name]&.fetch(:base, nil) || ::Brick.existing_stis[full_model_name]&.constantize)
         is_sti = true
       else
-        base_model = ::Brick.config.models_inherit_from || ActiveRecord::Base
+        base_model = ::Brick.config.models_inherit_from
       end
       hmts = nil
       code = +"class #{full_name} < #{base_model.name}\n"
