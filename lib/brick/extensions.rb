@@ -309,9 +309,15 @@ module ActiveRecord
     def self._brick_calculate_bts_hms(translations, join_array)
       # Add any custom columns
       ::Brick.config.custom_columns&.fetch(table_name, nil)&.each do |k, cc|
+        if cc.is_a?(Array)
+          fk_col = cc.last unless cc.last.blank?
+          cc = cc.first
+        else
+          fk_col = true
+        end
         # false = not polymorphic, and true = yes -- please emit_dsl
         pieces, my_dsl = brick_parse_dsl(join_array, [], translations, false, cc, true)
-        _br_cust_cols[k] = [pieces, my_dsl]
+        _br_cust_cols[k] = [pieces, my_dsl, fk_col]
       end
       bts, hms, associatives = ::Brick.get_bts_and_hms(self)
       bts.each do |_k, bt|
@@ -557,6 +563,10 @@ module ActiveRecord
             next
           end
 
+          key_klass = nil
+          key_tbl_name = nil
+          dest_pk = nil
+          key_alias = nil
           cc.first.each do |cc_part|
             dest_klass = cc_part[0..-2].inject(klass) { |kl, cc_part_term| kl.reflect_on_association(cc_part_term).klass }
             tbl_name = (field_tbl_names[k][cc_part.last] ||= shift_or_first(chains[dest_klass])).split('.').last
@@ -569,10 +579,29 @@ module ActiveRecord
                   used_col_aliases.key?(col_alias)
               cc_part_idx -= 1
             end
+            used_col_aliases[col_alias] = nil
+            # Set up custom column links by preparing key_klass and key_alias
+            # (If there are multiple different tables referenced in the DSL, we end up creating a link to the last one)
+            if cc[2] && (dest_pk = dest_klass.primary_key)
+              key_klass = dest_klass
+              key_tbl_name = tbl_name
+              cc_part_idx = cc_part.length - 1
+              while cc_part_idx > 0 &&
+                    (key_alias = "br_cc_#{k}__#{(cc_part[cc_part_idx..-2] + [dest_pk]).map(&:to_s).join('__')}") &&
+                    key_alias != col_alias && # We break out if this key alias does exactly match the col_alias
+                    used_col_aliases.key?(key_alias)
+                cc_part_idx -= 1
+              end
+            end
             selects << "#{tbl_name}.#{cc_part.last} AS #{col_alias}"
             cc_part << col_alias
-            used_col_aliases[col_alias] = nil
           end
+          # Add a key column unless we've already got it
+          if key_alias && !used_col_aliases.key?(key_alias)
+            selects << "#{key_tbl_name}.#{dest_pk} AS #{key_alias}"
+            used_col_aliases[key_alias] = nil
+          end
+          cc[2] = key_alias ? [key_klass, key_alias] : nil
         end
 
         klass._br_bt_descrip.each do |v|

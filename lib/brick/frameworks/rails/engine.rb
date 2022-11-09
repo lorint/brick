@@ -990,7 +990,12 @@ erDiagram
     %><%=  display_value(col_type || col&.sql_type, val) %><%
          elsif cust_col
            data = cust_col.first.map { |cc_part| #{obj_name}.send(cc_part.last) }
-    %><%=  #{model_name}.brick_descrip(cust_col.last, data) %><%
+           cust_txt = #{model_name}.brick_descrip(cust_col[-2], data)
+           if (link_id = #{obj_name}.send(cust_col.last[1]) if cust_col.last)
+    %><%=    link_to(cust_txt, send(\"#\{cust_col.last.first._brick_index(:singular)}_path\", link_id)) %><%
+           else
+    %><%=    cust_txt %><%
+           end
          else # Bad column name!
       %>?<%
          end
