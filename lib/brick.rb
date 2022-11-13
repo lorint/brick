@@ -1052,6 +1052,40 @@ ActiveSupport.on_load(:active_record) do
     end
   end
 
+  class ActiveRecord::Associations::JoinDependency
+    if JoinBase.instance_method(:initialize).arity == 2 # Older ActiveRecord 4.x?
+      def initialize(base, associations, joins)
+        @alias_tracker = ::ActiveRecord::Associations::AliasTracker.create(base.connection, joins)
+        @alias_tracker.aliased_table_for(base.table_name, base.table_name) # Updates the count for base.table_name to 1
+        tree = self.class.make_tree associations
+
+        # Provide a way to find the original relation that this tree is being used for
+        # (so that we can maintain a list of links for all tables used in JOINs)
+        if (relation = associations.instance_variable_get(:@relation))
+          tree.instance_variable_set(:@relation, relation)
+        end
+
+        @join_root = JoinBase.new base, build(tree, base)
+        @join_root.children.each { |child| construct_tables! @join_root, child }
+      end
+
+    else # For ActiveRecord 5.0 - 7.1
+
+      def initialize(base, table, associations, join_type = nil)
+        tree = self.class.make_tree associations
+
+        # Provide a way to find the original relation that this tree is being used for
+        # (so that we can maintain a list of links for all tables used in JOINs)
+        if (relation = associations.instance_variable_get(:@relation))
+          tree.instance_variable_set(:@relation, relation)
+        end
+
+        @join_root = JoinBase.new(base, table, build(tree, base))
+        @join_type = join_type if join_type
+      end
+    end
+  end
+
   # First part of arel_table_type stuff:
   # ------------------------------------
   # (more found below)
@@ -1178,7 +1212,7 @@ if ActiveRecord.version < ::Gem::Version.new('5.2')
 
     module Associations
       # Specific to AR 4.2 - 5.1:
-      if Associations.const_defined?('JoinDependency') && JoinDependency.private_instance_methods.include?(:table_aliases_for)
+      if self.const_defined?('JoinDependency') && JoinDependency.private_instance_methods.include?(:table_aliases_for)
         class JoinDependency
         private
 
@@ -1228,6 +1262,93 @@ if ActiveRecord.version < ::Gem::Version.new('5.2')
     end
   end # module ActiveRecord
   # rubocop:enable Style/CommentedKeyword
+end
+
+module ActiveRecord
+  module QueryMethods
+  private
+
+    if private_instance_methods.include?(:build_join_query)
+      alias _brick_build_join_query build_join_query
+      def build_join_query(manager, buckets, *args)
+        # %%% Better way to bring relation into the mix
+        if (aj = buckets.fetch(:association_join, nil))
+          aj.instance_variable_set(:@relation, self)
+        end
+
+        _brick_build_join_query(manager, buckets, *args)
+      end
+
+    else
+
+      alias _brick_select_association_list select_association_list
+      def select_association_list(associations, stashed_joins = nil)
+        result = _brick_select_association_list(associations, stashed_joins)
+        result.instance_variable_set(:@relation, self)
+        result
+      end
+    end
+  end
+
+  # require 'activerecord/associations/join_dependency'
+  module Associations
+    # For AR >= 4.2
+    if self.const_defined?('JoinDependency')
+      class JoinDependency
+      private
+
+        # %%% Pretty much have to flat-out replace this guy (I think anyway)
+        # Good with Rails 5.24 and 7 on this
+        def build(associations, base_klass, root = nil, path = '')
+          root ||= associations
+          associations.map do |name, right|
+            reflection = find_reflection base_klass, name
+            reflection.check_validity!
+            reflection.check_eager_loadable!
+
+            if reflection.polymorphic?
+              raise EagerLoadPolymorphicError.new(reflection)
+            end
+
+            # %%% The path
+            link_path = path.blank? ? name.to_s : path + ".#{name}"
+            ja = JoinAssociation.new(reflection, build(right, reflection.klass, root, link_path))
+            ja.instance_variable_set(:@link_path, link_path) # Make note on the JoinAssociation of its AR path
+            ja.instance_variable_set(:@assocs, root)
+            ja
+          end
+        end
+
+        if JoinDependency.private_instance_methods.include?(:table_aliases_for)
+          # No matter if it's older or newer Rails, now extend so that we can associate AR links to table_alias names
+          alias _brick_table_aliases_for table_aliases_for
+          def table_aliases_for(parent, node)
+            result = _brick_table_aliases_for(parent, node)
+
+            # Capture the table alias name that was chosen
+            link_path = node.instance_variable_get(:@link_path)
+            if (relation = node.instance_variable_get(:@assocs)&.instance_variable_get(:@relation))
+              relation.brick_links[link_path] = result.first.table_alias || result.first.table_name
+            end
+
+            result
+          end
+        else # Same idea but for Rails 7
+          alias _brick_make_constraints make_constraints
+          def make_constraints(parent, child, join_type)
+            result = _brick_make_constraints(parent, child, join_type)
+
+            # Capture the table alias name that was chosen
+            link_path = child.instance_variable_get(:@link_path)
+            relation = child.instance_variable_get(:@assocs)&.instance_variable_get(:@relation)
+            # binding.pry if relation
+            relation.brick_links[link_path] = result.first.left.table_alias || result.first.left.table_name
+            result
+          end
+        end
+      end
+    end
+  end
 end
 
 require 'brick/extensions'

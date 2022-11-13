@@ -11,6 +11,7 @@ unless ActiveRecord.respond_to?(:version)
 end
 
 # ActiveSupport, ActionPack, and ActionView before 4.0 didn't have #version
+require 'active_support' # Needed for Rails 4.x
 unless ActiveSupport.respond_to?(:version)
   module ActiveSupport
     def self.version
