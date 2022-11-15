@@ -407,7 +407,7 @@ module ActiveRecord
   end
 
   class Relation
-    attr_reader :_arel_applied_aliases # , :_brick_chains
+    attr_reader :_arel_applied_aliases
 
     # Links from ActiveRecord association pathing names over to real
     # table correlation names built from AREL aliasing
@@ -454,7 +454,6 @@ module ActiveRecord
             @_arel_applied_aliases << (alias_name = table.right)
             table = table.left
           end
-          # (_brick_chains[table._arel_table_type] ||= []) << (alias_name || table.table_alias || table.name)
         end
         # rubocop:enable Style/IdenticalConditionalBranches
       when Arel::Table # Table
@@ -463,12 +462,8 @@ module ActiveRecord
         # Can get the real table name from:  self._recurse_arel(piece.left)
         names << [piece.left._arel_table_type, piece.right.to_s] # This is simply a string; the alias name itself
       when Arel::Nodes::JoinSource # Leaving this until the end because AR < 3.2 doesn't know at all about JoinSource!
-        # # Spin up an empty set of Brick alias name chains at the start
-        # @_brick_chains = {}
         # The left side is the "FROM" table
         names << (this_name = [piece.left._arel_table_type, (piece.left.table_alias || piece.left.name)])
-        # # Do not currently need the root "FROM" table in our list of chains
-        # (_brick_chains[this_name.first] ||= []) << this_name.last
         # The right side is an array of all JOINs
         piece.right.each { |join| names << _recurse_arel(join) }
       end
@@ -554,7 +549,6 @@ module ActiveRecord
         # Without working from a duplicate, touching the AREL ast tree sets the @arel instance variable, which causes the relation to be immutable.
         (rel_dupe = dup)._arel_alias_names
         core_selects = selects.dup
-        # chains = rel_dupe._brick_chains
         id_for_tables = Hash.new { |h, k| h[k] = [] }
         field_tbl_names = Hash.new { |h, k| h[k] = {} }
         used_col_aliases = {} # Used to make sure there is not a name clash
@@ -575,7 +569,6 @@ module ActiveRecord
           key_alias = nil
           cc.first.each do |cc_part|
             dest_klass = cc_part[0..-2].inject(klass) { |kl, cc_part_term| kl.reflect_on_association(cc_part_term).klass }
-            # tbl_name = (field_tbl_names[k][cc_part.last] ||= shift_or_first(chains[dest_klass])).split('.').last
             tbl_name = rel_dupe.brick_links[cc_part[0..-2].map(&:to_s).join('.')]
             # Deal with the conflict if there are two parts in the custom column named the same,
             # "category.name" and "product.name" for instance will end up with aliases of "name"
@@ -613,18 +606,12 @@ module ActiveRecord
 
         klass._br_bt_descrip.each do |v|
           v.last.each do |k1, v1| # k1 is class, v1 is array of columns to snag
-            # next if chains[k1].nil?
-
-            # tbl_name = (field_tbl_names[v.first][k1] ||= shift_or_first(chains[k1])).split('.').last
-            tbl_name = rel_dupe.brick_links[v.first.to_s]&.split('.')&.last
-            binding.pry if tbl_name.nil?
+            next unless (tbl_name = rel_dupe.brick_links[v.first.to_s]&.split('.')&.last)
 
             # If it's Oracle, quote any AREL aliases that had been applied
             tbl_name = "\"#{tbl_name}\"" if ::Brick.is_oracle && rel_dupe._arel_applied_aliases.include?(tbl_name)
             field_tbl_name = nil
             v1.map { |x| [x[0..-2].map(&:to_s).join('.'), x.last] }.each_with_index do |sel_col, idx|
-              # sel_col_class = translations[sel_col.first]
-              # field_tbl_name = (field_tbl_names[v.first][sel_col_class] ||= shift_or_first(chains[sel_col_class])).split('.').last
               field_tbl_name = rel_dupe.brick_links[sel_col.first].split('.').last
               # If it's Oracle, quote any AREL aliases that had been applied
               field_tbl_name = "\"#{field_tbl_name}\"" if ::Brick.is_oracle && rel_dupe._arel_applied_aliases.include?(field_tbl_name)
@@ -667,14 +654,8 @@ module ActiveRecord
           end
         end
         join_array.each do |assoc_name|
-          # %%% Need to support {user: :profile}
           next unless assoc_name.is_a?(Symbol)
 
-          # table_alias = if (chain = chains[klass = reflect_on_association(assoc_name)&.klass])
-          #                 shift_or_first(chain)
-          #               else
-          #                 klass.table_name # ActiveRecord < 4.2 can't (yet) use the cool chains thing
-          #               end
           table_alias = rel_dupe.brick_links[assoc_name.to_s]
           _assoc_names[assoc_name] = [table_alias, klass]
         end
@@ -709,7 +690,7 @@ module ActiveRecord
                                             "ON br_t#{idx}.#{src_ref.type} = '#{src_ref.active_record.name}'" + # "polymorphable_type"
                                             " AND br_t#{idx}.#{src_ref.foreign_key} = br_t#{idx - 1}.id"
                                           elsif src_ref.options[:source_type]
-                                            print "Skipping #{hm.name} --HMT-> #{hm.source_reflection.name} as it uses source_type which is not supported"
+                                            print "Skipping #{hm.name} --HMT-> #{hm.source_reflection.name} as it uses source_type which is not yet supported"
                                             nix << k
                                             bail_out = true
                                             break
@@ -792,8 +773,6 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
           if (v_parts = v.first.split('.')).length == 1
             s[v.first] = v.last
           else
-            # k1 = klass.reflect_on_association(v_parts.first)&.klass
-            # tbl_name = (field_tbl_names[v_parts.first][k1] ||= shift_or_first(chains[k1])).split('.').last
             tbl_name = rel_dupe.brick_links[v_parts.first].split('.').last
             s["#{tbl_name}.#{v_parts.last}"] = v.last
           end
