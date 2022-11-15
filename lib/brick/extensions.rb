@@ -668,13 +668,19 @@ module ActiveRecord
                          # (Usually just one JOIN, but could be many.)
                          hmt_assoc = hm
                          through_sources = []
+                         # %%% Inverse path back to the original object -- not yet used, but soon
+                         # will be leveraged in order to build links with multi-table-hop filters.
+                         link_back = []
                          # Track polymorphic type field if necessary
                          if hm.source_reflection.options[:as]
                            poly_ft = [hm.source_reflection.inverse_of.foreign_type, hmt_assoc.source_reflection.class_name]
                          end
+                         # link_back << hm.source_reflection.inverse_of.name
                          while hmt_assoc.options[:through] && (hmt_assoc = klass.reflect_on_association(hmt_assoc.options[:through]))
                            through_sources.unshift(hmt_assoc)
                          end
+                         # Turn the last member of link_back into a foreign key
+                         link_back << hmt_assoc.source_reflection.foreign_key
                          # If it's a HMT based on a HM -> HM, must JOIN the last table into the mix at the end
                          through_sources.push(hm.source_reflection) unless hm.source_reflection.belongs_to?
                          from_clause = +"#{through_sources.first.table_name} br_t0"
@@ -685,6 +691,9 @@ module ActiveRecord
                          through_sources.map do |a|
                            from_clause << "\n LEFT OUTER JOIN #{a.table_name} br_t#{idx += 1} "
                            from_clause << if (src_ref = a.source_reflection).macro == :belongs_to
+                                            (nm = hmt_assoc.source_reflection.inverse_of&.name)
+                                            # binding.pry unless nm
+                                            link_back << nm
                                             "ON br_t#{idx}.id = br_t#{idx - 1}.#{a.foreign_key}"
                                           elsif src_ref.options[:as]
                                             "ON br_t#{idx}.#{src_ref.type} = '#{src_ref.active_record.name}'" + # "polymorphable_type"
@@ -695,12 +704,18 @@ module ActiveRecord
                                             bail_out = true
                                             break
                                           else # Standard has_many
+                                            # binding.pry unless (
+                                            nm = hmt_assoc.source_reflection.inverse_of&.name
+                                            # )
+                                            link_back << nm # if nm
                                             "ON br_t#{idx}.#{a.foreign_key} = br_t#{idx - 1}.id"
                                           end
+                           link_back.unshift(a.source_reflection.name)
                            [a.table_name, a.foreign_key, a.source_reflection.macro]
                          end
                          next if bail_out
 
+                         # puts "LINK BACK! #{k} : #{hm.table_name} #{link_back.map(&:to_s).join('.')}"
                          # count_column is determined from the originating HMT member
                          if (src_ref = hm.source_reflection).nil?
                            puts "*** Warning:  Could not determine destination model for this HMT association in model #{klass.name}:\n  has_many :#{hm.name}, through: :#{hm.options[:through]}"
@@ -708,8 +723,10 @@ module ActiveRecord
                            nix << k
                            next
                          elsif src_ref.macro == :belongs_to # Traditional HMT using an associative table
+                           # binding.pry if link_back.length > 2
                            "br_t#{idx}.#{hm.foreign_key}"
                          else # A HMT that goes HM -> HM, something like Categories -> Products -> LineItems
+                           # binding.pry if link_back.length > 2
                            "br_t#{idx}.#{src_ref.active_record.primary_key}"
                          end
                        else
