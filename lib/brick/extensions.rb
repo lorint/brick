@@ -609,12 +609,12 @@ module ActiveRecord
             next unless (tbl_name = rel_dupe.brick_links[v.first.to_s]&.split('.')&.last)
 
             # If it's Oracle, quote any AREL aliases that had been applied
-            tbl_name = "\"#{tbl_name}\"" if ::Brick.is_oracle && rel_dupe._arel_applied_aliases.include?(tbl_name)
+            tbl_name = "\"#{tbl_name}\"" if ::Brick.is_oracle && rel_dupe.brick_links.values.include?(tbl_name)
             field_tbl_name = nil
             v1.map { |x| [x[0..-2].map(&:to_s).join('.'), x.last] }.each_with_index do |sel_col, idx|
               field_tbl_name = rel_dupe.brick_links[sel_col.first].split('.').last
               # If it's Oracle, quote any AREL aliases that had been applied
-              field_tbl_name = "\"#{field_tbl_name}\"" if ::Brick.is_oracle && rel_dupe._arel_applied_aliases.include?(field_tbl_name)
+              field_tbl_name = "\"#{field_tbl_name}\"" if ::Brick.is_oracle && rel_dupe.brick_links.values.include?(field_tbl_name)
 
               # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
               is_xml = is_distinct && Brick.relations[field_tbl_name]&.[](:cols)&.[](sel_col.last)&.first&.start_with?('xml')
@@ -1597,7 +1597,6 @@ class Object
         end
 
         unless is_openapi
-          ::Brick.set_db_schema
           _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk)) if pk
           code << "  def index\n"
           code << "    @#{table_name.pluralize} = #{model.name}#{pk&.present? ? ".order(#{order_by_txt.join(', ')})" : '.all'}\n"
@@ -1889,13 +1888,22 @@ end.class_exec do
           s[row.first] = { dt: row.last } unless ['information_schema', 'pg_catalog', 'pg_toast', 'heroku_ext',
                                                   'INFORMATION_SCHEMA', 'sys'].include?(row.first)
         end
-        if (is_multitenant = (multitenancy = ::Brick.config.schema_behavior[:multitenant]) &&
-           (sta = multitenancy[:schema_to_analyse]) != 'public') &&
-           ::Brick.db_schemas.key?(sta)
-          # Take note of the current schema so we can go back to it at the end of all this
-          orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
-          ::Brick.default_schema = schema = sta
-          ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
+        if (possible_schemas = (multitenancy = ::Brick.config.schema_behavior&.[](:multitenant)) &&
+                               multitenancy&.[](:schema_to_analyse))
+          possible_schemas = [possible_schemas] unless possible_schemas.is_a?(Array)
+          if (possible_schema = possible_schemas.find { |ps| ::Brick.db_schemas.key?(ps) })
+            ::Brick.default_schema = ::Brick.apartment_default_tenant
+            schema = possible_schema
+            orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
+            ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
+          elsif Rails.env == 'test' # When testing, just find the most recently-created schema
+            ::Brick.default_schema = schema = ::Brick.db_schemas.to_a.sort { |a, b| b.last[:dt] <=> a.last[:dt] }.first.first
+            puts "While running tests, had noticed in the brick.rb initializer that the line \"::Brick.schema_behavior = ...\" refers to a schema called \"#{possible_schema}\" which does not exist.  Reading table structure from the most recently-created schema, #{schema}."
+            orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
+            ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
+          else
+            puts "*** In the brick.rb initializer the line \"::Brick.schema_behavior = ...\" refers to schema(s) called #{possible_schemas.map { |s| "\"#{s}\"" }.join(', ')}.  No mentioned schema exists. ***"
+          end
         end
       when 'Mysql2'
         ::Brick.default_schema = schema = ActiveRecord::Base.connection.current_database
@@ -1917,24 +1925,6 @@ end.class_exec do
       end
 
       ::Brick.db_schemas ||= {}
-
-      if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-        if (possible_schemas = ::Brick.config.schema_behavior&.[](:multitenant)&.[](:schema_to_analyse))
-          possible_schemas = [possible_schemas] unless possible_schemas.is_a?(Array)
-          if (possible_schema = possible_schemas.find { |ps| ::Brick.db_schemas.key?(ps) })
-            ::Brick.default_schema = schema = possible_schema
-            orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
-            ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
-          elsif Rails.env == 'test' # When testing, just find the most recently-created schema
-            ::Brick.default_schema = schema = ::Brick.db_schemas.to_a.sort { |a, b| b.last[:dt] <=> a.last[:dt] }.first.first
-            puts "While running tests, had noticed in the brick.rb initializer that the line \"::Brick.schema_behavior = ...\" refers to a schema called \"#{possible_schema}\" which does not exist.  Reading table structure from the most recently-created schema, #{schema}."
-            orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
-            ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
-          else
-            puts "*** In the brick.rb initializer the line \"::Brick.schema_behavior = ...\" refers to schema(s) called #{possible_schemas.map { |s| "\"#{s}\"" }.join(', ')}.  No mentioned schema exists. ***"
-          end
-        end
-      end
 
       # %%% Retrieve internal ActiveRecord table names like this:
       # ActiveRecord::Base.internal_metadata_table_name, ActiveRecord::Base.schema_migrations_table_name
@@ -2100,7 +2090,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         # Multitenancy makes things a little more general overall, except for non-tenanted tables
         if apartment_excluded&.include?(::Brick.namify(fk[1]).singularize.camelize)
           fk[0] = Apartment.default_schema
-        elsif (is_postgres && (fk[0] == 'public' || (is_multitenant && fk[0] == schema))) ||
+        elsif (is_postgres && (fk[0] == 'public' || (multitenancy && fk[0] == schema))) ||
               (::Brick.is_oracle && fk[0] == schema) ||
               (is_mssql && fk[0] == 'dbo') ||
               (!is_postgres && !::Brick.is_oracle && !is_mssql && ['mysql', 'performance_schema', 'sys'].exclude?(fk[0]))
@@ -2108,7 +2098,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         end
         if apartment_excluded&.include?(fk[4].singularize.camelize)
           fk[3] = Apartment.default_schema
-        elsif (is_postgres && (fk[3] == 'public' || (is_multitenant && fk[3] == schema))) ||
+        elsif (is_postgres && (fk[3] == 'public' || (multitenancy && fk[3] == schema))) ||
               (::Brick.is_oracle && fk[3] == schema) ||
               (is_mssql && fk[3] == 'dbo') ||
               (!is_postgres && !::Brick.is_oracle && !is_mssql && ['mysql', 'performance_schema', 'sys'].exclude?(fk[3]))

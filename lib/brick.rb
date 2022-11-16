@@ -1290,7 +1290,7 @@ module ActiveRecord
     end
   end
 
-  # require 'activerecord/associations/join_dependency'
+  # require 'active_record/associations/join_dependency'
   module Associations
     # For AR >= 4.2
     if self.const_defined?('JoinDependency')

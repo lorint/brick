@@ -192,13 +192,13 @@ module Brick
                 end
               end
 
-              apartment_default_schema = ::Brick.apartment_multitenant && Apartment.default_schema
-              schema_options = if ::Brick.apartment_multitenant &&
-                                  (cur_schema = Apartment::Tenant.current) != apartment_default_schema
-                                 "<option selected value=\"#{cur_schema}\">#{cur_schema}</option>"
-                               else
-                                 ::Brick.db_schemas.keys.each_with_object(+'') { |v, s| s << "<option value=\"#{v}\">#{v}</option>" }
-                               end.html_safe
+              apartment_default_schema = ::Brick.apartment_multitenant && ::Brick.apartment_default_tenant
+              if ::Brick.apartment_multitenant && ::Brick.db_schemas.length > 1
+                schema_options = +'<select id="schema"><% if Apartment::Tenant.current != apartment_default_schema %>'
+                ::Brick.db_schemas.keys.each { |v| schema_options << "\n  <option value=\"#{v}\">#{v}</option>" }
+                schema_options << "\n<% else %><option selected value=\"#{Apartment::Tenant.current}\">#{Apartment::Tenant.current}</option>\n"
+                schema_options << '<% end %></select>'
+              end
               # %%% If we are not auto-creating controllers (or routes) then omit by default, and if enabled anyway, such as in a development
               # environment or whatever, then get either the controllers or routes list instead
               prefix = "#{::Brick.config.path_prefix}/" if ::Brick.config.path_prefix
@@ -466,30 +466,6 @@ var #{table_name}HtColumns;
 // This PageTransitionEvent fires when the page first loads, as well as after any other history
 // transition such as when using the browser's Back and Forward buttons.
 window.addEventListener(\"pageshow\", function() {
-  if (schemaSelect && schemaSelect.options.length > 1) { // First drop-down is only present if multitenant
-    brickSchema = changeout(location.href, \"_brick_schema\");
-    if (brickSchema) {
-      [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
-    }
-    schemaSelect.value = brickSchema || \"public\";
-    schemaSelect.focus();
-    schemaSelect.addEventListener(\"change\", function () {
-      // If there's an ID then remove it (trim after selected table)
-      location.href = changeout(location.href, \"_brick_schema\", this.value, tblSelect.value);
-    });
-  }
-  [... document.getElementsByTagName(\"FORM\")].forEach(function (form) {
-    if (brickSchema)
-      form.action = changeout(form.action, \"_brick_schema\", brickSchema);
-    form.addEventListener('submit', function (ev) {
-      [... ev.target.getElementsByTagName(\"SELECT\")].forEach(function (select) {
-        if (select.value === \"^^^brick_NULL^^^\")
-          select.value = null;
-      });
-      return true;
-    });
-  });
-
   if (tblSelect) { // Always present
     var i = #{::Brick.config.path_prefix ? '0' : 'schemaSelect ? 1 : 0'},
         changeoutList = changeout(location.href);
@@ -505,6 +481,31 @@ window.addEventListener(\"pageshow\", function() {
       location.href = lhr;
     });
   }
+
+  if (schemaSelect && schemaSelect.options.length > 1) { // First drop-down is only present if multitenant
+    brickSchema = changeout(location.href, \"_brick_schema\");
+    if (brickSchema) {
+      [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
+    }
+    schemaSelect.value = brickSchema || \"public\";
+    schemaSelect.focus();
+    schemaSelect.addEventListener(\"change\", function () {
+      // If there's an ID then remove it (trim after selected table)
+      location.href = changeout(location.href, \"_brick_schema\", this.value, tblSelect.value);
+    });
+  }
+
+  [... document.getElementsByTagName(\"FORM\")].forEach(function (form) {
+    if (brickSchema)
+      form.action = changeout(form.action, \"_brick_schema\", brickSchema);
+    form.addEventListener('submit', function (ev) {
+      [... ev.target.getElementsByTagName(\"SELECT\")].forEach(function (select) {
+        if (select.value === \"^^^brick_NULL^^^\")
+          select.value = null;
+      });
+      return true;
+    });
+  });
 });
 
 // Add \"Are you sure?\" behaviour to any data-confirm buttons out there
@@ -834,7 +835,7 @@ erDiagram
 </head>
 <body>
 <p style=\"color: green\"><%= notice %></p>#{"
-<select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
+#{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><tr>
   <td><h1>#{model_name}</h1></td>
@@ -954,10 +955,12 @@ erDiagram
              poly_id = #{obj_name}.send(\"#\{bt.first}_id\")
              %><%= link_to(\"#\{bt_class} ##\{poly_id}\", send(\"#\{base_class_underscored}_path\".to_sym, poly_id)) if poly_id %><%
            else
-             # binding.pry if @_brick_bt_descrip[bt.first][bt[1].first.first].nil?
              bt_class = bt[1].first.first
              descrips = @_brick_bt_descrip[bt.first][bt_class]
-             bt_id_col = if descrips.length == 1
+             bt_id_col = if descrips.nil?
+                           puts \"Caught it in the act for #{obj_name} / #\{col_name}!\"
+                           # binding.pry
+                         elsif descrips.length == 1
                            [#{obj_name}.class.reflect_on_association(bt.first)&.foreign_key]
                          else
                            descrips.last
@@ -974,16 +977,16 @@ erDiagram
            if hms_col.length == 1 %>
         <%=  hms_col.first %>
         <% else
-             klass = (col = cols[col_name])[1]
-             txt = if col[2] == 'HO'
-                     descrips = @_brick_bt_descrip[col_name.to_sym][klass]
-                     ho_txt = klass.brick_descrip(#{obj_name}, descrips[0..-2].map { |id| #{obj_name}.send(id.last[0..62]) }, (ho_id_col = descrips.last))
-                     ho_id = ho_id_col.map { |id_col| #{obj_name}.send(id_col.to_sym) }
-                     ho_id&.first ? link_to(ho_txt, send(\"#\{klass.base_class._brick_index(:singular)}_path\".to_sym, ho_id)) : ho_txt
-                   else
-                     \"#\{hms_col[1] || 'View'} #\{hms_col.first}\"
-                   end %>
-         <%= link_to txt, send(\"#\{klass._brick_index}_path\".to_sym, hms_col[2]) unless hms_col[1]&.zero? %>
+    %><%=    klass = (col = cols[col_name])[1]
+             if col[2] == 'HO'
+               descrips = @_brick_bt_descrip[col_name.to_sym][klass]
+               if (ho_id = (ho_id_col = descrips.last).map { |id_col| #{obj_name}.send(id_col.to_sym) })&.first
+                 ho_txt = klass.brick_descrip(#{obj_name}, descrips[0..-2].map { |id| #{obj_name}.send(id.last[0..62]) }, ho_id_col)
+                 link_to(ho_txt, send(\"#\{klass.base_class._brick_index(:singular)}_path\".to_sym, ho_id))
+               end
+             elsif hms_col[1]&.positive?
+               link_to \"#\{hms_col[1] || 'View'} #\{hms_col.first}\", send(\"#\{klass._brick_index}_path\".to_sym, hms_col[2])
+             end %>
         <% end
          elsif (col = cols[col_name])
            col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
@@ -1019,7 +1022,7 @@ erDiagram
 # Easily could be multiple files involved (STI for instance)
 +"#{css}
 <p style=\"color: green\"><%= notice %></p>#{"
-<select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
+#{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <h1>Status</h1>
 <table id=\"status\" class=\"shadow\"><thead><tr>
@@ -1068,7 +1071,7 @@ erDiagram
                          if is_orphans
 +"#{css}
 <p style=\"color: green\"><%= notice %></p>#{"
-<select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
+#{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <h1>Orphans<%= \" for #\{}\" if false %></h1>
 <% @orphans.each do |o|
@@ -1099,7 +1102,7 @@ erDiagram
 </svg>
 
 <p style=\"color: green\"><%= notice %></p>#{"
-<select id=\"schema\">#{schema_options}</select>" if ::Brick.config.schema_behavior[:multitenant] && ::Brick.db_schemas.length > 1}
+#{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <h1><%= page_title %></h1><%
 if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %><%=
