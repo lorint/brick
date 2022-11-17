@@ -42,21 +42,6 @@
 # Dynamically create model or controller classes when needed
 # ==========================================================
 
-# By default all models indicate that they are not views
-module Arel
-  class Table
-    def _arel_table_type
-      # AR < 4.2 doesn't have type_caster at all, so rely on an instance variable getting set
-      # AR 4.2 - 5.1 have buggy type_caster entries for the root node
-      instance_variable_get(:@_arel_table_type) ||
-      # 5.2-7.0 does type_caster just fine, no bugs there, but the property with the type differs:
-      # 5.2 has "types" as public, 6.0 "types" as private, and >= 6.1 "klass" as private.
-      ((tc = send(:type_caster)) && tc.instance_variable_get(:@types)) ||
-      tc.send(:klass)
-    end
-  end
-end
-
 module ActiveRecord
   class Base
     def self.is_brick?
@@ -407,84 +392,10 @@ module ActiveRecord
   end
 
   class Relation
-    attr_reader :_arel_applied_aliases
-
-    # Links from ActiveRecord association pathing names over to real
-    # table correlation names built from AREL aliasing
+    # Links from ActiveRecord association pathing names over to real table correlation names
+    # that get chosen when the AREL AST tree is walked.
     def brick_links
       @brick_links ||= {}
-    end
-
-    # CLASS STUFF
-    def _recurse_arel(piece, prefix = '')
-      names = []
-      # Our JOINs mashup of nested arrays and hashes
-      # binding.pry if defined?(@arel)
-      case piece
-      when Array
-        names += piece.inject([]) { |s, v| s + _recurse_arel(v, prefix) }
-      when Hash
-        names += piece.inject([]) do |s, v|
-          new_prefix = "#{prefix}#{v.first}_"
-          s << [v.last.shift, new_prefix]
-          s + _recurse_arel(v.last, new_prefix)
-        end
-
-      # ActiveRecord AREL objects
-      when Arel::Nodes::Join # INNER or OUTER JOIN
-        # rubocop:disable Style/IdenticalConditionalBranches
-        if piece.right.is_a?(Arel::Table) # Came in from AR < 3.2?
-          # Arel 2.x and older is a little curious because these JOINs work "back to front".
-          # The left side here is either another earlier JOIN, or at the end of the whole tree, it is
-          # the first table.
-          names += _recurse_arel(piece.left)
-          # The right side here at the top is the very last table, and anywhere else down the tree it is
-          # the later "JOIN" table of this pair.  (The table that comes after all the rest of the JOINs
-          # from the left side.)
-          names << [piece.right._arel_table_type, (piece.right.table_alias || piece.right.name)]
-        else # "Normal" setup, fed from a JoinSource which has an array of JOINs
-          # The left side is the "JOIN" table
-          names += _recurse_arel(table = piece.left)
-          # The expression on the right side is the "ON" clause
-          # on = piece.right.expr
-          # # Find the table which is not ourselves, and thus must be the "path" that led us here
-          # parent = piece.left == on.left.relation ? on.right.relation : on.left.relation
-          # binding.pry if piece.left.is_a?(Arel::Nodes::TableAlias)
-          if table.is_a?(Arel::Nodes::TableAlias)
-            @_arel_applied_aliases << (alias_name = table.right)
-            table = table.left
-          end
-        end
-        # rubocop:enable Style/IdenticalConditionalBranches
-      when Arel::Table # Table
-        names << [piece._arel_table_type, (piece.table_alias || piece.name)]
-      when Arel::Nodes::TableAlias # Alias
-        # Can get the real table name from:  self._recurse_arel(piece.left)
-        names << [piece.left._arel_table_type, piece.right.to_s] # This is simply a string; the alias name itself
-      when Arel::Nodes::JoinSource # Leaving this until the end because AR < 3.2 doesn't know at all about JoinSource!
-        # The left side is the "FROM" table
-        names << (this_name = [piece.left._arel_table_type, (piece.left.table_alias || piece.left.name)])
-        # The right side is an array of all JOINs
-        piece.right.each { |join| names << _recurse_arel(join) }
-      end
-      names
-    end
-
-    # INSTANCE STUFF
-    def _arel_alias_names
-      @_arel_applied_aliases = []
-      # %%% If with Rails 3.1 and older you get "NoMethodError: undefined method `eq' for nil:NilClass"
-      # when trying to call relation.arel, then somewhere along the line while navigating a has_many
-      # relationship it can't find the proper foreign key.
-      core = arel.ast.cores.first
-      # Accommodate AR < 3.2
-      if core.froms.is_a?(Arel::Table)
-        # All recent versions of AR have #source which brings up an Arel::Nodes::JoinSource
-        _recurse_arel(core.source)
-      else
-        # With AR < 3.2, "froms" brings up the top node, an Arel::Nodes::InnerJoin
-        _recurse_arel(core.froms)
-      end
     end
 
     def brick_select(params, selects = [], order_by = nil, translations = {}, join_array = ::Brick::JoinArray.new)
@@ -549,8 +460,19 @@ module ActiveRecord
 
       if join_array.present?
         left_outer_joins!(join_array)
-        # Without working from a duplicate, touching the AREL ast tree sets the @arel instance variable, which causes the relation to be immutable.
-        (rel_dupe = dup)._arel_alias_names
+        # Touching AREL AST walks the JoinDependency tree, and in that process uses our
+        # "brick_links" patch to find how every AR chain of association names relates to exact
+        # table correlation names chosen by AREL.  We use a duplicate relation object for this
+        # because an important side-effect of referencing the AST is that the @arel instance
+        # variable gets set, and this is a signal to ActiveRecord that a relation has now
+        # become immutable.  (We aren't quite ready for our "real deal" relation object to be
+        # set in stone ... still need to add .select(), and possibly .where() and .order()
+        # things ... also if there are any HM counts then an OUTER JOIN for each of them out
+        # to a derived table to do that counting.  All of these things need to know proper
+        # table correlation names, which will now become available in brick_links on the
+        # rel_dupe object.)
+        (rel_dupe = dup).arel.ast
+
         core_selects = selects.dup
         id_for_tables = Hash.new { |h, k| h[k] = [] }
         field_tbl_names = Hash.new { |h, k| h[k] = {} }

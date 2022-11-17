@@ -1092,21 +1092,9 @@ ActiveSupport.on_load(:active_record) do
     end
   end
 
-  # First part of arel_table_type stuff:
-  # ------------------------------------
-  # (more found below)
   # was:  ActiveRecord.version >= ::Gem::Version.new('3.2') &&
   if ActiveRecord.version < ::Gem::Version.new('5.0')
-    # Used by Util#_arel_table_type
     module ActiveRecord
-      class Base
-        def self.arel_table
-          @arel_table ||= Arel::Table.new(table_name, arel_engine).tap do |x|
-            x.instance_variable_set(:@_arel_table_type, self)
-          end
-        end
-      end
-
       # Final pieces for left_outer_joins support, which was derived from this commit:
       # https://github.com/rails/rails/commit/3f46ef1ddab87482b730a3f53987e04308783d8b
       module Associations
@@ -1191,13 +1179,9 @@ if is_postgres && ActiveRecord.version < ::Gem::Version.new('5.0') # Was:  && Ob
   PGError = PG::Error
 end
 
-# More arel_table_type stuff:
-# ---------------------------
 if ActiveRecord.version < ::Gem::Version.new('5.2')
   # Specifically for AR 3.1 and 3.2 to avoid:  "undefined method `delegate' for ActiveRecord::Reflection::ThroughReflection:Class"
   require 'active_support/core_ext/module/delegation' if ActiveRecord.version < ::Gem::Version.new('4.0')
-  # Used by Util#_arel_table_type
-  # rubocop:disable Style/CommentedKeyword
   module ActiveRecord
     module Reflection
       # AR < 4.0 doesn't know about join_table and derive_join_table
@@ -1215,61 +1199,23 @@ if ActiveRecord.version < ::Gem::Version.new('5.2')
         end
       end
     end
-
-    module Associations
-      # Specific to AR 4.2 - 5.1:
-      if self.const_defined?('JoinDependency') && JoinDependency.private_instance_methods.include?(:table_aliases_for)
-        class JoinDependency
-        private
-
-          if ActiveRecord.version < ::Gem::Version.new('5.1') # 4.2 or 5.0
-            def table_aliases_for(parent, node)
-              node.reflection.chain.map do |reflection|
-                alias_tracker.aliased_table_for(
-                  reflection.table_name,
-                  table_alias_for(reflection, parent, reflection != node.reflection)
-                ).tap do |x|
-                  # %%% Specific only to Rails 4.2 (and maybe 4.1?)
-                  x = x.left if x.is_a?(Arel::Nodes::TableAlias)
-                  y = reflection.chain.find { |c| c.table_name == x.name }
-                  x.instance_variable_set(:@_arel_table_type, y.klass)
-                end
-              end
-            end
-          end
-        end
-      elsif Associations.const_defined?('JoinHelper') && JoinHelper.private_instance_methods.include?(:construct_tables)
-        module JoinHelper
-        private
-
-          # AR > 3.0 and < 4.2 (%%% maybe only < 4.1?) uses construct_tables like this:
-          def construct_tables
-            tables = []
-            chain.each do |reflection|
-              tables << alias_tracker.aliased_table_for(
-                table_name_for(reflection),
-                table_alias_for(reflection, reflection != self.reflection)
-              ).tap do |x|
-                x = x.left if x.is_a?(Arel::Nodes::TableAlias)
-                x.instance_variable_set(:@_arel_table_type, reflection.chain.find { |c| c.table_name == x.name }.klass)
-              end
-
-              next unless reflection.source_macro == :has_and_belongs_to_many
-
-              tables << alias_tracker.aliased_table_for(
-                (reflection.source_reflection || reflection).join_table,
-                table_alias_for(reflection, true)
-              )
-            end
-            tables
-          end
-        end
-      end
-    end
-  end # module ActiveRecord
-  # rubocop:enable Style/CommentedKeyword
+  end
 end
 
+# The "brick_links" patch -- this finds how every AR chain of association names
+# relates back to an exact table correlation name chosen by AREL when the AST tree is
+# walked.  For instance, from a Customer model there could be a join_tree such as
+# { orders: { line_items: :product} }, which would end up recording three entries, the
+# last of which for products would have a key of "orders.line_items.product" after
+# having gone through two HMs and one BT.  AREL would have chosen a correlation name of
+# "products", being able to use the same name as the table name because it's the first
+# time that table is used in this query.  But let's see what happens if each customer
+# also had a BT to a favourite product, referenced earlier in the join_tree like this:
+# [:favourite_product, orders: { line_items: :product}] -- then the second reference to
+# "products" would end up being called "products_line_items" in order to differentiate
+# it from the first reference, which would have already snagged the simpler name
+# "products".  It's essential that The Brick can find accurate correlation names when
+# there are multiple JOINs to the same table.
 module ActiveRecord
   module QueryMethods
   private
