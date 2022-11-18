@@ -270,7 +270,7 @@ module ActiveRecord
 
     def self._brick_index(mode = nil)
       tbl_parts = ((mode == :singular) ? table_name.singularize : table_name).split('.')
-      tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.length > 1 && tbl_parts.first == Apartment.default_schema
+      tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.length > 1 && tbl_parts.first == ::Brick.apartment_default_tenant
       tbl_parts.unshift(::Brick.config.path_prefix) if ::Brick.config.path_prefix
       index = tbl_parts.map(&:underscore).join('_')
       # Rails applies an _index suffix to that route when the resource name is singular
@@ -1167,7 +1167,7 @@ class Object
                      end
         if ::Brick.apartment_multitenant &&
            Apartment.excluded_models.include?(table_name.singularize.camelize)
-          schema_name = Apartment.default_schema
+          schema_name = ::Brick.apartment_default_tenant
         end
         # Maybe, just maybe there's a database table that will satisfy this need
         if (matching = [table_name, singular_table_name, plural_class_name, model_name, table_name.titleize].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
@@ -1178,7 +1178,7 @@ class Object
 
     def build_model_worker(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching)
       if ::Brick.apartment_multitenant &&
-         schema_name == Apartment.default_schema
+         schema_name == ::Brick.apartment_default_tenant
         relation = relations["#{schema_name}.#{matching}"]
       end
       full_name = if relation || schema_name.blank?
@@ -1380,7 +1380,7 @@ class Object
                   # If it's multitenant with something like:  public.____ ...
                   if (it_parts = inverse_table.split('.')).length > 1 &&
                      ::Brick.apartment_multitenant &&
-                     it_parts.first == Apartment.default_schema
+                     it_parts.first == ::Brick.apartment_default_tenant
                     it_parts.shift # ... then ditch the generic schema name
                   end
                   inverse_assoc_name, _x = _brick_get_hm_assoc_name(relations[inverse_table], inverse, it_parts.join('_').singularize)
@@ -1477,7 +1477,7 @@ class Object
             instance_variable_set(:@resources, ::Brick.get_status_of_resources)
           end
           self.define_method :orphans do
-            instance_variable_set(:@orphans, ::Brick.find_orphans(::Brick.set_db_schema(params)))
+            instance_variable_set(:@orphans, ::Brick.find_orphans(::Brick.set_db_schema(params).first))
           end
           return [new_controller_class, code + "end # BrickGem controller\n"]
         when 'BrickOpenapi'
@@ -1495,7 +1495,7 @@ class Object
               api_params = referrer_params&.to_h
             end
           end
-          ::Brick.set_db_schema(params || api_params)
+          _schema, @_is_show_schema_list = ::Brick.set_db_schema(params || api_params)
 
           if is_openapi
             json = { 'openapi': '3.0.1', 'info': { 'title': Rswag::Ui.config.config_object[:urls].last&.fetch(:name, 'API documentation'), 'version': ::Brick.config.api_version },
@@ -1609,7 +1609,7 @@ class Object
             code << "    #{find_by_name = "find_#{singular_table_name}"}\n"
             code << "  end\n"
             self.define_method :show do
-              ::Brick.set_db_schema(params)
+              _schema, @_is_show_schema_list = ::Brick.set_db_schema(params)
               instance_variable_set("@#{singular_table_name}".to_sym, find_obj)
             end
           end
@@ -1620,7 +1620,7 @@ class Object
           code << "    @#{singular_table_name} = #{model.name}.new\n"
           code << "  end\n"
           self.define_method :new do
-            ::Brick.set_db_schema(params)
+            _schema, @_is_show_schema_list = ::Brick.set_db_schema(params)
             instance_variable_set("@#{singular_table_name}".to_sym, model.new)
           end
 
@@ -1659,7 +1659,7 @@ class Object
             code << "    #{find_by_name}\n"
             code << "  end\n"
             self.define_method :edit do
-              ::Brick.set_db_schema(params)
+              _schema, @_is_show_schema_list = ::Brick.set_db_schema(params)
               instance_variable_set("@#{singular_table_name}".to_sym, find_obj)
             end
 
@@ -1938,7 +1938,7 @@ end.class_exec do
           # If Apartment gem lists the table as being associated with a non-tenanted model then use whatever it thinks
           # is the default schema, usually 'public'.
           schema_name = if ::Brick.config.schema_behavior[:multitenant]
-                          Apartment.default_schema if apartment_excluded&.include?(r['relation_name'].singularize.camelize)
+                          ::Brick.apartment_default_tenant if apartment_excluded&.include?(r['relation_name'].singularize.camelize)
                         elsif ![schema, 'public'].include?(r['schema'])
                           r['schema']
                         end
@@ -2089,7 +2089,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         fk = fk.values unless fk.is_a?(Array)
         # Multitenancy makes things a little more general overall, except for non-tenanted tables
         if apartment_excluded&.include?(::Brick.namify(fk[1]).singularize.camelize)
-          fk[0] = Apartment.default_schema
+          fk[0] = ::Brick.apartment_default_tenant
         elsif (is_postgres && (fk[0] == 'public' || (multitenancy && fk[0] == schema))) ||
               (::Brick.is_oracle && fk[0] == schema) ||
               (is_mssql && fk[0] == 'dbo') ||
@@ -2097,7 +2097,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
           fk[0] = nil
         end
         if apartment_excluded&.include?(fk[4].singularize.camelize)
-          fk[3] = Apartment.default_schema
+          fk[3] = ::Brick.apartment_default_tenant
         elsif (is_postgres && (fk[3] == 'public' || (multitenancy && fk[3] == schema))) ||
               (::Brick.is_oracle && fk[3] == schema) ||
               (is_mssql && fk[3] == 'dbo') ||
@@ -2116,7 +2116,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
     relations.each do |k, v|
       rel_name = k.split('.').map { |rel_part| ::Brick.namify(rel_part, :underscore) }
       schema_names = rel_name[0..-2]
-      schema_names.shift if ::Brick.apartment_multitenant && schema_names.first == Apartment.default_schema
+      schema_names.shift if ::Brick.apartment_multitenant && schema_names.first == ::Brick.apartment_default_tenant
       v[:schema] = schema_names.join('.') unless schema_names.empty?
       # %%% If more than one schema has the same table name, will need to add a schema name prefix to have uniqueness
       v[:resource] = rel_name.last
@@ -2127,7 +2127,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
     end
     ::Brick.load_additional_references if initializer_loaded
 
-    if orig_schema && (orig_schema = (orig_schema - ['pg_catalog', 'heroku_ext']).first)
+    if orig_schema && (orig_schema = (orig_schema - ['pg_catalog', 'pg_toast', 'heroku_ext']).first)
       puts "Now switching back to \"#{orig_schema}\" schema."
       ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", orig_schema)
     end
@@ -2165,7 +2165,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         AND kcu.column_name = c.column_name#{"
     --    AND kcu.position_in_unique_constraint IS NULL" unless is_mssql}
     WHERE t.table_schema #{is_postgres || is_mssql ?
-        "NOT IN ('information_schema', 'pg_catalog',
+        "NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'heroku_ext',
                  'INFORMATION_SCHEMA', 'sys')"
         :
         "= '#{ActiveRecord::Base.connection.current_database.tr("'", "''")}'"}#{"
@@ -2264,7 +2264,7 @@ module Brick
       for_tbl = fk[1]
       fk_namified = ::Brick.namify(fk[1])
       apartment = Object.const_defined?('Apartment') && Apartment
-      fk[0] = Apartment.default_schema if apartment && apartment.excluded_models.include?(fk_namified.singularize.camelize)
+      fk[0] = ::Brick.apartment_default_tenant if apartment && apartment.excluded_models.include?(fk_namified.singularize.camelize)
       fk[1] = "#{fk[0]}.#{fk[1]}" if fk[0] # && fk[0] != ::Brick.default_schema
       bts = (relation = relations.fetch(fk[1], nil))&.fetch(:fks) { relation[:fks] = {} }
 
@@ -2280,7 +2280,7 @@ module Brick
                                       # If Apartment gem lists the primary table as being associated with a non-tenanted model
                                       # then use 'public' schema for the primary table
                                       if apartment && apartment&.excluded_models.include?(fk[4].singularize.camelize)
-                                        fk[3] = Apartment.default_schema
+                                        fk[3] = ::Brick.apartment_default_tenant
                                         true
                                       end
                                     else
@@ -2355,7 +2355,7 @@ module Brick
         end
         assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
       else
-        inv_tbl = if ::Brick.config.schema_behavior[:multitenant] && apartment && fk[0] == Apartment.default_schema
+        inv_tbl = if ::Brick.config.schema_behavior[:multitenant] && apartment && fk[0] == ::Brick.apartment_default_tenant
                     for_tbl
                   else
                     fk[1]
@@ -2414,7 +2414,7 @@ module Brick
                end
       ::Brick.relations.keys.map do |v|
         tbl_parts = v.split('.')
-        tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.length > 1 && tbl_parts.first == Apartment.default_schema
+        tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.length > 1 && tbl_parts.first == ::Brick.apartment_default_tenant
         res = tbl_parts.join('.')
         [v, (model = models[res])&.last&.table_name, migrations&.fetch(res, nil), model&.first]
       end
@@ -2444,14 +2444,14 @@ module Brick
 
     # Locate orphaned records
     def find_orphans(multi_schema)
-      is_default_schema = multi_schema&.==(Apartment.default_schema)
+      is_default_schema = multi_schema&.==(::Brick.apartment_default_tenant)
       relations.each_with_object([]) do |v, s|
         frn_tbl = v.first
         next if (relation = v.last).key?(:isView) || config.exclude_tables.include?(frn_tbl) ||
                 !(for_pk = (relation[:pkey].values.first&.first))
 
         is_default_frn_schema = !is_default_schema && multi_schema &&
-                                ((frn_parts = frn_tbl.split('.')).length > 1 && frn_parts.first)&.==(Apartment.default_schema)
+                                ((frn_parts = frn_tbl.split('.')).length > 1 && frn_parts.first)&.==(::Brick.apartment_default_tenant)
         relation[:fks].select { |_k, assoc| assoc[:is_bt] }.each do |_k, bt|
           begin
             if bt.key?(:polymorphic)
@@ -2467,7 +2467,7 @@ module Brick
                 # Skip if database is multitenant, we're not focused on "public", and the foreign and primary tables
                 # are both in the "public" schema
                 next if is_default_frn_schema &&
-                        ((pri_parts = pri_tbl&.split('.'))&.length > 1 && pri_parts.first)&.==(Apartment.default_schema)
+                        ((pri_parts = pri_tbl&.split('.'))&.length > 1 && pri_parts.first)&.==(::Brick.apartment_default_tenant)
 
                 selects << "SELECT '#{pri_tbl}' AS pri_tbl, frn.#{fk_type_col} AS pri_type, frn.#{fk_id_col} AS pri_id, frn.#{for_pk} AS frn_id
                 FROM #{frn_tbl} AS frn
@@ -2486,7 +2486,7 @@ module Brick
               # are both in the "public" schema
               pri_tbl = bt.key?(:inverse_table) && bt[:inverse_table]
               next if is_default_frn_schema &&
-                      ((pri_parts = pri_tbl&.split('.'))&.length > 1 && pri_parts.first)&.==(Apartment.default_schema)
+                      ((pri_parts = pri_tbl&.split('.'))&.length > 1 && pri_parts.first)&.==(::Brick.apartment_default_tenant)
 
               pri_pk = relations[pri_tbl].fetch(:pkey, nil)&.values&.first&.first ||
                        _class_pk(pri_tbl, multi_schema)

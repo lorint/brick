@@ -194,7 +194,7 @@ module Brick
 
               apartment_default_schema = ::Brick.apartment_multitenant && ::Brick.apartment_default_tenant
               if ::Brick.apartment_multitenant && ::Brick.db_schemas.length > 1
-                schema_options = +'<select id="schema"><% if Apartment::Tenant.current != apartment_default_schema %>'
+                schema_options = +'<select id="schema"><% if @_is_show_schema_list %>'
                 ::Brick.db_schemas.keys.each { |v| schema_options << "\n  <option value=\"#{v}\">#{v}</option>" }
                 schema_options << "\n<% else %><option selected value=\"#{Apartment::Tenant.current}\">#{Apartment::Tenant.current}</option>\n"
                 schema_options << '<% end %></select>'
@@ -1414,9 +1414,26 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
               # As if it were an inline template (see #determine_template in actionview-5.2.6.2/lib/action_view/renderer/template_renderer.rb)
               keys = options.has_key?(:locals) ? options[:locals].keys : []
               handler = ActionView::Template.handler_for_extension(options[:type] || 'erb')
-              ActionView::Template.new(inline, "auto-generated #{args.first} template", handler, locals: keys)
+              ActionView::Template.new(inline, "auto-generated #{args.first} template", handler, locals: keys).tap do |t|
+                t.instance_variable_set(:@is_brick, true)
+              end
             end
-          end
+          end # LookupContext
+
+          # For any auto-generated template, if multitenancy is active via some flavour of an Apartment gem, switch back to the default tenant.
+          # (Underlying reason -- ros-apartment can hold on to a selected tenant between requests when there is no elevator middleware.)
+          ActionView::TemplateRenderer.class_exec do
+            private
+
+              alias _brick_render_template render_template
+              def render_template(view, template, *args)
+                result = _brick_render_template(view, template, *args)
+                if template.instance_variable_get(:@is_brick)
+                  Apartment::Tenant.switch!(::Brick.apartment_default_tenant) if ::Brick.apartment_multitenant
+                end
+                result
+              end
+          end # TemplateRenderer
         end
 
         if ::Brick.enable_routes?

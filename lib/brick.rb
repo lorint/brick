@@ -136,17 +136,19 @@ module Brick
     attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle, :is_eager_loading, :auto_models
 
     def set_db_schema(params = nil)
-      schema = (params ? params['_brick_schema'] : ::Brick.default_schema)
-      chosen = if schema && ::Brick.db_schemas&.key?(schema)
-        ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?;", schema)
-        schema
-      elsif ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-        # Just return the current schema
-        orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
-        # ::Brick.apartment_multitenant && tbl_parts.first == Apartment.default_schema
-        (orig_schema - ['pg_catalog']).first
-      end
-      chosen == ::Brick.default_schema ? nil : chosen
+      # If Apartment::Tenant.current is not still the default (usually 'public') then an elevator has brought us into
+      # a different tenant.  If so then don't allow schema navigation.
+      chosen = if (is_show_schema_list = (apartment_multitenant && Apartment::Tenant.current == ::Brick.default_schema)) &&
+                  (schema = (params ? params['_brick_schema'] : ::Brick.default_schema)) &&
+                  ::Brick.db_schemas&.key?(schema)
+                 Apartment::Tenant.switch!(schema)
+                 schema
+               elsif ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+                 # Just return the current schema
+                 current_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
+                 (current_schema - ['pg_catalog', 'pg_toast', 'heroku_ext']).first
+               end
+      [chosen == ::Brick.default_schema ? nil : chosen, is_show_schema_list]
     end
 
     # All tables and views (what Postgres calls "relations" including column and foreign key info)
@@ -160,6 +162,10 @@ module Brick
         @apartment_multitenant = ::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment')
       end
       @apartment_multitenant
+    end
+
+    def apartment_default_tenant
+      Apartment.default_tenant || 'public'
     end
 
     # If multitenancy is enabled, a list of non-tenanted "global" models
