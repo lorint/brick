@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.92         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.93         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -50,10 +50,12 @@ are multiple "hops" away from the source table.  This frees up the developer fro
 tricky ActiveRecord queries.  The approach taken up to version 1.0.91 was fairly successful
 except for when custom DSL was used on tables which are self-referencing, for instance with a
 DSL of `[name]` on an Employee table which has a `manager_id` column, then the employee's name
-and boss' name might show as the same even though obviously they are two different records in
-the same table.  To remedy this a fully new approach was taken starting with version 1.0.92
-in which the table aliasing logic used by Arel is captured as the AST tree is being walked,
-and exact table correlation names are tracked in relation to the association tree being walked.
+and boss' name might show as the same when referenced from a query on a related table at least
+one hop away, such as from `orders` (even though obviously the employee and their boss would be
+two different records in the same table).  To remedy this, a fully new approach was taken
+starting with version 1.0.92 in which the table aliasing logic used by Arel is captured as the
+AST tree is being walked, and exact table correlation names are tracked in relation to the
+association names in the tree.
 
 On the "show" page which is built out, CRUD functionality for an individual record can be
 performed.  Date and time fields are made editable with pop-up calendars by using the very lean

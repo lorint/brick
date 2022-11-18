@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.92         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.93         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -47,7 +47,15 @@ a given model creates just one database query in order to get records back -- no
 problem common to other solutions which auto-scaffold related tables of data.  This is due to
 the intelligent way in which JOINs are added to the query, even when fields are requested which
 are multiple "hops" away from the source table.  This frees up the developer from writing many
-tricky ActiveRecord queries.
+tricky ActiveRecord queries.  The approach taken up to version 1.0.91 was fairly successful
+except for when custom DSL was used on tables which are self-referencing, for instance with a
+DSL of `[name]` on an Employee table which has a `manager_id` column, then the employee's name
+and boss' name might show as the same when referenced from a query on a related table at least
+one hop away, such as from `orders` (even though obviously the employee and their boss would be
+two different records in the same table).  To remedy this, a fully new approach was taken
+starting with version 1.0.92 in which the table aliasing logic used by Arel is captured as the
+AST tree is being walked, and exact table correlation names are tracked in relation to the
+association names in the tree.
 
 On the "show" page which is built out, CRUD functionality for an individual record can be
 performed.  Date and time fields are made editable with pop-up calendars by using the very lean
@@ -270,6 +278,18 @@ and it will affect all routes.  For instance, instead of http://localhost:3000/h
     <%= link_to_brick %>
 
 and then on every page in your site which relates to a resource that can be shown with a Brick-created index or show page, an appropriate auto-calculated link will appear.  The link creation logic first examines the current controller name to see if a resource of the same name exists and can be surfaced by Brick, and if that fails then every instance variable is examined, looking for any which are of class ActiveRecord::Relation or ActiveRecord::Base.  For all of them an index or show link is created, and they all end up being shown, with spacing between them.
+
+If you do use `<%= link_to_brick %>` tags and have Brick only loaded in `:development`, you will want to add this block of code in `application.rb` so that when it is running in Production then these tags will have no effect:
+
+```
+unless ActiveRecord::Base.respond_to?(:brick_select)
+  module ActionView::Helpers::FormTagHelper
+    def link_to_brick(*args, **kwargs)
+      return
+    end
+  end
+end
+```
 
 Another useful entry that can be placed in `config/initializers/brick.rb` is `Brick.additional_references` which defines additional foreign key associations, and even shows some suggested ones where possible.  By default these are commented out, and by un-commenting the ones you would like (or perhaps even all of them), then it is as if these foreign keys were present to provide referential integrity.  If you then start up a `rails c` you'll find that appropriate belongs_to and has_many associations are automatically fleshed out.  Even has_many :through associations are provided when possible associative tables are identified -- that is, tables having only foreign keys that refer to other tables.
 

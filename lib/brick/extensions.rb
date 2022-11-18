@@ -1023,7 +1023,8 @@ Module.class_exec do
                                    (table_name = singular_table_name.pluralize),
                                    ::Brick.is_oracle ? class_name.upcase : class_name,
                                    (plural_class_name = class_name.pluralize)].find { |s| Brick.db_schemas&.include?(s) }&.camelize ||
-                                  (::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}::") && class_name))
+                                  (::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}::") && class_name) ||
+                                  (::Brick.config.table_name_prefixes&.values.include?(class_name) && class_name))
                return self.const_get(schema_name) if self.const_defined?(schema_name)
 
                # Build out a module for the schema if it's namespaced
@@ -1074,6 +1075,7 @@ class Object
   private
 
     def build_model(relations, base_module, base_name, class_name, inheritable_name = nil)
+      tnp = ::Brick.config.table_name_prefixes&.find { |p| p.last == base_module.name }&.first
       if (base_model = ::Brick.config.sti_namespace_prefixes&.fetch("::#{base_module.name}::", nil)&.constantize) || # Are we part of an auto-STI namespace? ...
          base_module != Object # ... or otherwise already in some namespace?
         schema_name = [(singular_schema_name = base_name.underscore),
@@ -1095,7 +1097,7 @@ class Object
         table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil) || ::Brick.existing_stis[model_name]&.constantize)
                        base_model.table_name
                      else
-                       ActiveSupport::Inflector.pluralize(singular_table_name)
+                       "#{tnp}#{ActiveSupport::Inflector.pluralize(singular_table_name)}"
                      end
         if ::Brick.apartment_multitenant &&
            Apartment.excluded_models.include?(table_name.singularize.camelize)
