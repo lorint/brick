@@ -502,13 +502,16 @@ module ActiveRecord
       params.each do |k, v|
         next if ['_brick_schema', '_brick_order', 'controller', 'action'].include?(k)
 
-        case (ks = k.split('.')).length
+        if (where_col = (ks = k.split('.')).last)[-1] == '!'
+          where_col = where_col[0..-2]
+        end
+        case ks.length
         when 1
-          next unless klass.column_names.any?(k) || klass._brick_get_fks.include?(k)
+          next unless klass.column_names.any?(where_col) || klass._brick_get_fks.include?(where_col)
         when 2
           assoc_name = ks.first.to_sym
           # Make sure it's a good association name and that the model has that column name
-          next unless klass.reflect_on_association(assoc_name)&.klass&.column_names&.any?(ks.last)
+          next unless klass.reflect_on_association(assoc_name)&.klass&.column_names&.any?(where_col)
 
           join_array[assoc_name] = nil # Store this relation name in our special collection for .joins()
           is_distinct = true
@@ -786,16 +789,23 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
 
       unless wheres.empty?
         # Rewrite the wheres to reference table and correlation names built out by AREL
+        where_nots = {}
         wheres2 = wheres.each_with_object({}) do |v, s|
+          is_not = if v.first[-1] == '!'
+                     v[0] = v[0][0..-2] # Take off ending ! from column name
+                   end
           if (v_parts = v.first.split('.')).length == 1
-            s[v.first] = v.last
+            (is_not ? where_nots : s)[v.first] = v.last
           else
             tbl_name = rel_dupe.brick_links[v_parts.first].split('.').last
-            s["#{tbl_name}.#{v_parts.last}"] = v.last
+            (is_not ? where_nots : s)["#{tbl_name}.#{v_parts.last}"] = v.last
           end
         end
         if respond_to?(:where!)
-          where!(wheres2)
+          where!(wheres2) if wheres2.present?
+          if where_nots.present?
+            self.where_clause += WhereClause.new(predicate_builder.build_from_hash(where_nots)).invert
+          end
         else # AR < 4.0
           self.where_values << build_where(wheres2)
         end
