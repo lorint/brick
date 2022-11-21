@@ -141,10 +141,10 @@ module Brick
                                  next unless @_brick_model.instance_methods.include?(through) &&
                                              (associative = @_brick_model._br_associatives.fetch(hm.first, nil))
 
-                                 tbl_nm = if (source = hm_assoc.source_reflection).macro == :belongs_to
-                                            hm_assoc.through_reflection&.name # for standard HMT, which is HM -> BT
-                                          else
+                                 tbl_nm = if (source = hm_assoc.source_reflection).macro == :has_many
                                             source.inverse_of&.name # For HM -> HM style HMT
+                                          else # belongs_to or has_one
+                                            hm_assoc.through_reflection&.name # for standard HMT, which is HM -> BT
                                           end
                                  # If there is no inverse available for the source belongs_to association, make one based on the class name
                                  unless tbl_nm
@@ -910,7 +910,9 @@ erDiagram
      end
      unless @_brick_sequence # If no sequence is defined, start with all inclusions
        cust_cols = #{model_name}._br_cust_cols
-       @_brick_sequence = col_keys + cust_cols.keys + #{(hms_keys).inspect}.reject { |assoc_name| @_brick_incl&.exclude?(assoc_name) }
+       # HOT columns, kept as symbols
+       hots = #{model_name}._br_bt_descrip.keys.select { |k| bts.key?(k) }
+       @_brick_sequence = col_keys + cust_cols.keys + hots + #{(hms_keys).inspect}.reject { |assoc_name| @_brick_incl&.exclude?(assoc_name) }
      end
      @_brick_sequence.reject! { |nm| @_brick_excl.include?(nm) } if @_brick_excl # Reject exclusions
      @_brick_sequence.each_with_object(+'') do |col_name, s|
@@ -929,6 +931,10 @@ erDiagram
          s << (col.first ? \"#\{col[3]}\" : \"#\{link_to(col[3], send(\"#\{col[1]._brick_index}_path\"))}\")
        elsif cust_cols.key?(col_name) # Custom column
          s << \"<th x-order=\\\"#\{col_name}\\\">#\{col_name}\"
+       elsif col_name.is_a?(Symbol) && (hot = bts[col_name]) # has_one :through
+         s << \"<th x-order=\\\"#\{hot.first.to_s}\\\">HOT \" +
+              hot[1].map { |hot_pair| hot_pair.first.bt_link(col_name) }.join(' ')
+         hot[1].first
        else # Bad column name!
          s << \"<th title=\\\"<< Unknown column >>\\\">#\{col_name}\"
        end
@@ -946,14 +952,16 @@ erDiagram
     <td><%= link_to '⇛', #{path_obj_name}_path(slashify(#{obj_pk})), { class: 'big-arrow' } %></td>" if obj_pk}
     <% @_brick_sequence.each do |col_name|
          val = #{obj_name}.attributes[col_name] %>
-      <td<%= ' class=\"dimmed\"'.html_safe unless cols.key?(col_name) || (cust_col = cust_cols[col_name])%>><%
+      <td<%= ' class=\"dimmed\"'.html_safe unless cols.key?(col_name) || (cust_col = cust_cols[col_name]) || 
+                                                  (col_name.is_a?(Symbol) && bts.key?(col_name)) # HOT
+         %>><%
          if (bt = bts[col_name])
            if bt[2] # Polymorphic?
              bt_class = #{obj_name}.send(\"#\{bt.first}_type\")
              base_class_underscored = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class._brick_index(:singular)
              poly_id = #{obj_name}.send(\"#\{bt.first}_id\")
              %><%= link_to(\"#\{bt_class} ##\{poly_id}\", send(\"#\{base_class_underscored}_path\".to_sym, poly_id)) if poly_id %><%
-           else
+           else # BT or HOT
              bt_class = bt[1].first.first
              descrips = @_brick_bt_descrip[bt.first][bt_class]
              bt_id_col = if descrips.nil?

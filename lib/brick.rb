@@ -211,12 +211,13 @@ module Brick
           else
             s.first[a.foreign_key.to_s] = [a.name, a.klass]
           end
-        else # This gets has_many as well as has_one and has_many :through
-          if through
+        else # This gets all forms of has_many and has_one
+          if through # has_many :through or has_one :through
             is_invalid_source = nil
             begin
-              if a.through_reflection&.belongs_to?
-                puts "WARNING:  HMT relationship :#{a.name} in model #{model.name} tries to go through belongs_to association :#{through}.  This is not possible."
+              if a.through_reflection.macro != :has_many # This HM goes through either a belongs_to or a has_one, so essentially a HOT?
+                # Treat it like a belongs_to - just keyed on the association name instead of a foreign_key
+                s.first[a.name] = [a.name, a.klass]
                 next
               elsif !a.source_reflection # Had considered:  a.active_record.reflect_on_association(a.source_reflection_name).nil?
                 is_invalid_source = true
