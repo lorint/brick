@@ -542,7 +542,7 @@ module ActiveRecord
               field_tbl_name = "\"#{field_tbl_name}\"" if ::Brick.is_oracle && rel_dupe.brick_links.values.include?(field_tbl_name)
 
               # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
-              is_xml = is_distinct && Brick.relations[field_tbl_name]&.[](:cols)&.[](sel_col.last)&.first&.start_with?('xml')
+              is_xml = is_distinct && Brick.relations[k1.table_name]&.[](:cols)&.[](sel_col.last)&.first&.start_with?('xml')
               # If it's not unique then also include the belongs_to association name before the column name
               if used_col_aliases.key?(col_alias = "br_fk_#{v.first}__#{sel_col.last}")
                 col_alias = "br_fk_#{v.first}__#{v1[idx][-2..-1].map(&:to_s).join('__')}"
@@ -2310,7 +2310,7 @@ module Brick
       rails_root = ::Rails.root.to_s
       migrations = if Dir.exist?(mig_path = ActiveRecord::Migrator.migrations_paths.first || "#{rails_root}/db/migrate")
                      Dir["#{mig_path}/**/*.rb"].each_with_object(Hash.new { |h, k| h[k] = [] }) do |v, s|
-                       File.read(v).split("\n").each do |line|
+                       File.read(v).split("\n").each_with_index do |line, line_idx|
                          # For all non-commented lines, look for any that have "create_table", "alter_table", or "drop_table"
                          if !line.lstrip.start_with?('#') &&
                             (idx = (line.index('create_table ') || line.index('create_table('))&.+(13)) ||
@@ -2318,8 +2318,9 @@ module Brick
                             (idx = (line.index('drop_table ') || line.index('drop_table('))&.+(11))
                            tbl = line[idx..-1].match(/([:'"\w\.]+)/)&.captures&.first
                            if tbl
-                             s[tbl.tr(':\'"', '').pluralize] << v
-                             break
+                             v = v[(rails_root.length)..-1] if v.start_with?(rails_root)
+                             v = v[1..-1] if v.start_with?('/')
+                             s[tbl.tr(':\'"', '').pluralize] << [v, line_idx + 1]
                            end
                          end
                        end

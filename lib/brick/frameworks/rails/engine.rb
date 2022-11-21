@@ -203,7 +203,6 @@ module Brick
               # environment or whatever, then get either the controllers or routes list instead
               prefix = "#{::Brick.config.path_prefix}/" if ::Brick.config.path_prefix
               table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).each_with_object({}) do |tbl, s|
-                                binding.pry if tbl.is_a?(Symbol)
                                 if (tbl_parts = tbl.split('.')).first == apartment_default_schema
                                   tbl = tbl_parts.last
                                 end
@@ -928,7 +927,7 @@ erDiagram
        elsif col # HM column
          s << \"<th#\{' x-order=\"' + col_name + '\"' if true}>#\{col[2]} \"
          s << (col.first ? \"#\{col[3]}\" : \"#\{link_to(col[3], send(\"#\{col[1]._brick_index}_path\"))}\")
-       elsif (cc = cust_cols.key?(col_name)) # Custom column
+       elsif cust_cols.key?(col_name) # Custom column
          s << \"<th x-order=\\\"#\{col_name}\\\">#\{col_name}\"
        else # Bad column name!
          s << \"<th title=\\\"<< Unknown column >>\\\">#\{col_name}\"
@@ -1041,7 +1040,7 @@ erDiagram
   %>
   <tr>
   <td><%= begin
-            kls = Object.const_get(::Brick.relations[r[0]].fetch(:class_name, nil))
+            kls = Object.const_get(::Brick.relations.fetch(r[0], nil)&.fetch(:class_name, nil))
           rescue
           end
           kls ? link_to(r[0], send(\"#\{kls._brick_index}_path\".to_sym)) : r[0] %></td>
@@ -1051,8 +1050,9 @@ erDiagram
            ' class=\"dimmed\"'
          end&.html_safe %>><%= # Table
           r[1] %></td>
-  <td<%= ' class=\"dimmed\"'.html_safe unless r[2] %>><%= # Migration
-          r[2]&.join('<br>')&.html_safe %></td>
+  <td<%= lines = r[2]&.map { |line| \"#\{line.first}:#\{line.last}\" }
+         ' class=\"dimmed\"'.html_safe unless r[2] %>><%= # Migration
+          lines&.join('<br>')&.html_safe %></td>
   <td<%= ' class=\"dimmed\"'.html_safe unless r[3] %>><%= # Model
           r[3] %></td>
   <td<%= ' class=\"dimmed\"'.html_safe unless r[4] %>><%= # Route
