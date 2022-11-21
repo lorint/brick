@@ -245,12 +245,15 @@ module ActiveRecord
     end
 
     def self.bt_link(assoc_name)
-      assoc_name = CGI.escapeHTML(assoc_name.to_s)
+      assoc_html_name = unless (assoc_name = assoc_name.to_s).camelize == name
+                          CGI.escapeHTML(assoc_name)
+                        end
       model_path = ::Rails.application.routes.url_helpers.send("#{_brick_index}_path".to_sym)
+      model_path << "?#{self.inheritance_column}=#{self.name}" if self != base_class
       av_class = Class.new.extend(ActionView::Helpers::UrlHelper)
       av_class.extend(ActionView::Helpers::TagHelper) if ActionView.version < ::Gem::Version.new('7')
-      link = av_class.link_to(name, model_path)
-      table_name == assoc_name ? link : "#{assoc_name}-#{link}".html_safe
+      link = av_class.link_to(assoc_html_name ? name : assoc_name, model_path)
+      assoc_html_name ? "#{assoc_name}-#{link}".html_safe : link
     end
 
     def self._brick_index(mode = nil)
