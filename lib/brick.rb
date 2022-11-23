@@ -1248,6 +1248,67 @@ module ActiveRecord
     # For AR >= 4.2
     if self.const_defined?('JoinDependency')
       class JoinDependency
+        # An intelligent .eager_load() and .includes() that creates t0_r0 style aliases only for the columns
+        # used in .select().  To enable this behaviour, include the flag :_brick_eager_load as the first
+        # entry in your .select().
+        # More information:  https://discuss.rubyonrails.org/t/includes-and-select-for-joined-data/81640
+        def apply_column_aliases(relation)
+          used_cols = {}
+          if (sel_vals = relation.select_values.map(&:to_s)).first == '_brick_eager_load'
+            # Find and expand out all column names being used in select(...)
+            new_select_values = sel_vals.each_with_object([]) do |col, s|
+              next if col == '_brick_eager_load'
+
+              if col.include?(' ') # Some expression? (No chance for a simple column reference)
+                s << col # Just pass it through
+              else
+                col = if (col_parts = col.split('.')).length == 1
+                        [col]
+                      else
+                        [col_parts[0..-2].join('.'), col_parts.last]
+                      end
+                used_cols[col] = nil
+              end
+            end
+            if new_select_values.present?
+              relation.select_values = new_select_values
+            else
+              relation.select_values.clear
+            end
+          end
+
+          @aliases ||= Aliases.new(join_root.each_with_index.map do |join_part, i|
+            join_alias = join_part.table&.table_alias || join_part.table_name
+            keys = [join_part.base_klass.primary_key] # Always include the primary key
+
+            # # %%% Optional to include all foreign keys:
+            # keys.concat(join_part.base_klass.reflect_on_all_associations.select { |a| a.belongs_to? }.map(&:foreign_key))
+
+            # Add foreign keys out to referenced tables that we belongs_to
+            join_part.children.each { |child| keys << child.reflection.foreign_key if child.reflection.belongs_to? }
+
+            # Add the foreign key that got us here -- "the train we rode in on" -- if we arrived from
+            # a has_many or has_one:
+            if join_part.is_a?(ActiveRecord::Associations::JoinDependency::JoinAssociation) &&
+               !join_part.reflection.belongs_to?
+              keys << join_part.reflection.foreign_key
+            end
+            keys = keys.compact # In case we're using composite_primary_keys
+            j = 0
+            columns = join_part.column_names.each_with_object([]) do |column_name, s|
+              # Include columns chosen in select(...) as well as the PK and any relevant FKs
+              if used_cols.keys.find { |c| (c.length == 1 || c.first == join_alias) && c.last == column_name } ||
+                 keys.find { |c| c == column_name }
+                s << Aliases::Column.new(column_name, "t#{i}_r#{j}")
+              end
+              j += 1
+            end
+            Aliases::Table.new(join_part, columns)
+          end)
+
+          relation._select!(-> { @aliases.columns })
+        end
+
       private
 
         # %%% Pretty much have to flat-out replace this guy (I think anyway)
