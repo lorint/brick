@@ -1283,7 +1283,6 @@ module ActiveRecord
             if (relation = node.instance_variable_get(:@assocs)&.instance_variable_get(:@relation))
               relation.brick_links[link_path] = result.first.table_alias || result.first.table_name
             end
-
             result
           end
         else # Same idea but for Rails 7
@@ -1293,9 +1292,9 @@ module ActiveRecord
 
             # Capture the table alias name that was chosen
             link_path = child.instance_variable_get(:@link_path)
-            relation = child.instance_variable_get(:@assocs)&.instance_variable_get(:@relation)
-            # binding.pry if relation
-            relation.brick_links[link_path] = result.first.left.table_alias || result.first.left.table_name
+            if (relation = child.instance_variable_get(:@assocs)&.instance_variable_get(:@relation))
+              relation.brick_links[link_path] = result.first.left.table_alias || result.first.left.table_name
+            end
             result
           end
         end
