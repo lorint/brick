@@ -1416,6 +1416,85 @@ class Object
           self.define_method :orphans do
             instance_variable_set(:@orphans, ::Brick.find_orphans(::Brick.set_db_schema(params).first))
           end
+          self.define_method :crosstab do
+            @relations = ::Brick.relations.each_with_object({}) do |r, s|
+              cols = r.last[:cols].each_with_object([]) do |c, s2|
+                s2 << [c.first] + c.last
+              end
+              s[r.first] = { cols: cols } if r.last.key?(:cols)
+            end
+          end
+
+          self.define_method :crosstab_data do
+            # Bring in column names and use this to create an appropriate SELECT statement
+            is_grouped = nil
+            fields_in_sequence = params['fields'].split(',')
+            relations = {}
+            first_relation = nil
+            fields = fields_in_sequence.each_with_object(Hash.new { |h, k| h[k] = {} }) do |f, s|
+              relation, col = if (paren_index = f.index('(')) # Aggregate?
+                                aggregate = f[0..paren_index - 1]
+                                f_parts = f[(paren_index + 1)..-2].split(',')
+                                aggregate_options = f_parts[1..-1] # Options about aggregation
+                                f_parts.first.split('/') # Column being aggregated
+                              else
+                                f.split('/')
+                              end
+              first_relation ||= relation
+              # relation = if dts[(relation = relation.downcase)]
+              #   relation # Generally a common JOIN point, but who knows, maybe we'll add more
+              # else
+              #   relation
+              # end
+              if col
+                relations[relation] = nil
+                s[f] = if aggregate
+                         is_grouped = true
+                         [aggregate, relation, col, aggregate_options]
+                       else
+                         [relation, col]
+                       end
+              end
+              s
+            end
+            # ver = params['ver']
+            if fields.empty?
+              render json: { data: [] } # [ver, []]
+              return
+            end
+
+            # Apartment::Tenant.switch!(params['schema'])
+            # result = ActiveRecord::Base.connection.query("SELECT #{cols.join(', ')} FROM #{view}")
+            col_num = 0
+            grouping = []
+            cols = fields_in_sequence.each_with_object([]) do |f, s|
+              c = fields[f]
+              col_num += 1
+              col_def = if c.length > 2 # Aggregate?
+                          case c.first
+                          when 'COMMA_SEP'
+                            "STRING_AGG(DISTINCT #{c[1].downcase}.\"#{c[2]}\"::varchar, ',')" # Like STRING_AGG(DISTINCT v_tacos."price"::varchar, ',')
+                          when 'COUNT_DISTINCT'
+                            "COUNT(DISTINCT #{c[1].downcase}.\"#{c[2]}\")" # Like COUNT(DISTINCT v_tacos."price")
+                          when 'MODE'
+                            "MODE() WITHIN GROUP(ORDER BY #{c[1].downcase}.\"#{c[2]}\")" # Like MODE() WITHIN GROUP(ORDER BY v_tacos."price")
+                          when 'NUM_DAYS'
+                            "EXTRACT(DAYS FROM (MAX(#{c[1].downcase}.\"#{c[2]}\")::timestamp - MIN(#{c[1].downcase}.\"#{c[2]}\")::timestamp))" # Like EXTRACT(DAYS FROM (MAX(order."order_date") - MIN(order."order_date"))
+                          else
+                            "#{c.first}(#{c[1].downcase}.\"#{c[2]}\")" # Something like AVG(v_tacos."price")
+                          end
+                        else # Normal column, represented in an array having:  [relation, column_name]
+                          grouping << col_num
+                          "#{c.first.downcase}.\"#{c.last}\"" # Like v_tacos."price"
+                        end
+              s << "#{col_def} AS c#{col_num}"
+            end
+            sql = "SELECT #{cols.join(', ')} FROM #{first_relation.downcase}"
+            sql << "\nGROUP BY #{grouping.map(&:to_s).join(',')}" if is_grouped && grouping.present?
+            result = ActiveRecord::Base.connection.query(sql)
+            render json: { data: result } # [ver, result]
+          end
+
           return [new_controller_class, code + "end # BrickGem controller\n"]
         when 'BrickOpenapi'
           is_openapi = true

@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.94         | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.95         | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -155,7 +155,28 @@ then try adding this as the last line in boot.rb:
     require 'brick/compatibility'
 
 These patches not only allow Brick to run, but also will allow many other full Rails apps to run
-perfectly fine (and more securely / much faster) by using a newer Ruby.
+perfectly fine (and more securely / much faster) by using a newer Ruby.  A few other enhancements
+have been provided as well -- for instance, when eager loading related objects using .includes
+then normally every column in all tables would be queried:
+
+```
+Employee.includes(orders: :order_details)
+        .references(orders: :order_details)
+```
+
+To get just the columns that you need, The Brick examines a .select() if you provide one, and if
+the first member is :_brick_eager_load then this acts as a special flag to turn on "filter mode"
+where only the columns you ask for will be returned, often greatly speeding up query execution
+and saving RAM on your Rails machine, especially when the columns you don't need happened to have
+large amounts of data.
+
+```
+Employee.includes(orders: :order_details)
+        .references(orders: :order_details)
+        .select('employees.first_name', 'orders.order_date', 'order_details.product_id')
+```
+
+More information is available in this [discussion post](https://discuss.rubyonrails.org/t/includes-and-select-for-joined-data/81640).
 
 The Brick notices when some other gems are present and makes use of them -- most notably
 **[composite_primary_keys](https://github.com/composite-primary-keys/composite_primary_keys)** which allows very tricky databases to function.

@@ -466,6 +466,10 @@ module Brick
       Brick.config.default_route_fallback = resource_name
     end
 
+    def license_key=(key)
+      Brick.config.license_key = key
+    end
+
     # Load additional references (virtual foreign keys)
     # This is attempted early if a brick initialiser file is found, and then again as a failsafe at the end of our engine's initialisation
     # %%% Maybe look for differences the second time 'round and just add new stuff instead of entirely deferring
@@ -689,6 +693,11 @@ In config/initializers/brick.rb appropriate entries would look something like:
 
           if ::Brick.config.add_orphans && instance_variable_get(:@set).named_routes.names.exclude?(:brick_orphans)
             get("/#{controller_prefix}brick_orphans", to: 'brick_gem#orphans', as: 'brick_orphans')
+          end
+
+          if instance_variable_get(:@set).named_routes.names.exclude?(:brick_crosstab)
+            get("/#{controller_prefix}brick_crosstab", to: 'brick_gem#crosstab', as: 'brick_crosstab')
+            get("/#{controller_prefix}brick_crosstab/data", to: 'brick_gem#crosstab_data')
           end
 
           unless ::Brick.routes_done

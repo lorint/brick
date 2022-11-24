@@ -71,6 +71,7 @@ module Brick
             def template_exists?(*args, **options)
               (::Brick.config.add_status && args.first == 'status') ||
               (::Brick.config.add_orphans && args.first == 'orphans') ||
+              (args.first == 'crosstab') ||
               _brick_template_exists?(*args, **options) ||
               # Do not auto-create a template when it's searching for an application.html.erb, which comes in like:  ["edit", ["games", "application"]]
               ((args[1].length == 1 || args[1][-1] != 'application') &&
@@ -107,7 +108,8 @@ module Brick
             def find_template(*args, **options)
               unless (model_name = @_brick_model&.name) ||
                      (is_status = ::Brick.config.add_status && args[0..1] == ['status', ['brick_gem']]) ||
-                     (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']])
+                     (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']]) ||
+                     (is_crosstab = args[0..1] == ['crosstab', ['brick_gem']])
                 if ActionView.version < ::Gem::Version.new('5.0') # %%% Not sure if this should be perhaps 4.2 instead
                   begin
                     if (possible_template = _brick_find_template(*args, **options))
@@ -212,6 +214,7 @@ module Brick
                               end.html_safe
               table_options << "<option value=\"#{prefix}brick_status\">(Status)</option>".html_safe if ::Brick.config.add_status
               table_options << "<option value=\"#{prefix}brick_orphans\">(Orphans)</option>".html_safe if is_orphans
+              table_options << "<option value=\"#{prefix}brick_orphans\">(Crosstab)</option>".html_safe if is_crosstab
               css = +"<style>
 h1, h3 {
   margin-bottom: 0;
@@ -1093,6 +1096,16 @@ erDiagram
 #{script}"
                          end
 
+                       when 'crosstab'
+                         if is_crosstab && ::Brick.config.license_key
+                           decipher = OpenSSL::Cipher::AES256.new(:CBC).decrypt
+                           decipher.iv = "\xB4,\r2\x19\xF5\xFE/\aR\x1A\x8A\xCFV\v\x8C"
+                           decipher.key = Digest::SHA256.hexdigest(::Brick.config.license_key).scan(/../).map { |x| x.hex }.pack('c*')
+                           decipher.update(File.binread("/Users/aga/brick/lib/brick/frameworks/rails/crosstab.brk"))[16..-1]
+                         else
+                           'Crosstab Charting not yet activated -- enter a valid license key in brick.rb'
+                         end
+
                        when 'show', 'new', 'update'
 +"<html>
 <head>
@@ -1282,7 +1295,8 @@ end}
 "
 
                        end
-              inline << "
+              unless is_crosstab
+                inline << "
 <% if is_includes_dates %>
 <link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css\">
 <style>
@@ -1416,6 +1430,7 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
   }
 });
 </script>"
+              end
               # puts "==============="
               # puts inline
               # puts "==============="

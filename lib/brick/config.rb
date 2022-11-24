@@ -303,5 +303,13 @@ module Brick
     def add_orphans
       true
     end
+
+    def license_key
+      @mutex.synchronize { @license_key }
+    end
+
+    def license_key=(key)
+      @mutex.synchronize { @license_key = key }
+    end
   end
 end
