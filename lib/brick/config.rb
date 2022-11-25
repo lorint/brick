@@ -304,12 +304,12 @@ module Brick
       true
     end
 
-    def license_key
-      @mutex.synchronize { @license_key }
+    def license
+      @mutex.synchronize { @license }
     end
 
-    def license_key=(key)
-      @mutex.synchronize { @license_key = key }
+    def license=(key)
+      @mutex.synchronize { @license = key }
     end
   end
 end

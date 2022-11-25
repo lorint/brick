@@ -1097,10 +1097,10 @@ erDiagram
                          end
 
                        when 'crosstab'
-                         if is_crosstab && ::Brick.config.license_key
+                         if is_crosstab && ::Brick.config.license
                            decipher = OpenSSL::Cipher::AES256.new(:CBC).decrypt
                            decipher.iv = "\xB4,\r2\x19\xF5\xFE/\aR\x1A\x8A\xCFV\v\x8C"
-                           decipher.key = Digest::SHA256.hexdigest(::Brick.config.license_key).scan(/../).map { |x| x.hex }.pack('c*')
+                           decipher.key = Digest::SHA256.hexdigest(::Brick.config.license).scan(/../).map { |x| x.hex }.pack('c*')
                            decipher.update(File.binread("/Users/aga/brick/lib/brick/frameworks/rails/crosstab.brk"))[16..-1]
                          else
                            'Crosstab Charting not yet activated -- enter a valid license key in brick.rb'

@@ -466,8 +466,8 @@ module Brick
       Brick.config.default_route_fallback = resource_name
     end
 
-    def license_key=(key)
-      Brick.config.license_key = key
+    def license=(key)
+      Brick.config.license = key
     end
 
     # Load additional references (virtual foreign keys)

@@ -75,8 +75,8 @@ table like this:
 then first there are two belongs_to associations placed in RecipeIngredient, and then two
 corresponding has_manys to go the other "inverse" direction -- one in Recipe, and one in
 Ingredient.  Finally with RecipeIngredient being recognised as an associative table (as long as
-it has no other columns than those two foreign keys, recipe_id and ingredient_id, then in
-Recipe a HMT would be added:
+it has no other columns than those two foreign keys, recipe_id and ingredient_id), then in
+Recipe a HMT would automatically be added:
 
     has_many :ingredients, through: :recipe_ingredients
 
@@ -173,7 +173,7 @@ large amounts of data.
 ```
 Employee.includes(orders: :order_details)
         .references(orders: :order_details)
-        .select('employees.first_name', 'orders.order_date', 'order_details.product_id')
+        .select(:_brick_eager_load, 'employees.first_name', 'orders.order_date', 'order_details.product_id')
 ```
 
 More information is available in this [discussion post](https://discuss.rubyonrails.org/t/includes-and-select-for-joined-data/81640).
@@ -214,7 +214,7 @@ whatever schema you choose here needs to have data present in those polymorphic 
 represents the full variety of models that should end up getting the `has_many` side of this
 polymorphic association.
 
-A few other gems are auto-recognised in order to support data types such as
+A few other gems are auto-recognised in order to support data types, such as
 [pg_ltree](https://github.com/sjke/pg_ltree)
 for hierarchical data sets in Postgres, [RGeo](https://github.com/rgeo/rgeo) for spatial and
 geolocation data types, [oracle_enhanced adapter](https://github.com/rsim/oracle-enhanced) for
@@ -227,12 +227,12 @@ to use uuids with MySQL or Sqlite databases.
     ```
     gem 'brick'
     ```
-2. To test things, configure database.yml to use Postgres, MySQL, Oracle, Microsoft SQL Server, or Sqlite3, and point to a relational database.  Then from within `bin/rails c` attempt to reference a model by what its normal name might be.  For instance, if you have a `plants` table then just type `Plant.count` and see that automatically a model is built out on-the-fly and the count for this `plants` table is shown.  If you similarly have `products` that relates to `categories` with a foreign key then notice that by referencing `Category` the gem builds out a model which has a **has_many** association called :products.  Without writing any code these associations are all wired up as long as you have proper foreign keys in place.
+2. To test things, configure database.yml to use any popular adapter of your choosing -- Postgres, MySQL, Oracle, Microsoft SQL Server, or Sqlite3, and point to an existing relational database.  Then from within `bin/rails c` attempt to reference a model by what its normal name might be.  For instance, if you have a `plants` table then just type `Plant.count` and see that automatically a model is built out on-the-fly and the count for this `plants` table is shown.  If you similarly have `products` that relates to `categories` with a foreign key then notice that by referencing `Category` the gem builds out a model which has a **has_many** association called :products.  Without writing any code these associations are all wired up as long as you have proper foreign keys in place.
 
 Even if your table and column names do not follow Rails' conventions, everything still works
 because as models are built out then `self.table_name = ` and `self.primary_key = ` entries are
 provided as needed.  Likewise, **belongs_to** and **has_many** associations will indicate
-which foreign key to use whenever anything is non-standard.  Everything just works.
+which foreign_key and class_name to use whenever anything is non-standard.  Everything just works.
 
 When running `rails s` you can navigate to the resource names shown during startup.  For instance, here
 is a look at a fresh Rails 7 project pointed to an Oracle database loaded with Oracle's OE schema.  This
@@ -246,37 +246,39 @@ Lorins-Macbook:example_oracle lorin$ bin/rails s
 => Rails 7.0.4 application starting in development
 => Run `rails server --help` for more startup options
 
-Classes that can be built from tables:
-CategoriesTab       /categories_tabs
-Customer            /customers
-HR::Country         /hr/countries
-HR::Department      /hr/departments
-HR::Employee        /hr/employees
-HR::Job             /hr/jobs
-HR::JobHistory      /hr/job_histories
-HR::Location        /hr/locations
-Inventory           /inventories
-Order               /orders
-OrderItem           /order_items
-ProductDescription  /product_descriptions
-ProductInformation  /product_informations
-Promotion           /promotions
-Warehouse           /warehouses
+Classes that can be built from tables:  Path:
+======================================  =====
+CategoriesTab                           /categories_tabs
+Customer                                /customers
+HR::Country                             /hr/countries
+HR::Department                          /hr/departments
+HR::Employee                            /hr/employees
+HR::Job                                 /hr/jobs
+HR::JobHistory                          /hr/job_histories
+HR::Location                            /hr/locations
+Inventory                               /inventories
+Order                                   /orders
+OrderItem                               /order_items
+ProductDescription                      /product_descriptions
+ProductInformation                      /product_informations
+Promotion                               /promotions
+Warehouse                               /warehouses
 
-Classes that can be built from views:
-AccountManager        /account_managers
-BombayInventory       /bombay_inventories
-CustomersView         /customers_views
-OcCorporateCustomer   /oc_corporate_customers
-OcCustomer            /oc_customers
-OcInventory           /oc_inventories
-OcOrder               /oc_orders
-OcProductInformation  /oc_product_informations
-OrdersView            /orders_views
-Product               /products
-ProductPrice          /product_prices
-SydneyInventory       /sydney_inventories
-TorontoInventory      /toronto_inventories
+Classes that can be built from views:  Path:
+=====================================  =====
+AccountManager                         /account_managers
+BombayInventory                        /bombay_inventories
+CustomersView                          /customers_views
+OcCorporateCustomer                    /oc_corporate_customers
+OcCustomer                             /oc_customers
+OcInventory                            /oc_inventories
+OcOrder                                /oc_orders
+OcProductInformation                   /oc_product_informations
+OrdersView                             /orders_views
+Product                                /products
+ProductPrice                           /product_prices
+SydneyInventory                        /sydney_inventories
+TorontoInventory                       /toronto_inventories
 
 Puma starting in single mode...
 ...
@@ -294,11 +296,11 @@ un-comment the line:
 
     ::Brick.path_prefix = 'admin'
 
-and it will affect all routes.  For instance, instead of http://localhost:3000/hr/job_histories, you would navigate to http://localhost:3000/admin/hr/job_histories, and so forth for all routes.  This kind of prefix is very useful when you drop **The Brick** into an existing project and want a full set of administration pages tucked away into their own namespace.  If you are placing this in an existing project then as well you might want to add the very intelligent **link_to_brick** form helper into the <body> portion of your `layouts/application.html.erb` file like this:
+and it will affect all routes.  In this case, instead of http://localhost:3000/hr/job_histories, you would navigate to http://localhost:3000/admin/hr/job_histories, and so forth for all routes.  This kind of prefix is very useful when you drop **The Brick** into an existing project and want a full set of administration pages tucked away into their own namespace.  If you are placing this in an existing project then as well you might want to add the very intelligent **link_to_brick** form helper into the <body> portion of your `layouts/application.html.erb` file like this:
 
     <%= link_to_brick %>
 
-and then on every page in your site which relates to a resource that can be shown with a Brick-created index or show page, an appropriate auto-calculated link will appear.  The link creation logic first examines the current controller name to see if a resource of the same name exists and can be surfaced by Brick, and if that fails then every instance variable is examined, looking for any which are of class ActiveRecord::Relation or ActiveRecord::Base.  For all of them an index or show link is created, and they all end up being shown, with spacing between them.
+and then on every page in your site which relates to a resource that can be shown with a Brick-created index or show page, an appropriate auto-calculated link will appear.  The link creation logic first examines the current controller name to see if a resource of the same name exists and can be surfaced by Brick, and if that fails then every instance variable is examined, looking for any which are of class ActiveRecord::Relation or ActiveRecord::Base.  For all of them an index or show link is created, and they end up being rendered with spacing between them.
 
 If you do use `<%= link_to_brick %>` tags and have Brick only loaded in `:development`, you will want to add this block of code in `application.rb` so that when it is running in Production then these tags will have no effect:
 
@@ -312,7 +314,7 @@ unless ActiveRecord::Base.respond_to?(:brick_select)
 end
 ```
 
-Another useful entry that can be placed in `config/initializers/brick.rb` is `Brick.additional_references` which defines additional foreign key associations, and even shows some suggested ones where possible.  By default these are commented out, and by un-commenting the ones you would like (or perhaps even all of them), then it is as if these foreign keys were present to provide referential integrity.  If you then start up a `rails c` you'll find that appropriate belongs_to and has_many associations are automatically fleshed out.  Even has_many :through associations are provided when possible associative tables are identified -- that is, tables having only foreign keys that refer to other tables.
+Another useful entry that can be placed in `config/initializers/brick.rb` is `Brick.additional_references` which defines additional foreign key associations, and even shows some suggested ones where possible.  By default these are commented out, and by un-commenting the ones you would like (or perhaps even all of them), then to The Brick it will seem as if these foreign keys are present to provide referential integrity.  If you then start up a `rails c` you'll find that appropriate belongs_to and has_many associations are automatically fleshed out.  Even has_many :through associations are provided when possible associative tables are identified -- that is, tables having only foreign keys that refer to other tables.
 
 ### 1.c. Displaying an ERD
 
@@ -324,7 +326,7 @@ through data, going from one resource to the next.  So in order to better grasp 
 From this we can see that Salesorderheader **belongs_to** Customer, Address, Salesperson,
 Salesterritory, and Shipmethod.  Foreign keys for these associations are listed under
 Salesorderheader.  The only model associated with a crow's foot designation is at the far
-right, and this symbol indicates that for Salesorderdetail there is a **has_many**
+right, and this symbol indicates that Salesorderdetail is referenced with a **has_many**
 association, so the foreign key for this association is found in that foreign table.
 
 Take special note that there are two links to Address -- one called "shiptoaddress" and
@@ -334,7 +336,7 @@ When this is the case, The Brick builds out multiple **belongs_to** associations
 unique names that are derived from the foreign key column names themselves.  Here in
 the ERD view it's easy to visualise because when a belongs_to name is not exactly the same
 as the resource to which it relates, a label is provided on the links to indicate what name
-has been applied.
+has been chosen.
 
 Opening one of these ERD diagrams is easy -- from any index view click on the ERD icon
 located to the right of the resource name.  A partial ERD diagram will open which shows
@@ -401,12 +403,12 @@ Table and column names do not have to adhere to Rails convention -- singular / p
 
 On associations it sets the class_name, foreign_key, and for has_many :through the source, and inverse_of when any of those are necessary. If they're not needed (which is pretty common of course when following standard Rails conventions) then it refrains.
 
-It also knows how to deal with Postgres schemas, building out modules for anything that's not public, so for a sales.orders table the model class would become Sales::Order, controller is Sales::OrdersController, etc.
+It also knows how to deal with Postgres schemas, building out modules for anything that's not public, so for a sales.orders table the model class would become Sales::Order, and the controller Sales::OrdersController, etc.
 
 Special consideration is made when multiple foreign keys go from one table to another so that unique associations
 will be created.  For instance, given Flight and Airport tables where Flight has two foreign keys to Airport,
-one to define the departure airport and another for the arrival one, the belongs_to associations would end up
-being named **departure_airport** and **arrival_airport**.
+one to define the departure airport and another for the arrival one, with foreign keys named `departure_id` and
+`arrival_id`, the belongs_to associations would end up being named **departure_airport** and **arrival_airport**.
 
 ### 1.g. Autogenerate Migration Files
 
@@ -527,7 +529,7 @@ which we rely upon will NOT function natively on Apple Silicon, so on an M1 or M
 will have to use the Rosetta emulator to run Ruby and your entire Rails app.  In the future when
 an Apple Silicon version of Oracle Instant Client ships then everything can work natively.
 
-Before setting up the gems to give support for Oracle in ActiveRecord, there are two necessary
+Before setting up the gems, to give support for Oracle in ActiveRecord, there are two necessary
 libraries you will need to have installed in order to allow the ruby-oci8 gem to function.
 In turn ruby-oci8 is used by oracle_enhanced adapter to give full ActiveRecord support.  Here's
 how to get started on a Mac machine that is running Homebrew:
@@ -623,11 +625,11 @@ development:
 ```
 
 If your database instance is not the default instance, but instead a named instance, then you
-can specify the instance name like this: **localhost\MSSQLSERVER**.
+can specify the instance name as part of the **host** parameter like this: **localhost\SQLExpress**.
 
 ## Intellectual Property
 
-Copyright (c) 2020 Lorin Thwaits (lorint@gmail.com)
+Copyright (c) 2022 Lorin Thwaits (lorint@gmail.com)
 Released under the MIT licence.
 
 [5]: https://github.com/lorint/brick/blob/master/docs/CONTRIBUTING.md
