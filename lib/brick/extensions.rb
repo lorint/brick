@@ -540,7 +540,11 @@ module ActiveRecord
             tbl_name = "\"#{tbl_name}\"" if ::Brick.is_oracle && rel_dupe.brick_links.values.include?(tbl_name)
             field_tbl_name = nil
             v1.map { |x| [x[0..-2].map(&:to_s).join('.'), x.last] }.each_with_index do |sel_col, idx|
-              field_tbl_name = rel_dupe.brick_links[sel_col.first].split('.').last
+              # %%% Strangely in Rails 7.1 on a slower system then very rarely brick_link comes back nil...
+              brick_link = rel_dupe.brick_links[sel_col.first]
+              field_tbl_name = brick_link&.split('.')&.last ||
+                # ... so here's a best-effort guess for what the table name might be.
+                rel_dupe.klass.reflect_on_association(sel_col.first).klass.table_name
               # If it's Oracle, quote any AREL aliases that had been applied
               field_tbl_name = "\"#{field_tbl_name}\"" if ::Brick.is_oracle && rel_dupe.brick_links.values.include?(field_tbl_name)
 
@@ -1002,6 +1006,7 @@ Module.class_exec do
     end
     class_name = ::Brick.namify(requested)
     relations = ::Brick.relations
+    #        CONTROLLER
     result = if ::Brick.enable_controllers? &&
                 is_controller && (plural_class_name = class_name[0..-11]).length.positive?
                # Otherwise now it's up to us to fill in the gaps
@@ -1020,6 +1025,8 @@ Module.class_exec do
                  # if it's a controller and no match or a model doesn't really use the same table name, eager load all models and try to find a model class of the right name.
                  Object.send(:build_controller, self, class_name, plural_class_name, model, relations)
                end
+
+             # MODULE
              elsif (::Brick.enable_models? || ::Brick.enable_controllers?) && # Schema match?
                    base_module == Object && # %%% This works for Person::Person -- but also limits us to not being able to allow more than one level of namespacing
                    (schema_name = [(singular_table_name = class_name.underscore),
@@ -1036,6 +1043,8 @@ Module.class_exec do
 
                [built_module, "module #{schema_name}; end\n"]
                #  # %%% Perhaps an option to use the first module just as schema, and additional modules as namespace with a table name prefix applied
+
+             # MODEL
              elsif ::Brick.enable_models?
                # Custom inheritable Brick base model?
                class_name = (inheritable_name = class_name)[5..-1] if class_name.start_with?('Brick')

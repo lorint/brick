@@ -138,15 +138,16 @@ module Brick
     def set_db_schema(params = nil)
       # If Apartment::Tenant.current is not still the default (usually 'public') then an elevator has brought us into
       # a different tenant.  If so then don't allow schema navigation.
-      chosen = if (is_show_schema_list = (apartment_multitenant && Apartment::Tenant.current == ::Brick.default_schema)) &&
+      chosen = if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL' &&
+                  (current_schema = (ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2]
+                                                       .split(',') - ['pg_catalog', 'pg_toast', 'heroku_ext']).first) &&
+                  (is_show_schema_list = (apartment_multitenant && current_schema == ::Brick.default_schema)) &&
                   (schema = (params ? params['_brick_schema'] : ::Brick.default_schema)) &&
                   ::Brick.db_schemas&.key?(schema)
                  Apartment::Tenant.switch!(schema)
                  schema
-               elsif ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-                 # Just return the current schema
-                 current_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
-                 (current_schema - ['pg_catalog', 'pg_toast', 'heroku_ext']).first
+               else
+                 current_schema # Just return the current schema
                end
       [chosen == ::Brick.default_schema ? nil : chosen, is_show_schema_list]
     end
@@ -1262,8 +1263,8 @@ module ActiveRecord
         # entry in your .select().
         # More information:  https://discuss.rubyonrails.org/t/includes-and-select-for-joined-data/81640
         def apply_column_aliases(relation)
-          used_cols = {}
           if (sel_vals = relation.select_values.map(&:to_s)).first == '_brick_eager_load'
+            used_cols = {}
             # Find and expand out all column names being used in select(...)
             new_select_values = sel_vals.each_with_object([]) do |col, s|
               next if col == '_brick_eager_load'

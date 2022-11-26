@@ -3,7 +3,7 @@
 module Brick
   module Rails
     # Extensions to rails controllers. Provides convenient ways to pass certain
-    # information to the model layer, with `controller_info` and `whodunnit`.
+    # information to the model layer, with `controller_info`.
     # Also includes a convenient on/off switch,
     # `brick_enabled_for_controller`.
     module Controller

@@ -4,6 +4,33 @@ module Brick
   module Rails
     # See http://guides.rubyonrails.org/engines.html
     class Engine < ::Rails::Engine
+      JS_CHANGEOUT = "function changeout(href, param, value, trimAfter) {
+  var hrefParts = href.split(\"?\");
+  var params = hrefParts.length > 1 ? hrefParts[1].split(\"&\") : [];
+  if (param === undefined || param === null || param === -1) {
+    hrefParts = hrefParts[0].split(\"://\");
+    var pathParts = hrefParts[hrefParts.length - 1].split(\"/\").filter(function (pp) {return pp !== \"\";});
+    if (value === undefined)
+      // A couple possibilities if it's namespaced, starting with two parts in the path -- and then try just one
+      return [pathParts.slice(1, 3).join('/'), pathParts.slice(1, 2)[0]];
+    else {
+      var queryString = param ? \"?\" + params.join(\"&\") : \"\";
+      return hrefParts[0] + \"://\" + pathParts[0] + \"/\" + value + queryString;
+    }
+  }
+  if (trimAfter) {
+    var pathParts = hrefParts[0].split(\"/\");
+    while (pathParts.lastIndexOf(trimAfter) !== pathParts.length - 1) pathParts.pop();
+    hrefParts[0] = pathParts.join(\"/\");
+  }
+  params = params.reduce(function (s, v) { var parts = v.split(\"=\"); if (parts[1]) s[parts[0]] = parts[1]; return s; }, {});
+  if (value === undefined) return params[param];
+  params[param] = value;
+  var finalParams = Object.keys(params).reduce(function (s, v) { if (params[v]) s.push(v + \"=\" + params[v]); return s; }, []).join(\"&\");
+  return hrefParts[0] + (finalParams.length > 0 ? \"?\" + finalParams : \"\");
+}
+"
+
       # paths['app/models'] << 'lib/brick/frameworks/active_record/models'
       config.brick = ActiveSupport::OrderedOptions.new
       ActiveSupport.on_load(:before_initialize) do |app|
@@ -138,8 +165,6 @@ module Brick
                               "H#{hm_assoc.macro == :has_one ? 'O' : 'M'}#{'T' if hm_assoc.options[:through]}",
                               (assoc_name = hm.first)]
                   hm_fk_name = if (through = hm_assoc.options[:through])
-                                 next unless @_brick_model._br_hm_counts.key?(hm_assoc.name) # Skip any weird HMTs that go through a HM with a source_type
-
                                  next unless @_brick_model.instance_methods.include?(through) &&
                                              (associative = @_brick_model._br_associatives.fetch(hm.first, nil))
 
@@ -520,31 +545,7 @@ document.querySelectorAll(\"input[type=submit][data-confirm]\").forEach(function
   });
 });
 
-function changeout(href, param, value, trimAfter) {
-  var hrefParts = href.split(\"?\");
-  var params = hrefParts.length > 1 ? hrefParts[1].split(\"&\") : [];
-  if (param === undefined || param === null || param === -1) {
-    hrefParts = hrefParts[0].split(\"://\");
-    var pathParts = hrefParts[hrefParts.length - 1].split(\"/\").filter(function (pp) {return pp !== \"\";});
-    if (value === undefined)
-      // A couple possibilities if it's namespaced, starting with two parts in the path -- and then try just one
-      return [pathParts.slice(1, 3).join('/'), pathParts.slice(1, 2)[0]];
-    else {
-      var queryString = param ? \"?\" + params.join(\"&\") : \"\";
-      return hrefParts[0] + \"://\" + pathParts[0] + \"/\" + value + queryString;
-    }
-  }
-  if (trimAfter) {
-    var pathParts = hrefParts[0].split(\"/\");
-    while (pathParts.lastIndexOf(trimAfter) !== pathParts.length - 1) pathParts.pop();
-    hrefParts[0] = pathParts.join(\"/\");
-  }
-  params = params.reduce(function (s, v) { var parts = v.split(\"=\"); if (parts[1]) s[parts[0]] = parts[1]; return s; }, {});
-  if (value === undefined) return params[param];
-  params[param] = value;
-  var finalParams = Object.keys(params).reduce(function (s, v) { if (params[v]) s.push(v + \"=\" + params[v]); return s; }, []).join(\"&\");
-  return hrefParts[0] + (finalParams.length > 0 ? \"?\" + finalParams : \"\");
-}
+#{JS_CHANGEOUT}
 
 // Snag first TR for sticky header
 var grid = document.getElementById(\"#{table_name}\");
