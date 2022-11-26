@@ -829,80 +829,9 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
 end
 
 if Object.const_defined?('ActionView')
+  require 'brick/frameworks/rails/form_tags'
   module ActionView::Helpers::FormTagHelper
-    def link_to_brick(*args, **kwargs)
-      return unless ::Brick.config.mode == :on
-
-      text = (args.first.is_a?(String) && args.first) || args[1]
-      klass_or_obj = ((args.first.is_a?(ActiveRecord::Relation) ||
-                       args.first.is_a?(ActiveRecord::Base) ||
-                       args.first.is_a?(Class)) &&
-                      args.first) ||
-                     @_brick_model
-      # If not provided, do a best-effort to automatically determine the resource class or object
-      filter_parts = []
-      klass_or_obj ||= begin
-                         klass, sti_type = ::Brick.ctrl_to_klass(controller_path)
-                         if klass
-                           type_col = klass.inheritance_column # Usually 'type'
-                           filter_parts << "#{type_col}=#{sti_type}" if sti_type && klass.column_names.include?(type_col)
-                           path_params = request.path_parameters.dup
-                           path_params.delete(:controller)
-                           path_params.delete(:action)
-                           pk = (klass.primary_key || ActiveRecord::Base.primary_key).to_sym
-                           # Used to also have this but it's a bit too permissive to identify a primary key:  (path_params.length == 1 && path_params.values.first) ||
-                           if ((id = (path_params[pk] || path_params[:id] || path_params["#{klass.name.underscore}_id".to_sym])) && (obj = klass.find_by(pk => id))) ||
-                              (['show', 'edit', 'update', 'destroy'].include?(action_name) && (obj = klass.first))
-                             obj
-                           else
-                             # %%% If there is a HMT that refers to some ___id then try to identify an appropriate filter
-                             # %%% If there is a polymorphic association that might relate to stuff in the path_params,
-                             # try to identify an appropriate ___able_id and ___able_type filter
-                             ((klass.column_names - [pk.to_s]) & path_params.keys.map(&:to_s)).each do |path_param|
-                               filter_parts << "#{path_param}=#{path_params[path_param.to_sym]}"
-                             end
-                             klass
-                           end
-                         end
-                       rescue
-                       end
-      if klass_or_obj
-        if klass_or_obj.is_a?(ActiveRecord::Relation)
-          klass_or_obj.where_values_hash.each do |whr|
-            filter_parts << "#{whr.first}=#{whr.last}" if whr.last && !whr.last.is_a?(Array)
-          end
-          klass_or_obj = klass_or_obj.klass
-          type_col = klass_or_obj.inheritance_column
-          if klass_or_obj.column_names.include?(type_col) && klass_or_obj.name != klass_or_obj.base_class.name
-            filter_parts << "#{type_col}=#{klass_or_obj.name}"
-          end
-        elsif klass_or_obj.is_a?(ActiveRecord::Base) && klass_or_obj.new_record?
-          klass_or_obj = klass_or_obj.class
-        end
-        filter = "?#{filter_parts.join('&')}" if filter_parts.present?
-        if (klass_or_obj&.is_a?(Class) && klass_or_obj < ActiveRecord::Base) ||
-           (klass_or_obj&.is_a?(ActiveRecord::Base) && klass_or_obj.new_record? && (klass_or_obj = klass_or_obj.class))
-          lt_args = [text || "Index for #{klass_or_obj.name.pluralize}",
-                    "#{send("#{klass_or_obj._brick_index}_path")}#{filter}"]
-        else
-          # If there are multiple incoming parameters then last one is probably the actual ID, and first few might be some nested tree of stuff leading up to it
-          lt_args = [text || "Show this #{klass_or_obj.class.name}",
-                    "#{send("#{klass_or_obj.class._brick_index(:singular)}_path", klass_or_obj)}#{filter}"]
-        end
-        link_to(*lt_args, **kwargs)
-      else
-        # puts "Warning:  link_to_brick could not find a class for \"#{controller_path}\" -- consider setting @_brick_model within that controller."
-        # if (hits = res_names.keys & instance_variables.map { |v| v.to_s[1..-1] }).present?
-        links = instance_variables.each_with_object([]) do |name, s|
-                  iv_name = name.to_s[1..-1]
-                  case (val = instance_variable_get(name))
-                  when ActiveRecord::Relation, ActiveRecord::Base
-                    s << link_to_brick(val, iv_name) if val
-                  end
-                end
-        links.join(' &nbsp; ').html_safe
-      end
-    end
+    include ::Brick::Rails::FormTags
   end
 end
 

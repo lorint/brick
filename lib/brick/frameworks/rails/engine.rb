@@ -120,15 +120,15 @@ module Brick
               end
             end
 
-            def path_keys(hm_assoc, fk_name, obj_name, pk)
+            def path_keys(hm_assoc, fk_name, pk)
+              pk.map!(&:to_sym)
               keys = if fk_name.is_a?(Array) && pk.is_a?(Array) # Composite keys?
-                       fk_name.zip(pk.map { |fk_part| "#{obj_name}.#{fk_part}" })
+                       fk_name.zip(pk)
                      else
-                       pk = pk.map { |pk_part| "#{obj_name}.#{pk_part}" }
                        [[fk_name, pk.length == 1 ? pk.first : pk.inspect]]
                      end
               keys << [hm_assoc.inverse_of.foreign_type, hm_assoc.active_record.name] if hm_assoc.options.key?(:as)
-              keys.map { |x| "#{x.first}: #{x.last}"}.join(', ')
+              keys.to_h
             end
 
             alias :_brick_find_template :find_template
@@ -179,33 +179,30 @@ module Brick
                                    tbl_nm.slice!(0) if tbl_nm[0] == '/'
                                    tbl_nm = tbl_nm.tr('/', '_').pluralize
                                  end
-                                 "'#{tbl_nm}.#{associative.foreign_key}'"
+                                 "#{tbl_nm}.#{associative.foreign_key}"
                                else
                                  hm_assoc.foreign_key
                                end
                   case args.first
                   when 'index'
-                    hm_entry = +"'#{hm_assoc.name}' => [#{assoc_name.inspect}"
-                    hm_entry << if hm_assoc.macro == :has_many
-                                   if hm_fk_name # %%% Can remove this check when multiple foreign keys to same destination becomes bulletproof
-                                     set_ct = if skip_klass_hms.key?(assoc_name.to_sym)
-                                                 'nil'
-                                               else
-                                                 # Postgres column names are limited to 63 characters
-                                                 "#{obj_name}.#{"b_r_#{assoc_name}_ct"[0..62]}&.to_i || 0"
-                                               end
-                                     ", #{set_ct}, #{path_keys(hm_assoc, hm_fk_name, obj_name, pk)}"
-                                   end
-                                 else # has_one
-                                   # 0..62 because Postgres column names are limited to 63 characters
-                                   ", nil, #{path_keys(hm_assoc, hm_fk_name, obj_name, pk)}"
-                                 end
-                    hm_entry << ']'
-                    hms_columns << hm_entry
+                    unless skip_klass_hms.key?(assoc_name.to_sym) || hm_assoc.options[:source]
+                      hm_entry = +"'#{hm_assoc.name}' => [#{assoc_name.inspect}, "
+                      hm_entry << if hm_assoc.macro == :has_many
+                                    # Postgres column names are limited to 63 characters
+                                    "'" + "b_r_#{assoc_name}_ct"[0..62] + "'"
+                                  else # has_one
+                                    'nil'
+                                  end
+                      hm_entry << ", #{path_keys(hm_assoc, hm_fk_name, pk).inspect}]"
+                      hms_columns << hm_entry
+                    end
                   when 'show', 'new', 'update'
                     hm_stuff << if hm_fk_name
                                   if hm_assoc.klass.column_names.include?(hm_fk_name)
-                                    "<%= link_to '#{assoc_name}', #{hm_assoc.klass._brick_index}_path({ #{path_keys(hm_assoc, hm_fk_name, "@#{obj_name}", pk)} }) %>\n"
+                                    predicates = path_keys(hm_assoc, hm_fk_name, pk).map do |k, v|
+                                                   v.is_a?(String) ? "#{k}: '#{v}'" : "#{k}: @#{obj_name}.#{v}"
+                                                 end.join(', ')
+                                    "<%= link_to '#{assoc_name}', #{hm_assoc.klass._brick_index}_path({ #{predicates} }) %>\n"
                                   else
                                     puts "Warning:  has_many :#{hm_assoc.name} in model #{hm_assoc.active_record.name} currently looks for a foreign key called \"#{hm_assoc.foreign_key}\".  "\
                                          "Instead it should use the clause  \"foreign_key: :#{hm_assoc.inverse_of&.foreign_key}\"."
@@ -731,11 +728,6 @@ erDiagram
                            end
               inline = case args.first
                        when 'index'
-                         obj_pk = if pk&.is_a?(Array) # Composite primary key?
-                                    "#{pk.map { |pk_part| "#{obj_name}.#{pk_part}" }.join(', ')}" unless pk.empty?
-                                  elsif pk
-                                    "#{obj_name}.#{pk}"
-                                  end
                          if Object.const_defined?('DutyFree')
                            template_link = "
   <%= link_to 'CSV', #{@_brick_model._brick_index}_path(format: :csv) %> &nbsp; <a href=\"#\" id=\"sheetsLink\">Sheets</a>
@@ -876,149 +868,36 @@ erDiagram
   </script>
 <% end %>
 #{erd_markup}
-<table id=\"headerTop\"></table>
-<table id=\"#{table_name}\" class=\"shadow\">
-  <thead><tr>#{"<th x-order=\"#{pk.join(',')}\"></th>" if pk.present?}<%=
-     # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
-     cols = {#{hms_keys = []
-               hms_headers.map do |hm|
-                 hms_keys << (assoc_name = (assoc = hm.first).name.to_s)
-                 "#{assoc_name.inspect} => [#{(assoc.options[:through] && !assoc.through_reflection).inspect}, #{assoc.klass.name}, #{hm[1].inspect}, #{hm[2].inspect}]"
-               end.join(', ')}}
-     # If the resource is missing, has the user simply created an inappropriately pluralised name for a table?
-     @#{table_name} ||= if dym_list = instance_variables.reject do |entry|
-                             entry.to_s.start_with?('@_') ||
-                             ['@cache_hit', '@marked_for_same_origin_verification', '@view_renderer', '@view_flow', '@output_buffer', '@virtual_path'].include?(entry.to_s)
-                           end
-                          msg = \"Can't find resource \\\"#{table_name}\\\".\"
-                           # Can't be sure otherwise of what is up, so check DidYouMean and offer a suggestion.
-                          if (dym = DidYouMean::SpellChecker.new(dictionary: dym_list).correct('@#{table_name}')).present?
-                            msg << \"\nIf you meant \\\"#\{found_dym = dym.first[1..-1]}\\\" then to avoid this message add this entry into inflections.rb:\n\"
-                            msg << \"  inflect.singular('#\{found_dym}', '#{obj_name}')\"
-                            puts
-                            puts \"WARNING:  #\{msg}\"
-                            puts
-                            @#{table_name} = instance_variable_get(dym.first.to_sym)
-                          else
-                            raise ActiveRecord::RecordNotFound.new(msg)
-                          end
-                        end
-     col_keys = @#{table_name}.columns.each_with_object([]) do |col, s|
-       col_name = col.name
-       next if @_brick_incl&.exclude?(col_name) ||
-               (#{(pk || []).inspect}.include?(col_name) && col.type == :integer && !bts.key?(col_name)) ||
-               ::Brick.config.metadata_columns.include?(col_name) || poly_cols.include?(col_name)
 
-       s << col_name
-       cols[col_name] = col
-     end
-     unless @_brick_sequence # If no sequence is defined, start with all inclusions
-       cust_cols = #{model_name}._br_cust_cols
-       # HOT columns, kept as symbols
-       hots = #{model_name}._br_bt_descrip.keys.select { |k| bts.key?(k) }
-       @_brick_sequence = col_keys + cust_cols.keys + hots + #{(hms_keys).inspect}.reject { |assoc_name| @_brick_incl&.exclude?(assoc_name) }
-     end
-     @_brick_sequence.reject! { |nm| @_brick_excl.include?(nm) } if @_brick_excl # Reject exclusions
-     @_brick_sequence.each_with_object(+'') do |col_name, s|
-       if (col = cols[col_name]).is_a?(ActiveRecord::ConnectionAdapters::Column)
-         s << '<th'
-         s << \" title=\\\"#\{col.comment}\\\"\" if col.respond_to?(:comment) && !col.comment.blank?
-         s << if (bt = bts[col_name])
-                # Allow sorting for any BT except polymorphics
-                \"#\{' x-order=\"' + bt.first.to_s + '\"' unless bt[2]}>BT \" +
-                bt[1].map { |bt_pair| bt_pair.first.bt_link(bt.first) }.join(' ')
-              else # Normal column
-                \"#\{' x-order=\"' + col_name + '\"' if true}>#\{col_name}\"
-              end
-       elsif col # HM column
-         s << \"<th#\{' x-order=\"' + col_name + '\"' if true}>#\{col[2]} \"
-         s << (col.first ? \"#\{col[3]}\" : \"#\{link_to(col[3], send(\"#\{col[1]._brick_index}_path\"))}\")
-       elsif cust_cols.key?(col_name) # Custom column
-         s << \"<th x-order=\\\"#\{col_name}\\\">#\{col_name}\"
-       elsif col_name.is_a?(Symbol) && (hot = bts[col_name]) # has_one :through
-         s << \"<th x-order=\\\"#\{hot.first.to_s}\\\">HOT \" +
-              hot[1].map { |hot_pair| hot_pair.first.bt_link(col_name) }.join(' ')
-         hot[1].first
-       else # Bad column name!
-         s << \"<th title=\\\"<< Unknown column >>\\\">#\{col_name}\"
-       end
-       s << '</th>'
-     end.html_safe
-  %></tr></thead>
-  <tbody>
-  <% # %%% Have once gotten this error with MSSQL referring to http://localhost:3000/warehouse/cold_room_temperatures__archive
-     #     ActiveRecord::StatementTimeout in Warehouse::ColdRoomTemperatures_Archive#index
-     #     TinyTds::Error: Adaptive Server connection timed out
-     #     (After restarting the server it worked fine again.)
-     @#{table_name}.each do |#{obj_name}|
-       hms_cols = {#{hms_columns.join(', ')}} %>
-  <tr>#{"
-    <td><%= link_to '⇛', #{path_obj_name}_path(slashify(#{obj_pk})), { class: 'big-arrow' } %></td>" if obj_pk}
-    <% @_brick_sequence.each do |col_name|
-         val = #{obj_name}.attributes[col_name] %>
-      <td<%= ' class=\"dimmed\"'.html_safe unless cols.key?(col_name) || (cust_col = cust_cols[col_name]) || 
-                                                  (col_name.is_a?(Symbol) && bts.key?(col_name)) # HOT
-         %>><%
-         if (bt = bts[col_name])
-           if bt[2] # Polymorphic?
-             bt_class = #{obj_name}.send(\"#\{bt.first}_type\")
-             base_class_underscored = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class._brick_index(:singular)
-             poly_id = #{obj_name}.send(\"#\{bt.first}_id\")
-             %><%= link_to(\"#\{bt_class} ##\{poly_id}\", send(\"#\{base_class_underscored}_path\".to_sym, poly_id)) if poly_id %><%
-           else # BT or HOT
-             bt_class = bt[1].first.first
-             descrips = @_brick_bt_descrip[bt.first][bt_class]
-             bt_id_col = if descrips.nil?
-                           puts \"Caught it in the act for #{obj_name} / #\{col_name}!\"
-                           # binding.pry
-                         elsif descrips.length == 1
-                           [#{obj_name}.class.reflect_on_association(bt.first)&.foreign_key]
+<%= # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
+    cols = {#{hms_keys = []
+              hms_headers.map do |hm|
+                hms_keys << (assoc_name = (assoc = hm.first).name.to_s)
+                "#{assoc_name.inspect} => [#{(assoc.options[:through] && !assoc.through_reflection).inspect}, #{assoc.klass.name}, #{hm[1].inspect}, #{hm[2].inspect}]"
+              end.join(', ')}}
+
+    # If the resource is missing, has the user simply created an inappropriately pluralised name for a table?
+    @#{table_name} ||= if dym_list = instance_variables.reject do |entry|
+                            entry.to_s.start_with?('@_') ||
+                            ['@cache_hit', '@marked_for_same_origin_verification', '@view_renderer', '@view_flow', '@output_buffer', '@virtual_path'].include?(entry.to_s)
+                          end
+                         msg = \"Can't find resource \\\"#{table_name}\\\".\"
+                          # Can't be sure otherwise of what is up, so check DidYouMean and offer a suggestion.
+                         if (dym = DidYouMean::SpellChecker.new(dictionary: dym_list).correct('@#{table_name}')).present?
+                           msg << \"\nIf you meant \\\"#\{found_dym = dym.first[1..-1]}\\\" then to avoid this message add this entry into inflections.rb:\n\"
+                           msg << \"  inflect.singular('#\{found_dym}', '#{obj_name}')\"
+                           puts
+                           puts \"WARNING:  #\{msg}\"
+                           puts
+                           @#{table_name} = instance_variable_get(dym.first.to_sym)
                          else
-                           descrips.last
+                           raise ActiveRecord::RecordNotFound.new(msg)
                          end
-             bt_txt = bt_class.brick_descrip(
-               # 0..62 because Postgres column names are limited to 63 characters
-               #{obj_name}, descrips[0..-2].map { |id| #{obj_name}.send(id.last[0..62]) }, bt_id_col
-             )
-             bt_txt ||= \"<span class=\\\"orphan\\\">&lt;&lt; Orphaned ID: #\{val} >></span>\".html_safe if val
-             bt_id = bt_id_col&.map { |id_col| #{obj_name}.respond_to?(id_sym = id_col.to_sym) ? #{obj_name}.send(id_sym) : id_col } %>
-          <%= bt_id&.first ? link_to(bt_txt, send(\"#\{bt_class.base_class._brick_index(:singular)}_path\".to_sym, bt_id)) : bt_txt %>
-        <% end
-         elsif (hms_col = hms_cols[col_name])
-           if hms_col.length == 1 %>
-        <%=  hms_col.first %>
-        <% else
-    %><%=    klass = (col = cols[col_name])[1]
-             if col[2] == 'HO'
-               descrips = @_brick_bt_descrip[col_name.to_sym][klass]
-               if (ho_id = (ho_id_col = descrips.last).map { |id_col| #{obj_name}.send(id_col.to_sym) })&.first
-                 ho_txt = klass.brick_descrip(#{obj_name}, descrips[0..-2].map { |id| #{obj_name}.send(id.last[0..62]) }, ho_id_col)
-                 link_to(ho_txt, send(\"#\{klass.base_class._brick_index(:singular)}_path\".to_sym, ho_id))
-               end
-             elsif hms_col[1]&.positive?
-               link_to \"#\{hms_col[1] || 'View'} #\{hms_col.first}\", send(\"#\{klass._brick_index}_path\".to_sym, hms_col[2])
-             end %>
-        <% end
-         elsif (col = cols[col_name])
-           col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
-    %><%=  display_value(col_type || col&.sql_type, val) %><%
-         elsif cust_col
-           data = cust_col.first.map { |cc_part| #{obj_name}.send(cc_part.last) }
-           cust_txt = #{model_name}.brick_descrip(cust_col[-2], data)
-           if (link_id = #{obj_name}.send(cust_col.last[1]) if cust_col.last)
-    %><%=    link_to(cust_txt, send(\"#\{cust_col.last.first._brick_index(:singular)}_path\", link_id)) %><%
-           else
-    %><%=    cust_txt %><%
-           end
-         else # Bad column name!
-      %>?<%
-         end
-    %></td>
-    <% end %>
-  </tr>
-  <% end %>
-  </tbody>
-</table>
+                       end
+
+    # Write out the mega-grid
+    brick_grid(@#{table_name}, @_brick_bt_descrip, @_brick_sequence, @_brick_incl, @_brick_excl,
+                 cols, poly_cols, bts, #{hms_keys.inspect}, {#{hms_columns.join(', ')}}) %>
 
 #{"<hr><%= link_to \"New #{obj_name}\", new_#{path_obj_name}_path %>" unless @_brick_model.is_view?}
 #{script}
