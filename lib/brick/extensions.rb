@@ -973,6 +973,48 @@ Module.class_exec do
                [built_module, "module #{schema_name}; end\n"]
                #  # %%% Perhaps an option to use the first module just as schema, and additional modules as namespace with a table name prefix applied
 
+             # AVO Resource
+             elsif base_module == Object && Object.const_defined?('Avo') && requested.end_with?('Resource') &&
+                   ['MotorResource'].exclude?(requested) # Expect that anything called MotorResource could be from that administrative gem
+               if (model = Object.const_get(requested[0..-9]))
+                 require 'generators/avo/resource_generator'
+                 field_generator = Generators::Avo::ResourceGenerator.new([''])
+                 field_generator.instance_variable_set(:@model, model)
+                 fields = field_generator.send(:generate_fields).split("\n")
+                                         .each_with_object([]) do |f, s|
+                                           if (f = f.strip).start_with?('field ')
+                                             f = f[6..-1].split(',')
+                                             s << [f.first[1..-1].to_sym, [f[1][1..-1].split(': :').map(&:to_sym)].to_h]
+                                           end
+                                         end
+                 built_resource = Class.new(Avo::BaseResource) do |new_resource_class|
+                   self.model_class = model
+                   self.title = :brick_descrip
+                   self.includes = []
+                   if (!model.is_view? && mod_pk = model.primary_key)
+                     field((mod_pk.is_a?(Array) ? mod_pk.first : mod_pk).to_sym, { as: :id })
+                   end
+                   # Create a call such as:  field :name, as: :text
+                   fields.each do |f|
+                     # Add proper types if this is a polymorphic belongs_to
+                     if f.last == { as: :belongs_to } &&
+                        (fk = ::Brick.relations[model.table_name][:fks].find { |k, v| v[:assoc_name] == f.first.to_s }) &&
+                        fk.last.fetch(:polymorphic, nil)
+                       poly_types = fk.last.fetch(:inverse_table, nil)&.each_with_object([]) do |poly_table, s|
+                         s << Object.const_get(::Brick.relations[poly_table][:class_name])
+                       end
+                       if poly_types.present?
+                         f.last[:polymorphic_as] = f.first
+                         f.last[:types] = poly_types
+                       end
+                     end
+                     self.send(:field, *f)
+                   end
+                 end
+                 Object.const_set(requested.to_sym, built_resource)
+                 [built_resource, nil]
+               end
+
              # MODEL
              elsif ::Brick.enable_models?
                # Custom inheritable Brick base model?
@@ -1335,14 +1377,19 @@ class Object
     end
 
     def build_controller(namespace, class_name, plural_class_name, model, relations)
+      if (is_avo = (namespace.name == 'Avo' && Object.const_defined?('Avo')))
+        # Basic Avo functionality is available via its own generic controller.
+        # (More information on https://docs.avohq.io/2.0/controllers.html)
+        controller_base = Avo::ResourcesController
+      end
       table_name = ActiveSupport::Inflector.underscore(plural_class_name)
       singular_table_name = ActiveSupport::Inflector.singularize(table_name)
       pk = model&._brick_primary_key(relations.fetch(table_name, nil))
       is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2'
 
-      code = +"class #{class_name} < ApplicationController\n"
-      built_controller = Class.new(ActionController::Base) do |new_controller_class|
+      code = +"class #{class_name} < #{controller_base&.name || 'ApplicationController'}\n"
+      built_controller = Class.new(controller_base || ActionController::Base) do |new_controller_class|
         (namespace || Object).const_set(class_name.to_sym, new_controller_class)
 
         # Brick-specific pages
@@ -1439,118 +1486,120 @@ class Object
         end
 
         self.protect_from_forgery unless: -> { self.request.format.js? }
-        self.define_method :index do
-          if (is_openapi || request.env['REQUEST_PATH'].start_with?(::Brick.api_root)) &&
-             !params&.key?('_brick_schema') &&
-             (referrer_params = request.env['HTTP_REFERER']&.split('?')&.last&.split('&')&.map { |x| x.split('=') }).present?
-            if params
-              referrer_params.each { |k, v| params.send(:parameters)[k] = v }
-            else
-              api_params = referrer_params&.to_h
-            end
-          end
-          _schema, @_is_show_schema_list = ::Brick.set_db_schema(params || api_params)
-
-          if is_openapi
-            json = { 'openapi': '3.0.1', 'info': { 'title': Rswag::Ui.config.config_object[:urls].last&.fetch(:name, 'API documentation'), 'version': ::Brick.config.api_version },
-                     'servers': [
-                       { 'url': '{scheme}://{defaultHost}', 'variables': {
-                         'scheme': { 'default': request.env['rack.url_scheme'] },
-                         'defaultHost': { 'default': request.env['HTTP_HOST'] }
-                       } }
-                     ]
-                   }
-            json['paths'] = relations.inject({}) do |s, relation|
-              unless ::Brick.config.enable_api == false
-                table_description = relation.last[:description]
-                s["#{::Brick.config.api_root}#{relation.first.tr('.', '/')}"] = {
-                  'get': {
-                    'summary': "list #{relation.first}",
-                    'description': table_description,
-                    'parameters': relation.last[:cols].map do |k, v|
-                                    param = { 'name' => k, 'schema': { 'type': v.first } }
-                                    if (col_descrip = relation.last.fetch(:col_descrips, nil)&.fetch(k, nil))
-                                      param['description'] = col_descrip
-                                    end
-                                    param
-                                  end,
-                    'responses': { '200': { 'description': 'successful' } }
-                  }
-                }
-
-                s["#{::Brick.config.api_root}#{relation.first.tr('.', '/')}/{id}"] = {
-                  'patch': {
-                    'summary': "update a #{relation.first.singularize}",
-                    'description': table_description,
-                    'parameters': relation.last[:cols].reject { |k, v| Brick.config.metadata_columns.include?(k) }.map do |k, v|
-                      param = { 'name' => k, 'schema': { 'type': v.first } }
-                      if (col_descrip = relation.last.fetch(:col_descrips, nil)&.fetch(k, nil))
-                        param['description'] = col_descrip
-                      end
-                      param
-                    end,
-                    'responses': { '200': { 'description': 'successful' } }
-                  }
-                } unless relation.last.fetch(:isView, nil)
-                s
+        unless is_avo
+          self.define_method :index do
+            if (is_openapi || request.env['REQUEST_PATH'].start_with?(::Brick.api_root)) &&
+               !params&.key?('_brick_schema') &&
+               (referrer_params = request.env['HTTP_REFERER']&.split('?')&.last&.split('&')&.map { |x| x.split('=') }).present?
+              if params
+                referrer_params.each { |k, v| params.send(:parameters)[k] = v }
+              else
+                api_params = referrer_params&.to_h
               end
             end
-            render inline: json.to_json, content_type: request.format
-            return
-          end
+            _schema, @_is_show_schema_list = ::Brick.set_db_schema(params || api_params)
 
-          if request.format == :csv # Asking for a template?
-            require 'csv'
-            exported_csv = CSV.generate(force_quotes: false) do |csv_out|
-              model.df_export(model.brick_import_template).each { |row| csv_out << row }
+            if is_openapi
+              json = { 'openapi': '3.0.1', 'info': { 'title': Rswag::Ui.config.config_object[:urls].last&.fetch(:name, 'API documentation'), 'version': ::Brick.config.api_version },
+                       'servers': [
+                         { 'url': '{scheme}://{defaultHost}', 'variables': {
+                           'scheme': { 'default': request.env['rack.url_scheme'] },
+                           'defaultHost': { 'default': request.env['HTTP_HOST'] }
+                         } }
+                       ]
+                     }
+              json['paths'] = relations.inject({}) do |s, relation|
+                unless ::Brick.config.enable_api == false
+                  table_description = relation.last[:description]
+                  s["#{::Brick.config.api_root}#{relation.first.tr('.', '/')}"] = {
+                    'get': {
+                      'summary': "list #{relation.first}",
+                      'description': table_description,
+                      'parameters': relation.last[:cols].map do |k, v|
+                                      param = { 'name' => k, 'schema': { 'type': v.first } }
+                                      if (col_descrip = relation.last.fetch(:col_descrips, nil)&.fetch(k, nil))
+                                        param['description'] = col_descrip
+                                      end
+                                      param
+                                    end,
+                      'responses': { '200': { 'description': 'successful' } }
+                    }
+                  }
+
+                  s["#{::Brick.config.api_root}#{relation.first.tr('.', '/')}/{id}"] = {
+                    'patch': {
+                      'summary': "update a #{relation.first.singularize}",
+                      'description': table_description,
+                      'parameters': relation.last[:cols].reject { |k, v| Brick.config.metadata_columns.include?(k) }.map do |k, v|
+                        param = { 'name' => k, 'schema': { 'type': v.first } }
+                        if (col_descrip = relation.last.fetch(:col_descrips, nil)&.fetch(k, nil))
+                          param['description'] = col_descrip
+                        end
+                        param
+                      end,
+                      'responses': { '200': { 'description': 'successful' } }
+                    }
+                  } unless relation.last.fetch(:isView, nil)
+                  s
+                end
+              end
+              render inline: json.to_json, content_type: request.format
+              return
             end
-            render inline: exported_csv, content_type: request.format
-            return
-          elsif request.format == :js || request.path.start_with?('/api/') # Asking for JSON?
-            data = (model.is_view? || !Object.const_defined?('DutyFree')) ? model.limit(1000) : model.df_export(model.brick_import_template)
-            render inline: data.to_json, content_type: request.format == '*/*' ? 'application/json' : request.format
-            return
-          end
 
-          # Normal (not swagger or CSV) request
+            if request.format == :csv # Asking for a template?
+              require 'csv'
+              exported_csv = CSV.generate(force_quotes: false) do |csv_out|
+                model.df_export(model.brick_import_template).each { |row| csv_out << row }
+              end
+              render inline: exported_csv, content_type: request.format
+              return
+            elsif request.format == :js || request.path.start_with?('/api/') # Asking for JSON?
+              data = (model.is_view? || !Object.const_defined?('DutyFree')) ? model.limit(1000) : model.df_export(model.brick_import_template)
+              render inline: data.to_json, content_type: request.format == '*/*' ? 'application/json' : request.format
+              return
+            end
 
-          # %%% Allow params to define which columns to use for order_by
-          # Overriding the default by providing a querystring param?
-          ordering = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
-          order_by, _ = model._brick_calculate_ordering(ordering, true) # Don't do the txt part
+            # Normal (not swagger or CSV) request
 
-          ar_relation = ActiveRecord.version < Gem::Version.new('4') ? model.preload : model.all
-          @_brick_params = ar_relation.brick_select(params, (selects = []), order_by,
-                                                             translations = {},
-                                                             join_array = ::Brick::JoinArray.new)
-          # %%% Add custom HM count columns
-          # %%% What happens when the PK is composite?
-          counts = model._br_hm_counts.each_with_object([]) do |v, s|
-            s << if is_mysql
-                   "`b_r_#{v.first}`.c_t_ AS \"b_r_#{v.first}_ct\""
-                 elsif is_postgres
-                   "\"b_r_#{v.first}\".c_t_ AS \"b_r_#{v.first}_ct\""
-                 else
-                   "b_r_#{v.first}.c_t_ AS \"b_r_#{v.first}_ct\""
-                 end
-          end
-          ar_select = ar_relation.respond_to?(:_select!) ? ar_relation.dup._select!(*selects, *counts) : ar_relation.select(selects + counts)
-          instance_variable_set("@#{table_name.pluralize}".to_sym, ar_select)
-          if namespace && (idx = lookup_context.prefixes.index(table_name))
-            lookup_context.prefixes[idx] = "#{namespace.name.underscore}/#{lookup_context.prefixes[idx]}"
-          end
-          @_brick_excl = session[:_brick_exclude]&.split(',')&.each_with_object([]) do |excl, s|
-                           if (excl_parts = excl.split('.')).first == table_name
-                             s << excl_parts.last
+            # %%% Allow params to define which columns to use for order_by
+            # Overriding the default by providing a querystring param?
+            ordering = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
+            order_by, _ = model._brick_calculate_ordering(ordering, true) # Don't do the txt part
+
+            ar_relation = ActiveRecord.version < Gem::Version.new('4') ? model.preload : model.all
+            @_brick_params = ar_relation.brick_select(params, (selects = []), order_by,
+                                                               translations = {},
+                                                               join_array = ::Brick::JoinArray.new)
+            # %%% Add custom HM count columns
+            # %%% What happens when the PK is composite?
+            counts = model._br_hm_counts.each_with_object([]) do |v, s|
+              s << if is_mysql
+                     "`b_r_#{v.first}`.c_t_ AS \"b_r_#{v.first}_ct\""
+                   elsif is_postgres
+                     "\"b_r_#{v.first}\".c_t_ AS \"b_r_#{v.first}_ct\""
+                   else
+                     "b_r_#{v.first}.c_t_ AS \"b_r_#{v.first}_ct\""
+                   end
+            end
+            ar_select = ar_relation.respond_to?(:_select!) ? ar_relation.dup._select!(*selects, *counts) : ar_relation.select(selects + counts)
+            instance_variable_set("@#{table_name.pluralize}".to_sym, ar_select)
+            if namespace && (idx = lookup_context.prefixes.index(table_name))
+              lookup_context.prefixes[idx] = "#{namespace.name.underscore}/#{lookup_context.prefixes[idx]}"
+            end
+            @_brick_excl = session[:_brick_exclude]&.split(',')&.each_with_object([]) do |excl, s|
+                             if (excl_parts = excl.split('.')).first == table_name
+                               s << excl_parts.last
+                             end
                            end
-                         end
-          @_brick_bt_descrip = model._br_bt_descrip
-          @_brick_hm_counts = model._br_hm_counts
-          @_brick_join_array = join_array
-          @_brick_erd = params['_brick_erd']&.to_i
+            @_brick_bt_descrip = model._br_bt_descrip
+            @_brick_hm_counts = model._br_hm_counts
+            @_brick_join_array = join_array
+            @_brick_erd = params['_brick_erd']&.to_i
+          end
         end
 
-        unless is_openapi
+        unless is_openapi || is_avo
           _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk)) if pk
           code << "  def index\n"
           code << "    @#{table_name.pluralize} = #{model.name}#{pk&.present? ? ".order(#{order_by_txt.join(', ')})" : '.all'}\n"

@@ -88,6 +88,167 @@ module Brick
           (app_config.assets.precompile ||= []) << "#{assets_path}/images/brick_erd.png"
           (app.config.assets.paths ||= []) << assets_path
         end
+
+        # Smarten up Avo so it recognises Brick's querystring option for Apartment multi-tenancy
+        if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace)
+          module ::Avo
+            class ApplicationController
+              # Make Avo tenant-compatible when a querystring param is included such as:  ?_brick_schema=globex_corp
+              alias _brick_avo_init init_app
+              def init_app
+                _brick_avo_init
+                ::Brick.set_db_schema(params)
+              end
+            end
+
+            module UrlHelpers
+              alias _brick_resource_path resource_path
+              # Accommodate STI resources
+              def resource_path(model:, resource:, **args)
+                resource ||= if (klass = model&.class)
+                               Avo::App.resources.find { |r| r.model_class > klass }
+                             end
+                _brick_resource_path(model: model, resource: resource, **args)
+              end
+            end
+
+            class Fields::BelongsToField
+              # When there is no Resource created for the target of a belongs_to, defer to the description that Brick would use
+              alias _brick_label label
+              def label
+                target_resource ? _brick_label : value.send(:brick_descrip)
+              end
+            end
+
+            class App
+              class << self
+                alias _brick_eager_load eager_load
+                def eager_load(entity)
+                  _brick_eager_load(entity)
+                  if entity == :resources
+                    # %%% This useful logic can be DRYd up since it's very similar to what's around extensions.rb:1894
+                    if (possible_schemas = (multitenancy = ::Brick.config.schema_behavior&.[](:multitenant)) &&
+                                           multitenancy&.[](:schema_to_analyse))
+                      possible_schemas = [possible_schemas] unless possible_schemas.is_a?(Array)
+                      if (possible_schema = possible_schemas.find { |ps| ::Brick.db_schemas.key?(ps) })
+                        orig_tenant = Apartment::Tenant.current
+                        Apartment::Tenant.switch!(possible_schema)
+                      end
+                    end
+                    existing = Avo::BaseResource.descendants.each_with_object({}) do |r, s|
+                                 s[r.name[0..-9]] = nil if r.name.end_with?('Resource')
+                               end
+                    ::Brick.relations.each do |k, v|
+                      unless existing.key?(class_name = v[:class_name]) || Brick.config.exclude_tables.include?(k) || class_name.blank?
+                        Object.const_get("#{class_name}Resource")
+                      end
+                    end
+                    Apartment::Tenant.switch!(orig_tenant) if orig_tenant
+                  end
+                end
+              end
+            end
+
+            # Add our schema link Javascript code when the TurboFrameWrapper is rendered so it ends up on all index / show / etc
+            TurboFrameWrapperComponent.class_exec do
+              alias _brick_content content
+              def content
+                # Avo's logo partial fails if there is not a URL helper called exactly "root_path"
+                # (Finicky line over there is:  avo/app/views/avo/partials/_logo.html.erb:1)
+                if ::Brick.instance_variable_get(:@_brick_avo_js) == view_renderer.object_id
+                  _brick_content
+                else
+                  ::Brick.instance_variable_set(:@_brick_avo_js, view_renderer.object_id)
+                  unless ::Rails.application.routes.named_routes.names.include?(:root) || ActionView::Base.respond_to?(:root_path)
+                    ActionView::Base.class_exec do
+                      def root_path
+                        Avo::App.root_path
+                      end
+                    end
+                  end
+"<script>
+#{JS_CHANGEOUT}
+window.addEventListener(\"load\", linkSchemas);
+document.addEventListener(\"turbo:render\", linkSchemas);
+window.addEventListener(\"popstate\", linkSchemas);
+// [... document.getElementsByTagName('turbo-frame')].forEach(function (a) { a.addEventListener(\"turbo:frame-render\", linkSchemas); });
+function linkSchemas() {
+  brickSchema = changeout(location.href, \"_brick_schema\");
+  if (brickSchema) {
+    [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
+    [... document.getElementsByTagName(\"FORM\")].forEach(function (form) { form.action = changeout(form.action, \"_brick_schema\", brickSchema); });
+  }
+}
+</script>
+#{_brick_content}".html_safe
+                end
+              end
+            end
+
+            # When available, add a clickable brick icon to go to the Brick version of the page
+            PanelComponent.class_exec do
+              alias _brick_init initialize
+              def initialize(*args)
+                _brick_init(*args)
+                @name = BrickTitle.new(@name, self)
+              end
+            end
+
+            class BrickTitle
+              def initialize(name, view_component)
+                @vc = view_component
+                @_name = name
+              end
+              def to_s
+                @_name.html_safe + @vc.instance_variable_get(:@__vc_helpers)&.link_to_brick(nil,
+                  "<svg version=\"1.1\" style=\"display: inline; padding-left: 0.5em;\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"
+  viewBox=\"0 0 58 58\" height=\"1.4em\" xml:space=\"preserve\">
+<g>
+  <polygon style=\"fill:#C2615F;\" points=\"58,15.831 19.106,35.492 0,26.644 40,6\"/>
+  <polygon style=\"fill:#6D4646;\" points=\"19,52 0,43.356 0,26.644 19,35\"/>
+  <polygon style=\"fill:#894747;\" points=\"58,31.559 19,52 19,35 58,15.831\"/>
+</g>
+</svg>
+".html_safe,
+                  { title: "#{@_name} in Brick" }
+                )
+              end
+            end
+
+            class Fields::IndexComponent
+              alias _brick_resource_view_path resource_view_path
+              def resource_view_path
+                return if @resource.model&.class&.is_view?
+
+                _brick_resource_view_path
+              end
+            end
+          end # module Avo
+
+          # Steer any Avo-related controller/action based URL lookups to the Avo RouteSet
+          class ActionDispatch::Routing::RouteSet
+            alias _brick_url_for url_for
+            def url_for(options, *args)
+              if self != ::Avo.railtie_routes_url_helpers._routes && # This URL lookup is not on the Avo RouteSet ...
+                 (options[:controller]&.start_with?('avo/') || # ... but it is based on an Avo controller and action?
+                  options[:_recall]&.fetch(:controller, nil)&.start_with?('avo/')
+                 )
+                options[:script_name] = ::Avo.configuration.root_path if options[:script_name].blank?
+                ::Avo.railtie_routes_url_helpers._routes.url_for(options, *args) # Go get the answer from the real Avo RouteSet
+              # Views currently do not support show / new / edit
+              elsif options[:controller]&.start_with?('avo/') &&
+                    ['show', 'new', 'edit'].include?(options[:action]) &&
+                    ((options[:id].is_a?(ActiveRecord::Base) && options[:id].class.is_view?) ||
+                     ::Brick.relations.fetch(options[:controller][4..-1], nil)&.fetch(:isView, nil)
+                    )
+                nil
+              else # This is either a non-Avo request or a proper Avo request, so carry on
+                _brick_url_for(options, *args)
+              end
+            end
+          end
+        end # Avo compatibility
+
         # ====================================
         # Dynamically create generic templates
         # ====================================
@@ -459,7 +620,18 @@ end
 def slashify(*vals)
   vals.map { |val_part| val_part.is_a?(String) ? val_part.gsub('/', '^^sl^^') : val_part }
 end
-callbacks = {} %>"
+callbacks = {} %>
+
+<% avo_svg = \"#{
+"<svg version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 84 90\" height=\"30\" fill=\"#3096F7\">
+  <path d=\"M83.8304 81.0201C83.8343 82.9343 83.2216 84.7996 82.0822 86.3423C80.9427 87.8851 79.3363 89.0244 77.4984 89.5931C75.6606 90.1618 73.6878 90.1302 71.8694 89.5027C70.0509 88.8753 68.4823 87.6851 67.3935 86.1065L67.0796 85.6029C66.9412 85.378 66.8146 85.1463 66.6998 84.9079L66.8821 85.3007C64.1347 81.223 60.419 77.8817 56.0639 75.5723C51.7087 73.263 46.8484 72.057 41.9129 72.0609C31.75 72.0609 22.372 77.6459 16.9336 85.336C17.1412 84.7518 17.7185 83.6137 17.9463 83.0446L19.1059 80.5265L19.1414 80.456C25.2533 68.3694 37.7252 59.9541 52.0555 59.9541C53.1949 59.9541 54.3241 60.0095 55.433 60.1102C60.748 60.6134 65.8887 62.2627 70.4974 64.9433C75.1061 67.6238 79.0719 71.2712 82.1188 75.6314C82.1188 75.6314 82.1441 75.6717 82.1593 75.6868C82.1808 75.717 82.1995 75.749 82.215 75.7825C82.2821 75.8717 82.3446 75.9641 82.4024 76.0595C82.4682 76.1653 82.534 76.4221 82.5999 76.5279C82.6657 76.6336 82.772 76.82 82.848 76.9711L83.1822 77.7063C83.6094 78.7595 83.8294 79.8844 83.8304 81.0201V81.0201Z\" fill=\"currentColor\" fill-opacity=\"0.22\"></path>
+  <path opacity=\"0.25\" d=\"M83.8303 81.015C83.8354 82.9297 83.2235 84.7956 82.0844 86.3393C80.9453 87.8829 79.339 89.0229 77.5008 89.5923C75.6627 90.1617 73.6895 90.1304 71.8706 89.5031C70.0516 88.8758 68.4826 87.6854 67.3935 86.1065L67.0796 85.6029C66.9412 85.3746 66.8146 85.1429 66.6998 84.9079L66.8821 85.3007C64.1353 81.222 60.4199 77.8797 56.0647 75.5695C51.7095 73.2593 46.8488 72.0524 41.9129 72.0558C31.75 72.0558 22.372 77.6408 16.9336 85.3309C17.1412 84.7467 17.7185 83.6086 17.9463 83.0395L19.1059 80.5214L19.1414 80.4509C22.1906 74.357 26.8837 69.2264 32.6961 65.6326C38.5086 62.0387 45.2114 60.1232 52.0555 60.1001C53.1949 60.1001 54.3241 60.1555 55.433 60.2562C60.7479 60.7594 65.8887 62.4087 70.4974 65.0893C75.1061 67.7698 79.0719 71.4172 82.1188 75.7775C82.1188 75.7775 82.1441 75.8177 82.1593 75.8328C82.1808 75.863 82.1995 75.895 82.215 75.9285C82.2821 76.0177 82.3446 76.1101 82.4024 76.2055L82.5999 76.5228C82.6859 76.6638 82.772 76.8149 82.848 76.966L83.1822 77.7012C83.6093 78.7544 83.8294 79.8793 83.8303 81.015Z\" fill=\"currentColor\" fill-opacity=\"0.22\"></path>
+  <path d=\"M42.1155 30.2056L35.3453 45.0218C35.2161 45.302 35.0189 45.5458 34.7714 45.7313C34.5239 45.9168 34.2338 46.0382 33.9274 46.0844C27.3926 47.1694 21.1567 49.5963 15.617 53.2105C15.279 53.4302 14.8783 53.5347 14.4753 53.5083C14.0723 53.4819 13.6889 53.326 13.3827 53.0641C13.0765 52.8022 12.8642 52.4485 12.7777 52.0562C12.6911 51.6638 12.7351 51.2542 12.9029 50.8889L32.2311 8.55046L33.6894 5.35254C32.8713 7.50748 32.9166 9.89263 33.816 12.0153L33.9983 12.4131L42.1155 30.2056Z\" fill=\"currentColor\" fill-opacity=\"0.22\"></path>
+  <path d=\"M82.812 76.8753C82.6905 76.694 82.3715 76.2207 82.2449 76.0444C82.2044 75.9739 82.2044 75.8782 82.1588 75.8127C82.1132 75.7473 82.1335 75.7724 82.1183 75.7573C79.0714 71.3971 75.1056 67.7497 70.4969 65.0692C65.8882 62.3886 60.7474 60.7393 55.4325 60.2361C54.3236 60.1354 53.1943 60.08 52.055 60.08C45.2173 60.1051 38.5214 62.022 32.7166 65.6161C26.9118 69.2102 22.2271 74.3397 19.1864 80.4308L19.151 80.5013C18.7358 81.3323 18.3458 82.1784 17.9914 83.0194L16.9786 85.2655C16.9077 85.3662 16.8419 85.472 16.771 85.5828C16.6647 85.7389 16.5584 85.9 16.4621 86.0612C15.3778 87.6439 13.8123 88.8397 11.995 89.4732C10.1776 90.1068 8.20406 90.1448 6.36344 89.5817C4.52281 89.0186 2.9119 87.884 1.76676 86.3442C0.621625 84.8044 0.00246102 82.9403 0 81.0251C0.00604053 80.0402 0.177178 79.0632 0.506372 78.1344L1.22036 76.5681C1.25084 76.5034 1.28639 76.4411 1.32669 76.3818C1.40265 76.2559 1.47861 76.135 1.56469 76.0192C1.58531 75.9789 1.60901 75.9401 1.63558 75.9034C7.06401 67.6054 14.947 61.1866 24.1977 57.5317C33.4485 53.8768 43.6114 53.166 53.2855 55.4971L48.9155 45.9286L41.9276 30.6188L33.8256 12.8263L33.6433 12.4285C32.7439 10.3058 32.6986 7.92067 33.5167 5.76573L34.0231 4.69304C34.8148 3.24136 35.9941 2.03525 37.431 1.20762C38.868 0.379997 40.5068 -0.0370045 42.1668 0.0025773C43.8268 0.0421591 45.4436 0.536787 46.839 1.43195C48.2345 2.32711 49.3543 3.58804 50.0751 5.07578L50.2523 5.47363L51.8474 8.96365L74.0974 57.708L82.812 76.8753Z\" fill=\"currentColor\" fill-opacity=\"0.22\"></path>
+  <path opacity=\"0.25\" d=\"M41.9129 30.649L35.3301 45.0422C35.2023 45.3204 35.0074 45.563 34.7627 45.7484C34.518 45.9337 34.2311 46.0562 33.9274 46.1048C27.3926 47.1897 21.1567 49.6166 15.617 53.2308C15.279 53.4505 14.8783 53.555 14.4753 53.5286C14.0723 53.5022 13.6889 53.3463 13.3827 53.0844C13.0765 52.8225 12.8642 52.4688 12.7777 52.0765C12.6911 51.6842 12.7351 51.2745 12.9029 50.9092L32.0285 8.99382L33.4869 5.7959C32.6687 7.95084 32.7141 10.336 33.6135 12.4586L33.7958 12.8565L41.9129 30.649Z\" fill=\"currentColor\" fill-opacity=\"0.22\"></path>
+</svg>
+".gsub('"', '\"')
+}\".html_safe %>"
 
               if ['index', 'show', 'new', 'update'].include?(args.first)
                 poly_cols = []
@@ -835,6 +1007,15 @@ erDiagram
 <table id=\"resourceName\"><tr>
   <td><h1>#{model_name}</h1></td>
   <td id=\"imgErd\" title=\"Show ERD\"></td>
+  <% if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) %>
+    <td><%= link_to_brick(
+        avo_svg,
+        { index_proc: Proc.new do |model|
+                        ::Avo.railtie_routes_url_helpers.send(\"resources_#\{model.base_class.model_name.route_key}_path\".to_sym)
+                      end,
+          title: '#{model_name} in Avo' }
+      ) %></td>
+  <% end %>
 </tr></table>#{template_link}<%
    if description.present? %><%=
      description %><br><%
@@ -1005,7 +1186,18 @@ erDiagram
 <p style=\"color: green\"><%= notice %></p>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
-<h1><%= page_title %></h1><%
+<table><td><h1><%= page_title %></h1></td>
+<% if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) %>
+  <td><%= link_to_brick(
+      avo_svg,
+      { show_proc: Proc.new do |obj|
+                     ::Avo.railtie_routes_url_helpers.send(\"resources_#\{obj.class.base_class.model_name.singular_route_key}_path\".to_sym, obj)
+                   end,
+        title: \"#\{page_title} in Avo\" }
+    ) %></td>
+<% end %>
+</table>
+<%
 if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %><%=
   description %><br><%
 end
