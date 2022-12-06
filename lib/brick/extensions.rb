@@ -398,15 +398,27 @@ module ActiveRecord
     # Links from ActiveRecord association pathing names over to real table correlation names
     # that get chosen when the AREL AST tree is walked.
     def brick_links
-      @brick_links ||= {}
+      @brick_links ||= { '' => table_name }
     end
 
     def brick_select(params, selects = [], order_by = nil, translations = {}, join_array = ::Brick::JoinArray.new)
       is_add_bts = is_add_hms = true
 
-      # Build out cust_cols, bt_descrip and hm_counts now so that they are available on the
-      # model early in case the user wants to do an ORDER BY based on any of that.
-      model._brick_calculate_bts_hms(translations, join_array) if is_add_bts || is_add_hms
+      if selects.empty?
+        # Build out cust_cols, bt_descrip and hm_counts now so that they are available on the
+        # model early in case the user wants to do an ORDER BY based on any of that.
+        model._brick_calculate_bts_hms(translations, join_array) if is_add_bts || is_add_hms
+      else
+        is_api = true
+        # If there are any provided selects, treat them as API columns and build them as cust_cols since they
+        # can be built using DSL.
+        # false = not polymorphic, and true = yes -- please emit_dsl
+        selects.each do |api_col|
+          pieces, my_dsl = brick_parse_dsl(join_array, [], translations, false, "[#{api_col}]", true)
+          _br_cust_cols[api_col.tr('.', '_')] = [pieces, my_dsl]
+        end
+        selects.clear # Now these have become custom columns
+      end
 
       is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2'
@@ -414,7 +426,7 @@ module ActiveRecord
       is_distinct = nil
       wheres = {}
       params.each do |k, v|
-        next if ['_brick_schema', '_brick_order', 'controller', 'action'].include?(k)
+        next if ['_brick_schema', '_brick_order', '_brick_api', 'controller', 'action'].include?(k)
 
         if (where_col = (ks = k.split('.')).last)[-1] == '!'
           where_col = where_col[0..-2]
@@ -436,11 +448,14 @@ module ActiveRecord
 
       # %%% Skip the metadata columns
       if selects.empty? # Default to all columns
+        id_parts = (id_col = klass.primary_key).is_a?(Array) ? id_col : [id_col]
         tbl_no_schema = table.name.split('.').last
         # %%% Have once gotten this error with MSSQL referring to http://localhost:3000/warehouse/cold_room_temperatures__archive
         #     ActiveRecord::StatementInvalid (TinyTds::Error: DBPROCESS is dead or not enabled)
         #     Relevant info here:  https://github.com/rails-sqlserver/activerecord-sqlserver-adapter/issues/402
         columns.each do |col|
+          next if is_api && id_parts.exclude?(col.name) # Only keep the ID columns if this is an API request
+
           col_alias = " AS #{col.name}_" if (col_name = col.name) == 'class'
           selects << if is_mysql
                        "`#{tbl_no_schema}`.`#{col_name}`#{col_alias}"
@@ -490,22 +505,28 @@ module ActiveRecord
             # binding.pry
             next
           end
-
           key_klass = nil
           key_tbl_name = nil
           dest_pk = nil
           key_alias = nil
           cc.first.each do |cc_part|
-            dest_klass = cc_part[0..-2].inject(klass) { |kl, cc_part_term| kl.reflect_on_association(cc_part_term).klass }
+            dest_klass = cc_part[0..-2].inject(klass) do |kl, cc_part_term|
+              # %%% Clear column info properly so we can do multiple subsequent requests
+              # binding.pry unless kl.reflect_on_association(cc_part_term)
+              kl.reflect_on_association(cc_part_term)&.klass || klass
+            end
             tbl_name = rel_dupe.brick_links[cc_part[0..-2].map(&:to_s).join('.')]
             # Deal with the conflict if there are two parts in the custom column named the same,
             # "category.name" and "product.name" for instance will end up with aliases of "name"
             # and "product__name".
-            cc_part_idx = cc_part.length - 1
-            while cc_part_idx > 0 &&
-                  (col_alias = "br_cc_#{k}__#{cc_part[cc_part_idx..-1].map(&:to_s).join('__')}") &&
-                  used_col_aliases.key?(col_alias)
-              cc_part_idx -= 1
+            if (cc_part_idx = cc_part.length - 1).zero?
+              col_alias = "br_cc_#{k}__#{table_name.tr('.', '_')}"
+            else
+              while cc_part_idx > 0 &&
+                    (col_alias = "br_cc_#{k}__#{cc_part[cc_part_idx..-1].map(&:to_s).join('__').tr('.', '_')}") &&
+                    used_col_aliases.key?(col_alias)
+                cc_part_idx -= 1
+              end
             end
             used_col_aliases[col_alias] = nil
             # Set up custom column links by preparing key_klass and key_alias
@@ -1372,7 +1393,7 @@ class Object
       when Symbol
         order_tbl[order_default] || order_default
       else
-        pk.map(&:to_sym) # If it's not a custom ORDER BY, just use the key
+        pk.map { |part| "#{table_name}.#{part}"}.join(', ') # If it's not a custom ORDER BY, just use the key
       end
     end
 
@@ -1568,7 +1589,15 @@ class Object
             order_by, _ = model._brick_calculate_ordering(ordering, true) # Don't do the txt part
 
             ar_relation = ActiveRecord.version < Gem::Version.new('4') ? model.preload : model.all
-            @_brick_params = ar_relation.brick_select(params, (selects = []), order_by,
+
+            if (cc = params['_brick_api']&.split(','))
+              is_api = true
+              selects = cc
+              counts = [] # No need for any extra HM count columns
+              model._br_cust_cols.clear
+            end
+
+            @_brick_params = ar_relation.brick_select(params, (selects ||= []), order_by,
                                                                translations = {},
                                                                join_array = ::Brick::JoinArray.new)
             # %%% Add custom HM count columns
@@ -1582,6 +1611,7 @@ class Object
                      "b_r_#{v.first}.c_t_ AS \"b_r_#{v.first}_ct\""
                    end
             end
+
             ar_select = ar_relation.respond_to?(:_select!) ? ar_relation.dup._select!(*selects, *counts) : ar_relation.select(selects + counts)
             instance_variable_set("@#{table_name.pluralize}".to_sym, ar_select)
             if namespace && (idx = lookup_context.prefixes.index(table_name))

@@ -424,6 +424,14 @@ h1, h3 {
   cursor: pointer;
 }
 
+#apiToggle {
+  border: 2px solid purple;
+}
+
+#apiToggle, .apiColName {
+  cursor: pointer;
+}
+
 #dropper {
   background-color: #eee;
 }
@@ -1004,6 +1012,9 @@ erDiagram
 <p style=\"color: green\"><%= notice %></p>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
+
+<%= pick_api(#{model_name}).html_safe %>
+
 <table id=\"resourceName\"><tr>
   <td><h1>#{model_name}</h1></td>
   <td id=\"imgErd\" title=\"Show ERD\"></td>
@@ -1077,8 +1088,13 @@ erDiagram
                        end
 
     # Write out the mega-grid
-    brick_grid(@#{table_name}, @_brick_bt_descrip, @_brick_sequence, @_brick_incl, @_brick_excl,
-                 cols, poly_cols, bts, #{hms_keys.inspect}, {#{hms_columns.join(', ')}}) %>
+    if params['_brick_api'] # API response?
+      brick_grid(@#{table_name}, @_brick_bt_descrip, @_brick_sequence, [], @_brick_excl,
+                 cols, poly_cols, {}, [], {})
+    else
+      brick_grid(@#{table_name}, @_brick_bt_descrip, @_brick_sequence, @_brick_incl, @_brick_excl,
+                 cols, poly_cols, bts, #{hms_keys.inspect}, {#{hms_columns.join(', ')}})
+    end %>
 
 #{"<hr><%= link_to \"New #{obj_name}\", new_#{path_obj_name}_path %>" unless @_brick_model.is_view?}
 #{script}
