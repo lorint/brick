@@ -137,6 +137,51 @@ module Brick::Rails::FormTags
     out.html_safe
   end # brick_grid
 
+  # Recursively render UL and LI to choose columns to include
+  def pick_api(model, is_last = nil, visited = [])
+    out = +''
+    if visited.empty?
+      out << '<span id="apiToggle">API buffet</span><div id="apiBuffet" style="display: none;">'
+      out << '<textarea id="apiCode" cols="100"></textarea>'
+      out << '<input type="button" id="apiRender" value="Render">'
+    end
+    out << "\n#{indent = '  ' * visited.length}<ul>"
+    model.column_names.each { |col_name| out << "\n#{indent}  <li class=\"apiColName\" x-nm=\"#{visited.map { |v| "#{v.last}." }.join}#{col_name}\">#{col_name}</li>" }
+    unless is_last || visited.length == 2
+      model.reflect_on_all_associations.each_with_object({}) do |v, s|
+        next if v.macro == :has_many || v.polymorphic?
+
+        out << "\n#{indent}  <li><b>#{v.name}</b>#{pick_api(v.klass, visited.map(&:first).include?(v.klass),
+                                                   visited.dup << [v.klass, v.name]
+                                                  )}"
+        out << "\n#{indent}  </li>"
+        s[v.name] = nil
+      end
+    end
+    out << "\n#{indent}</ul>"
+    if visited.empty?
+      out << '</div><script>[... document.getElementsByClassName("apiColName")].forEach(function (li) {li.addEventListener("click", apiColClick);});'
+      out << "
+var colList = [];
+var apiBuffet = document.getElementById(\"apiBuffet\");
+var apiCode = document.getElementById(\"apiCode\");
+function apiColClick(evt) {
+  apiCode.innerHTML += this.getAttribute(\"x-nm\") + \",\\n\";
+}
+document.getElementById(\"apiToggle\").addEventListener(\"click\", function () {
+  apiBuffet.style.display = (apiBuffet.style.display === \"block\" ? \"none\" : \"block\");
+});
+// Cheap and cheerful way to render a list of columns just for the demo
+document.getElementById(\"apiRender\").addEventListener(\"click\", function () {
+  var changecolList = apiCode.innerHTML.substring(0, apiCode.innerHTML.length - 2);
+  location.href = changeout(location.href, \"_brick_api\", changecolList);
+});
+</script>
+"
+    end
+    out
+  end
+
   def link_to_brick(*args, **kwargs)
     return unless ::Brick.config.mode == :on
 
