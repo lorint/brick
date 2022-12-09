@@ -96,17 +96,17 @@ module Brick::Rails::FormTags
         if hms_col.length == 1
           out << hms_col.first
         else
-          klass = (col = cols[col_name])[1]
+          hm_klass = (col = cols[col_name])[1]
           if col[2] == 'HO'
-            descrips = bt_descrip[col_name.to_sym][klass]
+            descrips = bt_descrip[col_name.to_sym][hm_klass]
             if (ho_id = (ho_id_col = descrips.last).map { |id_col| obj.send(id_col.to_sym) })&.first
-              ho_txt = klass.brick_descrip(obj, descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, ho_id_col)
-              out << link_to(ho_txt, send("#{klass.base_class._brick_index(:singular)}_path".to_sym, ho_id))
+              ho_txt = hm_klass.brick_descrip(obj, descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, ho_id_col)
+              out << link_to(ho_txt, send("#{hm_klass.base_class._brick_index(:singular)}_path".to_sym, ho_id))
             end
           else
             if (ct = obj.send(hms_col[1].to_sym)&.to_i)&.positive?
               out << "#{link_to("#{ct || 'View'} #{hms_col.first}",
-                                   send("#{klass._brick_index}_path".to_sym,
+                                   send("#{hm_klass._brick_index}_path".to_sym,
                                         hms_col[2].each_with_object({}) { |v, s| s[v.first] = v.last.is_a?(String) ? v.last : obj.send(v.last) })
                                )}\n"
             end
@@ -122,7 +122,7 @@ module Brick::Rails::FormTags
         if (link_id = obj.send(cust_col.last[1]) if cust_col.last)
           out << link_to(cust_txt, send("#{cust_col.last.first._brick_index(:singular)}_path", link_id))
         else
-          out << cust_txt
+          out << (cust_txt || '')
         end
       else # Bad column name!
         out << '?'
@@ -186,13 +186,14 @@ module Brick::Rails::FormTags
         end
       end
       filter = "?#{filter_parts.join('&')}" if filter_parts.present?
+      app_routes = Rails.application.routes # In case we're operating in another engine, reference the application since Brick routes are placed there.
       if (klass_or_obj&.is_a?(Class) && klass_or_obj < ActiveRecord::Base) ||
          (klass_or_obj&.is_a?(ActiveRecord::Base) && klass_or_obj.new_record? && (klass_or_obj = klass_or_obj.class))
-        path = (proc = kwargs[:index_proc]) ? proc.call(klass_or_obj) : "#{send("#{klass_or_obj.base_class._brick_index}_path")}#{filter}"
+        path = (proc = kwargs[:index_proc]) ? proc.call(klass_or_obj) : "#{app_routes.path_for(controller: klass_or_obj.base_class._brick_index, action: :index)}#{filter}"
         lt_args = [text || "Index for #{klass_or_obj.name.pluralize}", path]
       else
         # If there are multiple incoming parameters then last one is probably the actual ID, and first few might be some nested tree of stuff leading up to it
-        path = (proc = kwargs[:show_proc]) ? proc.call(klass_or_obj) : "#{send("#{klass_or_obj.class.base_class._brick_index(:singular)}_path", klass_or_obj)}#{filter}"
+        path = (proc = kwargs[:show_proc]) ? proc.call(klass_or_obj) : "#{app_routes.path_for(controller: klass_or_obj.class.base_class._brick_index, action: :show, id: klass_or_obj)}#{filter}"
         lt_args = [text || "Show this #{klass_or_obj.class.name}", path]
       end
       link_to(*lt_args, **kwargs)

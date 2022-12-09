@@ -398,7 +398,7 @@ module ActiveRecord
     # Links from ActiveRecord association pathing names over to real table correlation names
     # that get chosen when the AREL AST tree is walked.
     def brick_links
-      @brick_links ||= {}
+      @brick_links ||= { '' => table_name }
     end
 
     def brick_select(params, selects = [], order_by = nil, translations = {}, join_array = ::Brick::JoinArray.new)
@@ -436,6 +436,7 @@ module ActiveRecord
 
       # %%% Skip the metadata columns
       if selects.empty? # Default to all columns
+        id_parts = (id_col = klass.primary_key).is_a?(Array) ? id_col : [id_col]
         tbl_no_schema = table.name.split('.').last
         # %%% Have once gotten this error with MSSQL referring to http://localhost:3000/warehouse/cold_room_temperatures__archive
         #     ActiveRecord::StatementInvalid (TinyTds::Error: DBPROCESS is dead or not enabled)
@@ -496,16 +497,23 @@ module ActiveRecord
           dest_pk = nil
           key_alias = nil
           cc.first.each do |cc_part|
-            dest_klass = cc_part[0..-2].inject(klass) { |kl, cc_part_term| kl.reflect_on_association(cc_part_term).klass }
+            dest_klass = cc_part[0..-2].inject(klass) do |kl, cc_part_term|
+              # %%% Clear column info properly so we can do multiple subsequent requests
+              # binding.pry unless kl.reflect_on_association(cc_part_term)
+              kl.reflect_on_association(cc_part_term)&.klass || klass
+            end
             tbl_name = rel_dupe.brick_links[cc_part[0..-2].map(&:to_s).join('.')]
             # Deal with the conflict if there are two parts in the custom column named the same,
             # "category.name" and "product.name" for instance will end up with aliases of "name"
             # and "product__name".
-            cc_part_idx = cc_part.length - 1
-            while cc_part_idx > 0 &&
-                  (col_alias = "br_cc_#{k}__#{cc_part[cc_part_idx..-1].map(&:to_s).join('__')}") &&
-                  used_col_aliases.key?(col_alias)
-              cc_part_idx -= 1
+            if (cc_part_idx = cc_part.length - 1).zero?
+              col_alias = "br_cc_#{k}__#{table_name.tr('.', '_')}"
+            else
+              while cc_part_idx > 0 &&
+                    (col_alias = "br_cc_#{k}__#{cc_part[cc_part_idx..-1].map(&:to_s).join('__').tr('.', '_')}") &&
+                    used_col_aliases.key?(col_alias)
+                cc_part_idx -= 1
+              end
             end
             used_col_aliases[col_alias] = nil
             # Set up custom column links by preparing key_klass and key_alias
@@ -623,8 +631,7 @@ module ActiveRecord
                          through_sources.map do |a|
                            from_clause << "\n LEFT OUTER JOIN #{a.table_name} br_t#{idx += 1} "
                            from_clause << if (src_ref = a.source_reflection).macro == :belongs_to
-                                            (nm = hmt_assoc.source_reflection.inverse_of&.name)
-                                            # binding.pry unless nm
+                                            nm = hmt_assoc.source_reflection.inverse_of&.name
                                             link_back << nm
                                             "ON br_t#{idx}.id = br_t#{idx - 1}.#{a.foreign_key}"
                                           elsif src_ref.options[:as]
@@ -963,7 +970,7 @@ Module.class_exec do
                                    ::Brick.is_oracle ? class_name.upcase : class_name,
                                    (plural_class_name = class_name.pluralize)].find { |s| Brick.db_schemas&.include?(s) }&.camelize ||
                                   (::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}::") && class_name) ||
-                                  (::Brick.config.table_name_prefixes&.values.include?(class_name) && class_name))
+                                  (::Brick.config.table_name_prefixes.values.include?(class_name) && class_name))
                return self.const_get(schema_name) if self.const_defined?(schema_name)
 
                # Build out a module for the schema if it's namespaced
@@ -1372,7 +1379,7 @@ class Object
       when Symbol
         order_tbl[order_default] || order_default
       else
-        pk.map(&:to_sym) # If it's not a custom ORDER BY, just use the key
+        pk.map { |part| "#{table_name}.#{part}"}.join(', ') # If it's not a custom ORDER BY, just use the key
       end
     end
 
@@ -1568,7 +1575,7 @@ class Object
             order_by, _ = model._brick_calculate_ordering(ordering, true) # Don't do the txt part
 
             ar_relation = ActiveRecord.version < Gem::Version.new('4') ? model.preload : model.all
-            @_brick_params = ar_relation.brick_select(params, (selects = []), order_by,
+            @_brick_params = ar_relation.brick_select(params, (selects ||= []), order_by,
                                                                translations = {},
                                                                join_array = ::Brick::JoinArray.new)
             # %%% Add custom HM count columns

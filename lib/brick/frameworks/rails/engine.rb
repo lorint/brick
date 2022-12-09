@@ -54,7 +54,7 @@ module Brick
                                       end
 
         # When table names have specific prefixes, automatically place them in their own module with a table_name_prefix.
-        ::Brick.table_name_prefixes = app.config.brick.fetch(:table_name_prefixes, [])
+        ::Brick.table_name_prefixes = app.config.brick.fetch(:table_name_prefixes, {})
 
         # Columns to treat as being metadata for purposes of identifying associative tables for has_many :through
         ::Brick.metadata_columns = app.config.brick.fetch(:metadata_columns, ['created_at', 'updated_at', 'deleted_at'])
@@ -197,7 +197,7 @@ function linkSchemas() {
             class BrickTitle
               def initialize(name, view_component)
                 @vc = view_component
-                @_name = name
+                @_name = name || ''
               end
               def to_s
                 @_name.html_safe + @vc.instance_variable_get(:@__vc_helpers)&.link_to_brick(nil,
@@ -346,7 +346,7 @@ function linkSchemas() {
                                end
                   case args.first
                   when 'index'
-                    unless skip_klass_hms.key?(assoc_name.to_sym) || hm_assoc.options[:source]
+                    unless skip_klass_hms.key?(assoc_name.to_sym) # || hm_assoc.options[:source]
                       hm_entry = +"'#{hm_assoc.name}' => [#{assoc_name.inspect}, "
                       hm_entry << if hm_assoc.macro == :has_many
                                     # Postgres column names are limited to 63 characters
@@ -1058,10 +1058,10 @@ erDiagram
               end.join(', ')}}
 
     # If the resource is missing, has the user simply created an inappropriately pluralised name for a table?
-    @#{table_name} ||= if dym_list = instance_variables.reject do |entry|
-                            entry.to_s.start_with?('@_') ||
-                            ['@cache_hit', '@marked_for_same_origin_verification', '@view_renderer', '@view_flow', '@output_buffer', '@virtual_path'].include?(entry.to_s)
-                          end
+    @#{table_name} ||= if (dym_list = instance_variables.reject do |entry|
+                             entry.to_s.start_with?('@_') ||
+                             ['@cache_hit', '@marked_for_same_origin_verification', '@view_renderer', '@view_flow', '@output_buffer', '@virtual_path'].include?(entry.to_s)
+                           end).present?
                          msg = \"Can't find resource \\\"#{table_name}\\\".\"
                           # Can't be sure otherwise of what is up, so check DidYouMean and offer a suggestion.
                          if (dym = DidYouMean::SpellChecker.new(dictionary: dym_list).correct('@#{table_name}')).present?
@@ -1078,7 +1078,7 @@ erDiagram
 
     # Write out the mega-grid
     brick_grid(@#{table_name}, @_brick_bt_descrip, @_brick_sequence, @_brick_incl, @_brick_excl,
-                 cols, poly_cols, bts, #{hms_keys.inspect}, {#{hms_columns.join(', ')}}) %>
+               cols, poly_cols, bts, #{hms_keys.inspect}, {#{hms_columns.join(', ')}}) %>
 
 #{"<hr><%= link_to \"New #{obj_name}\", new_#{path_obj_name}_path %>" unless @_brick_model.is_view?}
 #{script}
