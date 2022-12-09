@@ -54,7 +54,7 @@ module Brick
                                       end
 
         # When table names have specific prefixes, automatically place them in their own module with a table_name_prefix.
-        ::Brick.table_name_prefixes = app.config.brick.fetch(:table_name_prefixes, [])
+        ::Brick.table_name_prefixes = app.config.brick.fetch(:table_name_prefixes, {})
 
         # Columns to treat as being metadata for purposes of identifying associative tables for has_many :through
         ::Brick.metadata_columns = app.config.brick.fetch(:metadata_columns, ['created_at', 'updated_at', 'deleted_at'])

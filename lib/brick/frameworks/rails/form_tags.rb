@@ -11,7 +11,7 @@ module Brick::Rails::FormTags
       out << "<th x-order=\"#{pk.join(',')}\"></th>"
     end
 
-    col_keys = relation.columns.each_with_object([]) do |col, s|
+    col_keys ||= relation.columns.each_with_object([]) do |col, s|
       col_name = col.name
       next if inclusions&.exclude?(col_name) ||
               (pk.include?(col_name) && [:integer, :uuid].include?(col.type) && !bts.key?(col_name)) ||
@@ -122,7 +122,7 @@ module Brick::Rails::FormTags
         if (link_id = obj.send(cust_col.last[1]) if cust_col.last)
           out << link_to(cust_txt, send("#{cust_col.last.first._brick_index(:singular)}_path", link_id))
         else
-          out << cust_txt
+          out << (cust_txt || '')
         end
       else # Bad column name!
         out << '?'
@@ -186,13 +186,14 @@ module Brick::Rails::FormTags
         end
       end
       filter = "?#{filter_parts.join('&')}" if filter_parts.present?
+      app_routes = Rails.application.routes # In case we're operating in another engine, reference the application since Brick routes are placed there.
       if (klass_or_obj&.is_a?(Class) && klass_or_obj < ActiveRecord::Base) ||
          (klass_or_obj&.is_a?(ActiveRecord::Base) && klass_or_obj.new_record? && (klass_or_obj = klass_or_obj.class))
-        path = (proc = kwargs[:index_proc]) ? proc.call(klass_or_obj) : "#{send("#{klass_or_obj.base_class._brick_index}_path")}#{filter}"
+        path = (proc = kwargs[:index_proc]) ? proc.call(klass_or_obj) : "#{app_routes.path_for(controller: klass_or_obj.base_class._brick_index, action: :index)}#{filter}"
         lt_args = [text || "Index for #{klass_or_obj.name.pluralize}", path]
       else
         # If there are multiple incoming parameters then last one is probably the actual ID, and first few might be some nested tree of stuff leading up to it
-        path = (proc = kwargs[:show_proc]) ? proc.call(klass_or_obj) : "#{send("#{klass_or_obj.class.base_class._brick_index(:singular)}_path", klass_or_obj)}#{filter}"
+        path = (proc = kwargs[:show_proc]) ? proc.call(klass_or_obj) : "#{app_routes.path_for(controller: klass_or_obj.class.base_class._brick_index, action: :show, id: klass_or_obj)}#{filter}"
         lt_args = [text || "Show this #{klass_or_obj.class.name}", path]
       end
       link_to(*lt_args, **kwargs)
