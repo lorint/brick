@@ -564,10 +564,58 @@ def hide_bcrypt(val, max_len = 200)
     '(hidden)'
   else
     if val.is_a?(String)
-      val = \"#\{val[0...max_len]}...\" if val.length > max_len
+      if (val = val.dup.strip).length > max_len
+        if val[0] == '<' # Seems to be HTML?
+          cur_len = 0
+          cur_idx = 0
+          # Find which HTML tags we might be inside so we can apply ending tags to balance
+          element_name = nil
+          in_closing = nil
+          elements = []
+          val.each_char do |ch|
+            case ch
+            when '<'
+              element_name = +''
+            when '/' # First character of tag is '/'?
+              in_closing = true if element_name == ''
+            when '>'
+              if element_name
+                if in_closing
+                  if (idx = elements.index { |tag| tag.downcase == element_name.downcase })
+                    elements.delete_at(idx)
+                  end
+                elsif (tag_name = element_name.split.first).present?
+                  elements.unshift(tag_name)
+                end
+                element_name = nil
+                in_closing = nil
+              end
+            else
+              element_name << ch if element_name
+            end
+            cur_idx += 1
+            # Unless it's inside wickets then this is real text content, and see if we're at the limit
+            break if element_name.nil? && ((cur_len += 1) > max_len)
+          end
+          val = val[0..cur_idx]
+          # Somehow still in the middle of an opening tag right at the end? (Should never happen)
+          if !in_closing && (tag_name = element_name&.split&.first)&.present?
+            elements.unshift(tag_name)
+            val << '>'
+          end
+          elements.each do |closing_tag|
+            val << \"</#\{closing_tag}>\"
+          end
+        else # Not HTML, just cut it at the length
+          val = val[0...max_len]
+        end
+        val = \"#\{val}...\"
+      end
       val = val.dup.force_encoding('UTF-8') unless val.encoding.name == 'UTF-8'
+      val
+    else
+      val.to_s
     end
-    val
   end
 end
 def display_value(col_type, val)
