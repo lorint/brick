@@ -994,8 +994,12 @@ erDiagram
 +"<html>
 <head>
 #{css}
-<title>#{model_name} <%
-  if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)).present?
+<title><% model = #{model_name}
+          if sub_model = @_brick_params&.fetch(type_col = model.inheritance_column, nil)&.first
+            model = Object.const_get(sub_model.to_sym)
+          end
+       %><%= model.name %><%
+  if (description = (relation = Brick.relations[model.table_name])&.fetch(:description, nil)).present?
     %> - <%= description
 %><% end
 %></title>
@@ -1005,15 +1009,15 @@ erDiagram
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><tr>
-  <td><h1>#{model_name}</h1></td>
+  <td><h1><%= model.name %></h1></td>
   <td id=\"imgErd\" title=\"Show ERD\"></td>
   <% if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) %>
     <td><%= link_to_brick(
         avo_svg,
-        { index_proc: Proc.new do |model|
-                        ::Avo.railtie_routes_url_helpers.send(\"resources_#\{model.base_class.model_name.route_key}_path\".to_sym)
+        { index_proc: Proc.new do |avo_model|
+                        ::Avo.railtie_routes_url_helpers.send(\"resources_#\{model.model_name.route_key}_path\".to_sym)
                       end,
-          title: '#{model_name} in Avo' }
+          title: \"#\{model.name} in Avo\" }
       ) %></td>
   <% end %>
 </tr></table>#{template_link}<%
@@ -1025,13 +1029,13 @@ erDiagram
   <% if @_brick_params.length == 1 # %%% Does not yet work with composite keys
        k, id = @_brick_params.first
        id = id.first if id.is_a?(Array) && id.length == 1
-       origin = (key_parts = k.split('.')).length == 1 ? #{model_name} : #{model_name}.reflect_on_association(key_parts.first).klass
+       origin = (key_parts = k.split('.')).length == 1 ? model : model.reflect_on_association(key_parts.first).klass
        if (destination_fk = Brick.relations[origin.table_name][:fks].values.find { |fk| fk[:fk] == key_parts.last }) &&
           (obj = (destination = origin.reflect_on_association(destination_fk[:assoc_name])&.klass)&.find(id)) %>
          <h3>for <%= link_to \"#{"#\{obj.brick_descrip\} (#\{destination.name\})\""}, send(\"#\{destination._brick_index(:singular)\}_path\".to_sym, id) %></h3><%
        end
      end %>
-  (<%= link_to 'See all #{model_name.split('::').last.pluralize}', #{@_brick_model._brick_index}_path %>)
+  (<%= link_to \"See all #\{model.base_class.name.split('::').last.pluralize}\", #{@_brick_model._brick_index}_path %>)
 <% end
    # COLUMN EXCLUSIONS
    if @_brick_excl&.present? %>
