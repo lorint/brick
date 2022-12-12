@@ -705,12 +705,13 @@ module ActiveRecord
           on_clause << "#{tbl_alias}.#{poly_type} = '#{name}'"
         end
         unless from_clause
+          tbl_nm = hm.macro == :has_and_belongs_to_many ? hm.join_table : hm.table_name
           hm_table_name = if is_mysql
-                            "`#{hm.table_name}`"
+                            "`#{tbl_nm}`"
                           elsif is_postgres || is_mssql
-                            "\"#{(hm.table_name).gsub('.', '"."')}\""
+                            "\"#{(tbl_nm).gsub('.', '"."')}\""
                           else
-                            hm.table_name
+                            tbl_nm
                           end
         end
         group_bys = ::Brick.is_oracle || is_mssql ? hm_selects : (1..hm_selects.length).to_a

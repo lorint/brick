@@ -348,11 +348,11 @@ function linkSchemas() {
                   when 'index'
                     unless skip_klass_hms.key?(assoc_name.to_sym) # || hm_assoc.options[:source]
                       hm_entry = +"'#{hm_assoc.name}' => [#{assoc_name.inspect}, "
-                      hm_entry << if hm_assoc.macro == :has_many
+                      hm_entry << if hm_assoc.macro == :has_one
+                                    'nil'
+                                  else # :has_many or :has_and_belongs_to_many
                                     # Postgres column names are limited to 63 characters
                                     "'" + "b_r_#{assoc_name}_ct"[0..62] + "'"
-                                  else # has_one
-                                    'nil'
                                   end
                       hm_entry << ", #{path_keys(hm_assoc, hm_fk_name, pk).inspect}]"
                       hms_columns << hm_entry
