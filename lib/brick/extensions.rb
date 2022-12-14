@@ -446,8 +446,13 @@ module ActiveRecord
           selects << if is_mysql
                        "`#{tbl_no_schema}`.`#{col_name}`#{col_alias}"
                      elsif is_postgres || is_mssql
-                       # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
-                       cast_as_text = '::text' if is_distinct && Brick.relations[klass.table_name]&.[](:cols)&.[](col_name)&.first&.start_with?('xml')
+                       if is_distinct # Postgres can not use DISTINCT with any columns that are XML or JSON
+                         cast_as_text = if Brick.relations[klass.table_name]&.[](:cols)&.[](col_name)&.first == 'json'
+                                          '::jsonb' # Convert JSON to JSONB
+                                        elsif Brick.relations[klass.table_name]&.[](:cols)&.[](col_name)&.first&.start_with?('xml')
+                                          '::text' # Convert XML to text
+                                        end
+                       end
                        "\"#{tbl_no_schema}\".\"#{col_name}\"#{cast_as_text}#{col_alias}"
                      elsif col.type # Could be Sqlite or Oracle
                        if col_alias || !(/^[a-z0-9_]+$/ =~ col_name)
