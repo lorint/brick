@@ -640,50 +640,62 @@ In config/initializers/brick.rb appropriate entries would look something like:
           table_class_length = 38 # Length of "Classes that can be built from tables:"
           view_class_length = 37 # Length of "Classes that can be built from views:"
 
-          brick_routes_create = lambda do |schema_name, controller_name, v, options|
+          brick_routes_create = lambda do |schema_name, res_name, options|
             if schema_name # && !Object.const_defined('Apartment')
               send(:namespace, schema_name) do
-                send(:resources, v[:resource].to_sym, **options)
+                send(:resources, res_name.to_sym, **options)
               end
             else
-              send(:resources, v[:resource].to_sym, **options)
+              send(:resources, res_name.to_sym, **options)
             end
           end
 
           # %%% TODO: If no auto-controllers then enumerate the controllers folder in order to build matching routes
           # If auto-controllers and auto-models are both enabled then this makes sense:
           controller_prefix = (path_prefix ? "#{path_prefix}/" : '')
+          sti_subclasses = ::Brick.config.sti_namespace_prefixes.each_with_object(Hash.new { |h, k| h[k] = [] }) do |v, s|
+                             # Turn something like {"::Spouse"=>"Person", "::Friend"=>"Person"} into {"Person"=>["Spouse", "Friend"]}
+                             s[v.last] << v.first[2..-1] unless v.first.end_with?('::')
+                           end
           ::Brick.relations.each do |k, v|
-            unless !(controller_name = v.fetch(:resource, nil)&.pluralize) || existing_controllers.key?(controller_name)
-              options = {}
-              options[:only] = [:index, :show] if v.key?(:isView)
-              # First do the API routes
-              full_resource = nil
-              if (schema_name = v.fetch(:schema, nil))
-                full_resource = "#{schema_name}/#{v[:resource]}"
-                send(:get, "#{::Brick.api_root}#{full_resource}", { to: "#{controller_prefix}#{schema_name}/#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
-              else
-                # Normally goes to something like:  /api/v1/employees
-                send(:get, "#{::Brick.api_root}#{v[:resource]}", { to: "#{controller_prefix}#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
-              end
-              # Now the normal routes
-              if path_prefix
-                # Was:  send(:scope, path: path_prefix) do
-                send(:namespace, path_prefix) do
-                  brick_routes_create.call(schema_name, controller_name, v, options)
-                end
-              else
-                brick_routes_create.call(schema_name, controller_name, v, options)
-              end
+            next if !(controller_name = v.fetch(:resource, nil)&.pluralize) || existing_controllers.key?(controller_name)
 
-              if (class_name = v.fetch(:class_name, nil))
-                if v.key?(:isView)
-                  view_class_length = class_name.length if class_name.length > view_class_length
-                  views
-                else
-                  table_class_length = class_name.length if class_name.length > table_class_length
-                  tables
-                end << [class_name, full_resource || v[:resource]]
+            options = {}
+            options[:only] = [:index, :show] if v.key?(:isView)
+            # First do the API routes
+            full_resource = nil
+            if (schema_name = v.fetch(:schema, nil))
+              full_resource = "#{schema_name}/#{v[:resource]}"
+              send(:get, "#{::Brick.api_root}#{full_resource}", { to: "#{controller_prefix}#{schema_name}/#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
+            else
+              # Normally goes to something like:  /api/v1/employees
+              send(:get, "#{::Brick.api_root}#{v[:resource]}", { to: "#{controller_prefix}#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
+            end
+
+            # Track routes being built
+            if (class_name = v.fetch(:class_name, nil))
+              if v.key?(:isView)
+                view_class_length = class_name.length if class_name.length > view_class_length
+                views
+              else
+                table_class_length = class_name.length if class_name.length > table_class_length
+                tables
+              end << [class_name, full_resource || v[:resource]]
+            end
+
+            # Now the normal routes
+            if path_prefix
+              # Was:  send(:scope, path: path_prefix) do
+              send(:namespace, path_prefix) do
+                brick_routes_create.call(schema_name, v[:resource], options)
+                sti_subclasses.fetch(class_name, nil)&.each do |sc| # Add any STI subclass routes for this relation
+                  brick_routes_create.call(schema_name, sc.underscore.tr('/', '_').pluralize, options)
+                end
+              end
+            else
+              brick_routes_create.call(schema_name, v[:resource], options)
+              sti_subclasses.fetch(class_name, nil)&.each do |sc| # Add any STI subclass routes for this relation
+                brick_routes_create.call(schema_name, sc.underscore.tr('/', '_').pluralize, options)
               end
             end
           end

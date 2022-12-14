@@ -39,8 +39,10 @@ module Brick::Rails::FormTags
                     "#{' x-order="' + col_name + '"' if true}>#{col_name}"
                   end
            elsif col # HM column
+             options = {}
+             options[col[1].inheritance_column] = col[1].name unless col[1] == col[1].base_class
              s << "<th#{' x-order="' + col_name + '"' if true}>#{col[2]} "
-             s << (col.first ? "#{col[3]}" : "#{link_to(col[3], send("#{col[1]._brick_index}_path"))}")
+             s << (col.first ? "#{col[3]}" : "#{link_to(col[3], send("#{col[1]._brick_index}_path", options))}")
            elsif cust_cols.key?(col_name) # Custom column
              s << "<th x-order=\"#{col_name}\">#{col_name}"
            elsif col_name.is_a?(Symbol) && (hot = bts[col_name]) # has_one :through

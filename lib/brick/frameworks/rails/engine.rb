@@ -313,10 +313,10 @@ function linkSchemas() {
               end
 
               if @_brick_model
-                pk = @_brick_model._brick_primary_key(::Brick.relations.fetch(@_brick_model&.table_name, nil))
+                pk = @_brick_model._brick_primary_key(::Brick.relations.fetch((table_name = @_brick_model.table_name.split('.').last), nil))
                 obj_name = model_name.split('::').last.underscore
                 path_obj_name = @_brick_model._brick_index(:singular)
-                table_name = obj_name.pluralize
+                table_name ||= obj_name.pluralize
                 template_link = nil
                 bts, hms = ::Brick.get_bts_and_hms(@_brick_model) # This gets BT and HM and also has_many :through (HMT)
                 hms_columns = [] # Used for 'index'

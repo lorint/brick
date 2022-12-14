@@ -1395,8 +1395,8 @@ class Object
         # (More information on https://docs.avohq.io/2.0/controllers.html)
         controller_base = Avo::ResourcesController
       end
-      table_name = ActiveSupport::Inflector.underscore(plural_class_name)
-      singular_table_name = ActiveSupport::Inflector.singularize(table_name)
+      table_name = model&.table_name || ActiveSupport::Inflector.underscore(plural_class_name)
+      singular_table_name = ActiveSupport::Inflector.singularize(ActiveSupport::Inflector.underscore(plural_class_name))
       pk = model&._brick_primary_key(relations.fetch(table_name, nil))
       is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2'
@@ -1596,12 +1596,13 @@ class Object
                    end
             end
             ar_select = ar_relation.respond_to?(:_select!) ? ar_relation.dup._select!(*selects, *counts) : ar_relation.select(selects + counts)
-            instance_variable_set("@#{table_name.pluralize}".to_sym, ar_select)
-            if namespace && (idx = lookup_context.prefixes.index(table_name))
+            instance_variable_set("@#{table_name.split('.').last}".to_sym, ar_select)
+            table_name_no_schema = singular_table_name.pluralize
+            if namespace && (idx = lookup_context.prefixes.index(table_name_no_schema))
               lookup_context.prefixes[idx] = "#{namespace.name.underscore}/#{lookup_context.prefixes[idx]}"
             end
             @_brick_excl = session[:_brick_exclude]&.split(',')&.each_with_object([]) do |excl, s|
-                             if (excl_parts = excl.split('.')).first == table_name
+                             if (excl_parts = excl.split('.')).first == table_name_no_schema
                                s << excl_parts.last
                              end
                            end
