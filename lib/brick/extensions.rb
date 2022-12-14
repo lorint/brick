@@ -1732,7 +1732,12 @@ class Object
                        val_part.gsub('^^sl^^', '/')
                      end
                    end
-              model.find(id.is_a?(Array) && id.length == 1 ? id.first : id)
+              # Support friendly_id gem
+              if Object.const_defined?('FriendlyId') && model.instance_variable_get(:@friendly_id_config)
+                model.friendly.find(id.is_a?(Array) && id.length == 1 ? id.first : id)
+              else
+                model.find(id.is_a?(Array) && id.length == 1 ? id.first : id)
+              end
             end
           end
 
