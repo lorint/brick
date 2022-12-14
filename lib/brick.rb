@@ -1334,24 +1334,26 @@ module ActiveRecord
       private
 
         # %%% Pretty much have to flat-out replace this guy (I think anyway)
-        # Good with Rails 5.24 and 7 on this
-        def build(associations, base_klass, root = nil, path = '')
-          root ||= associations
-          associations.map do |name, right|
-            reflection = find_reflection base_klass, name
-            reflection.check_validity!
-            reflection.check_eager_loadable!
+        # Good with Rails 5.24 through 7 on this
+        # Ransack gem includes Polyamorous which replaces #build in a different way (which we handle below)
+        unless Gem::Specification.all_names.any? { |g| g.start_with?('ransack-') }
+          def build(associations, base_klass, root = nil, path = '')
+            root ||= associations
+            associations.map do |name, right|
+              reflection = find_reflection base_klass, name
+              reflection.check_validity!
+              reflection.check_eager_loadable!
 
-            if reflection.polymorphic?
-              raise EagerLoadPolymorphicError.new(reflection)
+              if reflection.polymorphic?
+                raise EagerLoadPolymorphicError.new(reflection)
+              end
+
+              link_path = path.blank? ? name.to_s : path + ".#{name}"
+              ja = JoinAssociation.new(reflection, build(right, reflection.klass, root, link_path))
+              ja.instance_variable_set(:@link_path, link_path) # Make note on the JoinAssociation of its AR path
+              ja.instance_variable_set(:@assocs, root)
+              ja
             end
-
-            # %%% The path
-            link_path = path.blank? ? name.to_s : path + ".#{name}"
-            ja = JoinAssociation.new(reflection, build(right, reflection.klass, root, link_path))
-            ja.instance_variable_set(:@link_path, link_path) # Make note on the JoinAssociation of its AR path
-            ja.instance_variable_set(:@assocs, root)
-            ja
           end
         end
 
@@ -1360,10 +1362,9 @@ module ActiveRecord
           alias _brick_table_aliases_for table_aliases_for
           def table_aliases_for(parent, node)
             result = _brick_table_aliases_for(parent, node)
-
             # Capture the table alias name that was chosen
-            link_path = node.instance_variable_get(:@link_path)
             if (relation = node.instance_variable_get(:@assocs)&.instance_variable_get(:@relation))
+              link_path = node.instance_variable_get(:@link_path)
               relation.brick_links[link_path] = result.first.table_alias || result.first.table_name
             end
             result
@@ -1372,15 +1373,61 @@ module ActiveRecord
           alias _brick_make_constraints make_constraints
           def make_constraints(parent, child, join_type)
             result = _brick_make_constraints(parent, child, join_type)
-
             # Capture the table alias name that was chosen
-            link_path = child.instance_variable_get(:@link_path)
             if (relation = child.instance_variable_get(:@assocs)&.instance_variable_get(:@relation))
-              relation.brick_links[link_path] = result.first.left.table_alias || result.first.left.table_name
+              link_path = child.instance_variable_get(:@link_path)
+              relation.brick_links[link_path] = if child.table.is_a?(Arel::Nodes::TableAlias)
+                                                  child.table.right
+                                                else
+                                                  result.first&.left&.table_alias || child.table_name
+                                                end
             end
             result
           end
         end
+      end
+    end
+  end
+end
+
+# Now the Ransack Polyamorous version of #build
+if Gem::Specification.all_names.any? { |g| g.start_with?('ransack-') }
+  require "polyamorous/activerecord_#{::ActiveRecord::VERSION::STRING[0, 3]}_ruby_2/join_dependency"
+  module Polyamorous::JoinDependencyExtensions
+    def build(associations, base_klass, root = nil, path = '')
+      root ||= associations
+      puts associations.map(&:first)
+
+      associations.map do |name, right|
+        link_path = path.blank? ? name.to_s : path + ".#{name}"
+        ja = if name.is_a? ::Polyamorous::Join
+               reflection = find_reflection base_klass, name.name
+               reflection.check_validity!
+               reflection.check_eager_loadable!
+
+               klass = if reflection.polymorphic?
+                         name.klass || base_klass
+                       else
+                         reflection.klass
+                       end
+               ::ActiveRecord::Associations::JoinDependency::JoinAssociation.new(
+                 reflection, build(right, klass, root, link_path), name.klass, name.type
+               )
+             else
+               reflection = find_reflection base_klass, name
+               reflection.check_validity!
+               reflection.check_eager_loadable!
+
+               if reflection.polymorphic?
+                 raise ActiveRecord::EagerLoadPolymorphicError.new(reflection)
+               end
+               ::ActiveRecord::Associations::JoinDependency::JoinAssociation.new(
+                 reflection, build(right, reflection.klass, root, link_path)
+               )
+             end
+        ja.instance_variable_set(:@link_path, link_path) # Make note on the JoinAssociation of its AR path
+        ja.instance_variable_set(:@assocs, root)
+        ja
       end
     end
   end
