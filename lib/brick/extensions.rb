@@ -643,11 +643,19 @@ module ActiveRecord
                                             "ON br_t#{idx}.#{src_ref.type} = '#{src_ref.active_record.name}'" + # "polymorphable_type"
                                             " AND br_t#{idx}.#{src_ref.foreign_key} = br_t#{idx - 1}.id"
                                           elsif src_ref.options[:source_type]
-                                            print "Skipping #{hm.name} --HMT-> #{hm.source_reflection.name} as it uses source_type which is not yet supported"
-                                            nix << k
-                                            bail_out = true
-                                            break
-                                          else # Standard has_many
+                                            if a == hm.source_reflection
+                                              print "Skipping #{hm.name} --HMT-> #{hm.source_reflection.name} as it uses source_type in a way which is not yet supported"
+                                              nix << k
+                                              bail_out = true
+                                              break
+                                              # "ON br_t#{idx}.#{a.foreign_type} = '#{src_ref.options[:source_type]}' AND " \
+                                              #   "br_t#{idx}.#{a.foreign_key} = br_t#{idx - 1}.id"
+                                            else # Works for HMT through a polymorphic HO
+                                              link_back << hmt_assoc.source_reflection.inverse_of&.name # Some polymorphic "_able" thing
+                                              "ON br_t#{idx - 1}.#{a.foreign_type} = '#{src_ref.options[:source_type]}' AND " \
+                                                "br_t#{idx - 1}.#{a.foreign_key} = br_t#{idx}.id"
+                                            end
+                                          else # Standard has_many or has_one
                                             # binding.pry unless (
                                             nm = hmt_assoc.source_reflection.inverse_of&.name
                                             # )

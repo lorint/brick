@@ -346,7 +346,10 @@ function linkSchemas() {
                                end
                   case args.first
                   when 'index'
-                    unless skip_klass_hms.key?(assoc_name.to_sym) # || hm_assoc.options[:source]
+                    if !skip_klass_hms.key?(assoc_name.to_sym) && (
+                         @_brick_model._br_hm_counts.key?(assoc_name) ||
+                         @_brick_model._br_bt_descrip.key?(assoc_name) # Will end up here if it's a has_one
+                       )
                       hm_entry = +"'#{hm_assoc.name}' => [#{assoc_name.inspect}, "
                       hm_entry << if hm_assoc.macro == :has_one
                                     'nil'
