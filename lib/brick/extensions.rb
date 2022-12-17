@@ -119,30 +119,32 @@ module ActiveRecord
               end
               s << part_sym
             end
-            if (parts = prefix + first_parts + [parts[-1]]).length > 1 && klass
-              unless is_polymorphic
-                s = build_array
-                parts[0..-3].each { |v| s = s[v.to_sym] }
-                s[parts[-2]] = nil # unless parts[-2].empty? # Using []= will "hydrate" any missing part(s) in our whole series
+            if first_parts
+              if (parts = prefix + first_parts + [parts[-1]]).length > 1 && klass
+                unless is_polymorphic
+                  s = build_array
+                  parts[0..-3].each { |v| s = s[v.to_sym] }
+                  s[parts[-2]] = nil # unless parts[-2].empty? # Using []= will "hydrate" any missing part(s) in our whole series
+                end
+                translations[parts[0..-2].join('.')] = klass
               end
-              translations[parts[0..-2].join('.')] = klass
-            end
-            if klass&.column_names.exclude?(parts.last) &&
-               (klass = (orig_class = klass).reflect_on_association(possible_dsl = parts.pop.to_sym)&.klass)
-              if prefix.empty? # Custom columns start with an empty prefix
-                prefix << parts.shift until parts.empty?
+              if klass&.column_names.exclude?(parts.last) &&
+                (klass = (orig_class = klass).reflect_on_association(possible_dsl = parts.pop.to_sym)&.klass)
+                if prefix.empty? # Custom columns start with an empty prefix
+                  prefix << parts.shift until parts.empty?
+                end
+                # Expand this entry which refers to an association name
+                members2, dsl2a = klass.brick_parse_dsl(build_array, prefix + [possible_dsl], translations, is_polymorphic, nil, true)
+                members += members2
+                dsl2 << dsl2a
+                dsl3 << dsl2a
+              else
+                dsl2 << "[#{bracket_name}]"
+                if emit_dsl
+                  dsl3 << "[#{prefix[1..-1].map { |p| "#{p.to_s}." }.join if prefix.length > 1}#{bracket_name}]"
+                end
+                members << parts
               end
-              # Expand this entry which refers to an association name
-              members2, dsl2a = klass.brick_parse_dsl(build_array, prefix + [possible_dsl], translations, is_polymorphic, nil, true)
-              members += members2
-              dsl2 << dsl2a
-              dsl3 << dsl2a
-            else
-              dsl2 << "[#{bracket_name}]"
-              if emit_dsl
-                dsl3 << "[#{prefix[1..-1].map { |p| "#{p.to_s}." }.join if prefix.length > 1}#{bracket_name}]"
-              end
-              members << parts
             end
             bracket_name = nil
           else
@@ -557,7 +559,7 @@ module ActiveRecord
               brick_link = rel_dupe.brick_links[sel_col.first]
               field_tbl_name = brick_link&.split('.')&.last ||
                 # ... so here's a best-effort guess for what the table name might be.
-                rel_dupe.klass.reflect_on_association(sel_col.first).klass.table_name
+                rel_dupe.klass.reflect_on_association(sel_col.first)&.klass&.table_name
               # If it's Oracle, quote any AREL aliases that had been applied
               field_tbl_name = "\"#{field_tbl_name}\"" if ::Brick.is_oracle && rel_dupe.brick_links.values.include?(field_tbl_name)
 
@@ -803,7 +805,7 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
       alias _brick_find_sti_class find_sti_class
       def find_sti_class(type_name)
         if ::Brick.sti_models.key?(type_name ||= name)
-          _brick_find_sti_class(type_name)
+          ::Brick.sti_models[type_name].fetch(:base, nil) || _brick_find_sti_class(type_name)
         else
           # This auto-STI is more of a brute-force approach, building modules where needed
           # The more graceful alternative is the overload of ActiveSupport::Dependencies#autoload_module! found below
@@ -1622,6 +1624,18 @@ class Object
         end
 
         unless is_openapi || is_avo
+          # Skip showing Bullet gem optimisation messages
+          if Object.const_defined?('Bullet') && Bullet.respond_to?(:enable?)
+            around_action :skip_bullet
+            def skip_bullet
+              bullet_enabled = Bullet.enable?
+              Bullet.enable = false
+              yield
+            ensure
+              Bullet.enable = bullet_enabled
+            end
+          end
+
           _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk)) if pk
           code << "  def index\n"
           code << "    @#{table_name.pluralize} = #{model.name}#{pk&.present? ? ".order(#{order_by_txt.join(', ')})" : '.all'}\n"

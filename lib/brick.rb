@@ -1081,6 +1081,29 @@ ActiveSupport.on_load(:active_record) do
     end
   end
 
+  # def aliased_table_for(arel_table, table_name = nil)
+  #   table_name ||= arel_table.name
+
+  #   if aliases[table_name] == 0
+  #     # If it's zero, we can have our table_name
+  #     aliases[table_name] = 1
+  #     arel_table = arel_table.alias(table_name) if arel_table.name != table_name
+  #   else
+  #     # Otherwise, we need to use an alias
+  #     aliased_name = @connection.table_alias_for(yield)
+
+  #     # Update the count
+  #     count = aliases[aliased_name] += 1
+
+  #     aliased_name = "#{truncate(aliased_name)}_#{count}" if count > 1
+
+  #     arel_table = arel_table.alias(aliased_name)
+  #   end
+
+  #   arel_table
+  # end
+  # def aliased_table_for(table_name, aliased_name, type_caster)
+
   class ActiveRecord::Associations::JoinDependency
     if JoinBase.instance_method(:initialize).arity == 2 # Older ActiveRecord 4.x?
       def initialize(base, associations, joins)

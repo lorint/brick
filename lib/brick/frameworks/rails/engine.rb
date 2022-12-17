@@ -1576,11 +1576,10 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
             private
 
               alias _brick_render_template render_template
-              def render_template(view, template, *args)
-                result = _brick_render_template(view, template, *args)
-                if template.instance_variable_get(:@is_brick)
-                  Apartment::Tenant.switch!(::Brick.apartment_default_tenant) if ::Brick.apartment_multitenant
-                end
+              def render_template(view, template, layout_name, *args)
+                layout_name = nil if (is_brick = template.instance_variable_get(:@is_brick)) && layout_name.is_a?(Proc)
+                result = _brick_render_template(view, template, layout_name, *args)
+                Apartment::Tenant.switch!(::Brick.apartment_default_tenant) if is_brick && ::Brick.apartment_multitenant
                 result
               end
           end # TemplateRenderer

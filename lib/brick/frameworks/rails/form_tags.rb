@@ -3,7 +3,7 @@ module Brick::Rails::FormTags
   def brick_grid(relation, bt_descrip, sequence = nil, inclusions, exclusions,
                  cols, poly_cols, bts, hms_keys, hms_cols)
     out = "<table id=\"headerTop\"></table>
-<table id=\"#{relation.table_name}\" class=\"shadow\">
+<table id=\"#{relation.table_name.split('.').last}\" class=\"shadow\">
   <thead><tr>"
     pk = (klass = relation.klass).primary_key || []
     pk = [pk] unless pk.is_a?(Array)
