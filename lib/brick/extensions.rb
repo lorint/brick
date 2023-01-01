@@ -411,7 +411,7 @@ module ActiveRecord
       model._brick_calculate_bts_hms(translations, join_array) if is_add_bts || is_add_hms
 
       is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-      is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2'
+      is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name)
       is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer'
       is_distinct = nil
       wheres = {}
@@ -1409,7 +1409,7 @@ class Object
       singular_table_name = ActiveSupport::Inflector.singularize(ActiveSupport::Inflector.underscore(plural_class_name))
       pk = model&._brick_primary_key(relations.fetch(table_name, nil))
       is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-      is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2'
+      is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name)
 
       code = +"class #{class_name} < #{controller_base&.name || 'ApplicationController'}\n"
       built_controller = Class.new(controller_base || ActionController::Base) do |new_controller_class|
@@ -1949,7 +1949,7 @@ end.class_exec do
             puts "*** In the brick.rb initializer the line \"::Brick.schema_behavior = ...\" refers to schema(s) called #{possible_schemas.map { |s| "\"#{s}\"" }.join(', ')}.  No mentioned schema exists. ***"
           end
         end
-      when 'Mysql2'
+      when 'Mysql2', 'Trilogy'
         ::Brick.default_schema = schema = ActiveRecord::Base.connection.current_database
       when 'OracleEnhanced'
         # ActiveRecord::Base.connection.current_database will be something like "XEPDB1"
@@ -2084,7 +2084,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       # end
       # schema = ::Brick.default_schema # Reset back for this next round of fun
       case ActiveRecord::Base.connection.adapter_name
-      when 'PostgreSQL', 'Mysql2', 'SQLServer'
+      when 'PostgreSQL', 'Mysql2', 'Trilogy', 'SQLServer'
         sql = "SELECT kcu1.CONSTRAINT_SCHEMA, kcu1.TABLE_NAME, kcu1.COLUMN_NAME,
             kcu2.CONSTRAINT_SCHEMA AS primary_schema, kcu2.TABLE_NAME AS primary_table, kcu1.CONSTRAINT_NAME AS CONSTRAINT_SCHEMA_FK
           FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS rc

@@ -625,7 +625,7 @@ def display_value(col_type, val)
   case col_type
   when 'geometry', 'geography'
     if Object.const_defined?('RGeo')
-      @is_mysql = ActiveRecord::Base.connection.adapter_name == 'Mysql2' if @is_mysql.nil?
+      @is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name) if @is_mysql.nil?
       @is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer' if @is_mssql.nil?
       val_err = nil
       if @is_mysql || @is_mssql
