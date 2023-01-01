@@ -1093,6 +1093,20 @@ ActiveSupport.on_load(:active_record) do
     end
   end
 
+  if Psych.respond_to?(:unsafe_load) && ActiveRecord.version < ::Gem::Version.new('6.1')
+    Psych.class_exec do
+      class << self
+        alias _original_load load
+        def load(yaml, *args, **kwargs)
+          if caller.first.end_with?("`database_configuration'") && kwargs[:aliases].nil?
+            kwargs[:aliases] = true
+          end
+          _original_load(yaml, *args, **kwargs)
+        end
+      end
+    end
+  end
+
   # def aliased_table_for(arel_table, table_name = nil)
   #   table_name ||= arel_table.name
 
