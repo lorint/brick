@@ -26,7 +26,7 @@ end
 require 'brick/util'
 
 # Allow ActiveRecord < 3.2 to work with Ruby 2.7 and later
-if (ruby_version = ::Gem::Version.new(RUBY_VERSION)) >= ::Gem::Version.new('2.7')
+if (is_ruby_2_7 = (ruby_version = ::Gem::Version.new(RUBY_VERSION)) >= ::Gem::Version.new('2.7'))
   if ActiveRecord.version < ::Gem::Version.new('3.2')
     # Remove circular reference for "now"
     ::Brick::Util._patch_require(
@@ -1043,6 +1043,18 @@ ActiveSupport.on_load(:active_record) do
   end
   # rubocop:enable Lint/ConstantDefinitionInBlock
 
+  arsc = ::ActiveRecord::StatementCache
+  if is_ruby_2_7 && (params = arsc.method(:create).parameters).length == 2 && params.last == [:opt, :block]
+    arsc.class_exec do
+      def self.create(connection, callable = nil, &block)
+        relation = (callable || block).call ::ActiveRecord::StatementCache::Params.new
+        bind_map = ::ActiveRecord::StatementCache::BindMap.new relation.bound_attributes
+        query_builder = connection.cacheable_query(self, relation.arel)
+        new query_builder, bind_map
+      end
+    end
+  end
+
   # Rails < 4.2 is not innately compatible with Ruby 2.4 and later, and comes up with:
   # "TypeError: Cannot visit Integer" unless we patch like this:
   if ruby_version >= ::Gem::Version.new('2.4') &&
@@ -1105,10 +1117,16 @@ ActiveSupport.on_load(:active_record) do
   # def aliased_table_for(table_name, aliased_name, type_caster)
 
   class ActiveRecord::Associations::JoinDependency
-    if JoinBase.instance_method(:initialize).arity == 2 # Older ActiveRecord 4.x?
-      def initialize(base, associations, joins)
-        @alias_tracker = ::ActiveRecord::Associations::AliasTracker.create(base.connection, joins)
-        @alias_tracker.aliased_table_for(base.table_name, base.table_name) # Updates the count for base.table_name to 1
+    if JoinBase.instance_method(:initialize).arity == 2 # Older ActiveRecord <= 5.1?
+      def initialize(base, associations, joins, eager_loading: true)
+        araat = ::ActiveRecord::Associations::AliasTracker
+        if araat.respond_to?(:create_with_joins) # Rails 5.0 and 5.1
+          @alias_tracker = araat.create_with_joins(base.connection, base.table_name, joins)
+          @eager_loading = eager_loading # (Unused in Rails 5.0)
+        else # Rails 4.2
+          @alias_tracker = araat.create(base.connection, joins)
+          @alias_tracker.aliased_table_for(base, base.table_name) # Updates the count for base.table_name to 1
+        end
         tree = self.class.make_tree associations
 
         # Provide a way to find the original relation that this tree is being used for
@@ -1121,7 +1139,7 @@ ActiveSupport.on_load(:active_record) do
         @join_root.children.each { |child| construct_tables! @join_root, child }
       end
 
-    else # For ActiveRecord 5.0 - 7.1
+    else # For ActiveRecord 5.2 - 7.1
 
       def initialize(base, table, associations, join_type = nil)
         tree = self.class.make_tree associations
@@ -1268,13 +1286,13 @@ module ActiveRecord
 
     if private_instance_methods.include?(:build_join_query)
       alias _brick_build_join_query build_join_query
-      def build_join_query(manager, buckets, *args)
+      def build_join_query(manager, buckets, *args) # , **kwargs)
         # %%% Better way to bring relation into the mix
         if (aj = buckets.fetch(:association_join, nil))
           aj.instance_variable_set(:@relation, self)
         end
 
-        _brick_build_join_query(manager, buckets, *args)
+        _brick_build_join_query(manager, buckets, *args) # , **kwargs)
       end
 
     else
@@ -1451,6 +1469,87 @@ if Gem::Specification.all_names.any? { |g| g.start_with?('ransack-') }
         ja.instance_variable_set(:@link_path, link_path) # Make note on the JoinAssociation of its AR path
         ja.instance_variable_set(:@assocs, root)
         ja
+      end
+    end
+  end
+end
+
+# Keyword arguments updates for Rails <= 5.2.x and Ruby >= 3.0
+if ActiveRecord.version < ::Gem::Version.new('6.0') && ruby_version >= ::Gem::Version.new('3.0')
+  admsm = ActionDispatch::MiddlewareStack::Middleware
+  admsm.class_exec do
+    # redefine #build
+    def build(app, **kwargs)
+      # puts klass.name
+      if args.length > 1 && args.last.is_a?(Hash)
+        kwargs.merge!(args.pop)
+      end
+      # binding.pry if klass == ActionDispatch::Static # ActionDispatch::Reloader
+      klass.new(app, *args, **kwargs, &block)
+    end
+  end
+
+  require 'active_model'
+  require 'active_model/type'
+  require 'active_model/type/value'
+  class ActiveModel::Type::Value
+    def initialize(*args, precision: nil, limit: nil, scale: nil)
+      @precision = precision
+      @scale = scale
+      @limit = limit
+    end
+  end
+
+  if Object.const_defined?('I18n')
+    module I18n::Base
+      alias _brick_translate translate
+      def translate(key = nil, *args, throw: false, raise: false, locale: nil, **options)
+        options.merge!(args.pop) if args.length > 0 && args.last.is_a?(Hash)
+        _brick_translate(key = nil, throw: false, raise: false, locale: nil, **options)
+      end
+    end
+  end
+
+  module ActionController::RequestForgeryProtection
+  private
+
+    # Creates the authenticity token for the current request.
+    def form_authenticity_token(*args, form_options: {}) # :doc:
+      form_options.merge!(args.pop) if args.length > 0 && args.last.is_a?(Hash)
+      masked_authenticity_token(session, form_options: form_options)
+    end
+  end
+
+  module ActiveSupport
+    class MessageEncryptor
+      def encrypt_and_sign(value, *args, expires_at: nil, expires_in: nil, purpose: nil)
+        encrypted = if method(:_encrypt).arity == 1
+                      _encrypt(value) # Rails <= 5.1
+                    else
+                      if args.length > 0 && args.last.is_a?(Hash)
+                        expires_at ||= args.last[:expires_at]
+                        expires_in ||= args.last[:expires_in]
+                        purpose ||= args.last[:purpose]
+                      end
+                      _encrypt(value, expires_at: expires_at, expires_in: expires_in, purpose: purpose)
+                    end
+        verifier.generate(encrypted)
+      end
+    end
+    if const_defined?('Messages')
+      class Messages::Metadata
+        def self.wrap(message, *args, expires_at: nil, expires_in: nil, purpose: nil)
+          if args.length > 0 && args.last.is_a?(Hash)
+            expires_at ||= args.last[:expires_at]
+            expires_in ||= args.last[:expires_in]
+            purpose ||= args.last[:purpose]
+          end
+          if expires_at || expires_in || purpose
+            JSON.encode new(encode(message), pick_expiry(expires_at, expires_in), purpose)
+          else
+            message
+          end
+        end
       end
     end
   end
