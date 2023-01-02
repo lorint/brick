@@ -659,6 +659,8 @@ def display_value(col_type, val)
     else
       '(Add RGeo gem to parse geometry detail)'
     end
+  when :binary
+    display_binary(val) if val
   else
     if col_type
       hide_bcrypt(val)
@@ -667,6 +669,40 @@ def display_value(col_type, val)
     end
   end
 end
+
+def image_signatures
+  @image_signatures ||= { \"\\xFF\\xD8\\xFF\\xEE\" => 'jpeg',
+                          \"\\xFF\\xD8\\xFF\\xE0\\x00\\x10\\x4A\\x46\\x49\\x46\\x00\\x01\" => 'jpeg',
+                          \"\\x89PNG\\r\\n\\x1A\\n\" => 'png',
+                          '<svg' => 'svg+xml', # %%% Not yet very good detection for SVG
+                          'BM' => 'bmp',
+                          'GIF87a' => 'gif',
+                          'GIF89a' => 'gif' }
+end
+def display_binary(val)
+  if val[0..1] == \"\\x15\\x1C\" # One of those goofy Microsoft OLE containers?
+    package_header_length = val[2..3].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+    # This will often be just FF FF FF FF
+    # object_size = val[16..19].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+    friendly_and_class_names = val[20...package_header_length].split(\"\\0\")
+    object_type_name_length = val[package_header_length + 8..package_header_length+11].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+    friendly_and_class_names << val[package_header_length + 12...package_header_length + 12 + object_type_name_length].strip
+    # friendly_and_class_names will now be something like:  ['Bitmap Image', 'Paint.Picture', 'PBrush']
+    real_object_size = val[package_header_length + 20 + object_type_name_length..package_header_length + 23 + object_type_name_length].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+    object_start = package_header_length + 24 + object_type_name_length
+    val = val[object_start...object_start + real_object_size]
+  end
+  if (signature = image_signatures.find { |k, _v| val[0...k.length] == k })
+    if val.length < 500_000
+      \"<img src=\\\"data:image/#\{signature.last};base64,#\{Base64.encode64(val)}\\\">\"
+    else
+      \"&lt;&nbsp;#\{signature.last} image, #\{val.length} bytes&nbsp;>\"
+    end
+  else
+    \"&lt;&nbsp;Binary, #\{val.length} bytes&nbsp;>\"
+  end
+end
+
 # Accommodate composite primary keys that include strings with forward-slash characters
 def slashify(*vals)
   vals.map { |val_part| val_part.is_a?(String) ? val_part.gsub('/', '^^sl^^') : val_part }
