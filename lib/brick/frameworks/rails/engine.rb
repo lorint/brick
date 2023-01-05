@@ -328,7 +328,14 @@ window.addEventListener(\"popstate\", linkSchemas);
                      else
                        [[fk_name, pk.length == 1 ? pk.first : pk.inspect]]
                      end
-              keys << [hm_assoc.inverse_of.foreign_type, hm_assoc.active_record.name] if hm_assoc.options.key?(:as)
+              if hm_assoc.options.key?(:as)
+                poly_type = if hm_assoc.active_record.column_names.include?(hm_assoc.active_record.inheritance_column)
+                              '[sti_type]'
+                            else
+                              hm_assoc.active_record.name
+                            end
+                keys << [hm_assoc.inverse_of.foreign_type, poly_type]
+              end
               keys.to_h
             end
 
@@ -402,9 +409,14 @@ window.addEventListener(\"popstate\", linkSchemas);
                     end
                   when 'show', 'new', 'update'
                     hm_stuff << if hm_fk_name
-                                  if hm_assoc.klass.column_names.include?(hm_fk_name)
+                                  if hm_assoc.klass.column_names.include?(hm_fk_name) ||
+                                     (hm_fk_name.is_a?(String) && hm_fk_name.include?('.')) # HMT?  (Could do a better check for this)
                                     predicates = path_keys(hm_assoc, hm_fk_name, pk).map do |k, v|
-                                                   v.is_a?(String) ? "#{k}: '#{v}'" : "#{k}: @#{obj_name}.#{v}"
+                                                   if v == '[sti_type]'
+                                                     "'#{k}': @#{obj_name}.#{hm_assoc.active_record.inheritance_column}"
+                                                   else
+                                                     v.is_a?(String) ? "'#{k}': '#{v}'" : "'#{k}': @#{obj_name}.#{v}"
+                                                   end
                                                  end.join(', ')
                                     "<%= link_to '#{assoc_name}', #{hm_assoc.klass._brick_index}_path({ #{predicates} }) %>\n"
                                   else
@@ -1110,8 +1122,11 @@ erDiagram
        id = id.first if id.is_a?(Array) && id.length == 1
        origin = (key_parts = k.split('.')).length == 1 ? model : model.reflect_on_association(key_parts.first).klass
        if (destination_fk = Brick.relations[origin.table_name][:fks].values.find { |fk| fk[:fk] == key_parts.last }) &&
-          (obj = (destination = origin.reflect_on_association(destination_fk[:assoc_name])&.klass)&.find(id)) %>
-         <h3>for <%= link_to \"#{"#\{obj.brick_descrip\} (#\{destination.name\})\""}, send(\"#\{destination._brick_index(:singular)\}_path\".to_sym, id) %></h3><%
+          (objs = (destination = origin.reflect_on_association(destination_fk[:assoc_name])&.klass)&.find(id))
+         objs = [objs] unless objs.is_a?(Array) %>
+         <h3>for <% objs.each do |obj| %><%=
+                      link_to \"#{"#\{obj.brick_descrip\} (#\{destination.name\})\""}, send(\"#\{destination._brick_index(:singular)\}_path\".to_sym, id)
+               %><% end %></h3><%
        end
      end %>
   (<%= link_to \"See all #\{model.base_class.name.split('::').last.pluralize}\", #{@_brick_model._brick_index}_path %>)
@@ -1255,7 +1270,9 @@ erDiagram
 <head>
 #{css}
 <title><%=
-  page_title = (\"#{model_name}: #\{(obj = @#{obj_name})&.brick_descrip || controller_name}\")
+  model = (obj = @#{obj_name})&.class
+  model_name = @#{obj_name}.#{inh_col = @_brick_model.inheritance_column} if obj.respond_to?(:#{inh_col})
+  page_title = (\"#\{model_name ||= model.name}: #\{obj&.brick_descrip || controller_name}\")
 %></title>
 </head>
 <body>
@@ -1289,7 +1306,7 @@ end
 <% if obj
       # path_options = [obj.#{pk}]
       # path_options << { '_brick_schema':  } if
-      # url = send(:#\{model_name._brick_index(:singular)}_path, obj.#{pk})
+      # url = send(:#\{model._brick_index(:singular)}_path, obj.#{pk})
       options = {}
       options[:url] = send(\"#\{#{model_name}._brick_index(:singular)}_path\".to_sym, obj) if ::Brick.config.path_prefix
  %>
@@ -1412,8 +1429,8 @@ end
 <%   end %>
 
 #{unless args.first == 'new'
-  # Was:  confirm_are_you_sure = ActionView.version < ::Gem::Version.new('7.0') ? "data: { confirm: 'Delete #{model_name} -- Are you sure?' }" : "form: { data: { turbo_confirm: 'Delete #{model_name} -- Are you sure?' } }"
-  confirm_are_you_sure = "data: { confirm: 'Delete #{model_name} -- Are you sure?' }"
+  # Was:  confirm_are_you_sure = ActionView.version < ::Gem::Version.new('7.0') ? "data: { confirm: 'Delete #\{model_name} -- Are you sure?' }" : "form: { data: { turbo_confirm: 'Delete #\{model_name} -- Are you sure?' } }"
+  confirm_are_you_sure = "data: { confirm: 'Delete #\{model_name} -- Are you sure?' }"
   hms_headers.each_with_object(+'') do |hm, s|
     # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
     next if hm.first.options[:through] && !hm.first.through_reflection
