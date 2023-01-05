@@ -1461,11 +1461,24 @@ end
     if (pk = hm.first.klass.primary_key)
       hm_singular_name = (hm_name = hm.first.name.to_s).singularize.underscore
       obj_pk = (pk.is_a?(Array) ? pk : [pk]).each_with_object([]) { |pk_part, s| s << "#{hm_singular_name}.#{pk_part}" }.join(', ')
+      poly_fix = if (poly_type = (hm.first.options[:as] && hm.first.type))
+                   "
+                       # Let's fix an unexpected \"feature\" of AR -- when going through a polymorphic has_many
+                       # association that points to an STI model then filtering for the __able_type column is done
+                       # with a .where(). And the polymorphic class name it points to is the base class name of
+                       # the STI model instead of its subclass.
+                       if (poly_type = #{poly_type.inspect}) &&
+                           @#{obj_name}.respond_to?(:#{@_brick_model.inheritance_column}) &&
+                           (base_type = collection.where_values_hash[poly_type])
+                         collection = collection.rewhere(poly_type => [base_type, @#{obj_name}.#{@_brick_model.inheritance_column}])
+                       end"
+      end
       s << "<table id=\"#{hm_name}\" class=\"shadow\">
-        <tr><th>#{hm[3]}</th></tr>
+        <tr><th>#{hm[1]}#{' poly' if hm[0].options[:as]} #{hm[3]}</th></tr>
         <% collection = @#{obj_name}.#{hm_name}
         collection = case collection
-                     when ActiveRecord::Associations::CollectionProxy
+                     when ActiveRecord::Associations::CollectionProxy#{
+                       poly_fix}
                        collection.order(#{pk.inspect})
                      when ActiveRecord::Base # Object from a has_one
                        [collection]
