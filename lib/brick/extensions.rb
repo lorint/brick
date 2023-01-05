@@ -77,14 +77,13 @@ module ActiveRecord
     def self.brick_get_dsl
       # If there's no DSL yet specified, just try to find the first usable column on this model
       unless (dsl = ::Brick.config.model_descrips[name])
-        descrip_col = (columns.map(&:name) - _brick_get_fks -
-                      (::Brick.config.metadata_columns || []) -
-                      [primary_key]).first
-        dsl = ::Brick.config.model_descrips[name] = if descrip_col
-                                                      "[#{descrip_col}]"
-                                                    elsif (pk_parts = self.primary_key.is_a?(Array) ? self.primary_key : [self.primary_key])
-                                                      "#{name} ##{pk_parts.map { |pk_part| "[#{pk_part}]" }.join(', ')}"
-                                                    end
+        skip_columns = _brick_get_fks + (::Brick.config.metadata_columns || []) + [primary_key]
+        dsl = if (descrip_col = columns.find { |c| [:boolean, :binary, :xml].exclude?(c.type) && skip_columns.exclude?(c.name) })
+                "[#{descrip_col.name}]"
+              elsif (pk_parts = self.primary_key.is_a?(Array) ? self.primary_key : [self.primary_key])
+                "#{name} ##{pk_parts.map { |pk_part| "[#{pk_part}]" }.join(', ')}"
+              end
+        ::Brick.config.model_descrips[name] = dsl
       end
       dsl
     end
@@ -129,7 +128,7 @@ module ActiveRecord
                 translations[parts[0..-2].join('.')] = klass
               end
               if klass&.column_names.exclude?(parts.last) &&
-                (klass = (orig_class = klass).reflect_on_association(possible_dsl = parts.pop.to_sym)&.klass)
+                 (klass = (orig_class = klass).reflect_on_association(possible_dsl = parts.pop.to_sym)&.klass)
                 if prefix.empty? # Custom columns start with an empty prefix
                   prefix << parts.shift until parts.empty?
                 end
@@ -805,7 +804,8 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
       alias _brick_find_sti_class find_sti_class
       def find_sti_class(type_name)
         if ::Brick.sti_models.key?(type_name ||= name)
-          ::Brick.sti_models[type_name].fetch(:base, nil) || _brick_find_sti_class(type_name)
+          # Used to be:  ::Brick.sti_models[type_name].fetch(:base, nil) || _brick_find_sti_class(type_name)
+          _brick_find_sti_class(type_name)
         else
           # This auto-STI is more of a brute-force approach, building modules where needed
           # The more graceful alternative is the overload of ActiveSupport::Dependencies#autoload_module! found below

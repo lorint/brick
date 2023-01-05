@@ -29,6 +29,54 @@ module Brick
   var finalParams = Object.keys(params).reduce(function (s, v) { if (params[v]) s.push(v + \"=\" + params[v]); return s; }, []).join(\"&\");
   return hrefParts[0] + (finalParams.length > 0 ? \"?\" + finalParams : \"\");
 }
+
+// This PageTransitionEvent fires when the page first loads, as well as after any other history
+// transition such as when using the browser's Back and Forward buttons.
+window.addEventListener(\"pageshow\", linkSchemas);
+var brickSchema;
+function linkSchemas() {
+  var schemaSelect = document.getElementById(\"schema\");
+  var tblSelect = document.getElementById(\"tbl\");
+  if (tblSelect) { // Always present
+    // Used to be:  var i = # {::Brick.config.path_prefix ? '0' : 'schemaSelect ? 1 : 0'},
+    var changeoutList = changeout(location.href);
+    for (var i = 0; i < changeoutList.length; ++i) {
+      tblSelect.value = changeoutList[i];
+      if (tblSelect.value !== \"\") break;
+    }
+
+    tblSelect.addEventListener(\"change\", function () {
+      var lhr = changeout(location.href, null, this.value);
+      if (brickSchema) lhr = changeout(lhr, \"_brick_schema\", schemaSelect.value);
+      location.href = lhr;
+    });
+  }
+
+  if (schemaSelect) { // First drop-down is only present if multitenant
+    if (brickSchema = changeout(location.href, \"_brick_schema\")) {
+      [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
+    }
+    if (schemaSelect.options.length > 1) {
+      schemaSelect.value = brickSchema || \"public\";
+      schemaSelect.addEventListener(\"change\", function () {
+        // If there's an ID then remove it (trim after selected table)
+        location.href = changeout(location.href, \"_brick_schema\", this.value, tblSelect.value);
+      });
+    }
+  }
+  tblSelect.focus();
+
+  [... document.getElementsByTagName(\"FORM\")].forEach(function (form) {
+    if (brickSchema)
+      form.action = changeout(form.action, \"_brick_schema\", brickSchema);
+    form.addEventListener('submit', function (ev) {
+      [... ev.target.getElementsByTagName(\"SELECT\")].forEach(function (select) {
+        if (select.value === \"^^^brick_NULL^^^\") select.value = null;
+      });
+      return true;
+    });
+  });
+};
 "
 
       # paths['app/models'] << 'lib/brick/frameworks/active_record/models'
@@ -168,17 +216,9 @@ module Brick
                   end
 "<script>
 #{JS_CHANGEOUT}
-window.addEventListener(\"load\", linkSchemas);
 document.addEventListener(\"turbo:render\", linkSchemas);
 window.addEventListener(\"popstate\", linkSchemas);
 // [... document.getElementsByTagName('turbo-frame')].forEach(function (a) { a.addEventListener(\"turbo:frame-render\", linkSchemas); });
-function linkSchemas() {
-  brickSchema = changeout(location.href, \"_brick_schema\");
-  if (brickSchema) {
-    [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
-    [... document.getElementsByTagName(\"FORM\")].forEach(function (form) { form.action = changeout(form.action, \"_brick_schema\", brickSchema); });
-  }
-}
 </script>
 #{_brick_content}".html_safe
                 end
@@ -671,13 +711,13 @@ def display_value(col_type, val)
 end
 
 def image_signatures
-  @image_signatures ||= { \"\\xFF\\xD8\\xFF\\xEE\" => 'jpeg',
-                          \"\\xFF\\xD8\\xFF\\xE0\\x00\\x10\\x4A\\x46\\x49\\x46\\x00\\x01\" => 'jpeg',
-                          \"\\x89PNG\\r\\n\\x1A\\n\" => 'png',
+  @image_signatures ||= { \"\\xFF\\xD8\\xFF\\xEE\".force_encoding('ASCII-8BIT') => 'jpeg',
+                          \"\\xFF\\xD8\\xFF\\xE0\\x00\\x10\\x4A\\x46\\x49\\x46\\x00\\x01\".force_encoding('ASCII-8BIT') => 'jpeg',
+                          \"\\x89PNG\\r\\n\\x1A\\n\".force_encoding('ASCII-8BIT') => 'png',
                           '<svg' => 'svg+xml', # %%% Not yet very good detection for SVG
-                          'BM' => 'bmp',
-                          'GIF87a' => 'gif',
-                          'GIF89a' => 'gif' }
+                          'BM'.force_encoding('ASCII-8BIT') => 'bmp',
+                          'GIF87a'.force_encoding('ASCII-8BIT') => 'gif',
+                          'GIF89a'.force_encoding('ASCII-8BIT') => 'gif' }
 end
 def display_binary(val)
   if val[0..1] == \"\\x15\\x1C\" # One of those goofy Microsoft OLE containers?
@@ -741,55 +781,7 @@ callbacks = {} %>
 
               # %%% When doing schema select, if we're on a new page go to index
               script = "<script>
-var schemaSelect = document.getElementById(\"schema\");
-var tblSelect = document.getElementById(\"tbl\");
-var brickSchema;
 var #{table_name}HtColumns;
-
-// This PageTransitionEvent fires when the page first loads, as well as after any other history
-// transition such as when using the browser's Back and Forward buttons.
-window.addEventListener(\"pageshow\", function() {
-  if (tblSelect) { // Always present
-    var i = #{::Brick.config.path_prefix ? '0' : 'schemaSelect ? 1 : 0'},
-        changeoutList = changeout(location.href);
-    for (; i < changeoutList.length; ++i) {
-      tblSelect.value = changeoutList[i];
-      if (tblSelect.value !== \"\") break;
-    }
-
-    tblSelect.addEventListener(\"change\", function () {
-      var lhr = changeout(location.href, null, this.value);
-      if (brickSchema)
-        lhr = changeout(lhr, \"_brick_schema\", schemaSelect.value);
-      location.href = lhr;
-    });
-  }
-
-  if (schemaSelect && schemaSelect.options.length > 1) { // First drop-down is only present if multitenant
-    brickSchema = changeout(location.href, \"_brick_schema\");
-    if (brickSchema) {
-      [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
-    }
-    schemaSelect.value = brickSchema || \"public\";
-    schemaSelect.focus();
-    schemaSelect.addEventListener(\"change\", function () {
-      // If there's an ID then remove it (trim after selected table)
-      location.href = changeout(location.href, \"_brick_schema\", this.value, tblSelect.value);
-    });
-  }
-
-  [... document.getElementsByTagName(\"FORM\")].forEach(function (form) {
-    if (brickSchema)
-      form.action = changeout(form.action, \"_brick_schema\", brickSchema);
-    form.addEventListener('submit', function (ev) {
-      [... ev.target.getElementsByTagName(\"SELECT\")].forEach(function (select) {
-        if (select.value === \"^^^brick_NULL^^^\")
-          select.value = null;
-      });
-      return true;
-    });
-  });
-});
 
 // Add \"Are you sure?\" behaviour to any data-confirm buttons out there
 document.querySelectorAll(\"input[type=submit][data-confirm]\").forEach(function (btn) {
@@ -1393,7 +1385,10 @@ end
           # In Postgres labels of data stored in a hierarchical tree-like structure
           # If it's not yet enabled then:  create extension ltree;
           val %>
-      <% when :binary, :primary_key
+      <% when :binary %>
+        <%= is_revert = false
+           display_binary(val).html_safe if val %>
+      <% when :primary_key
            is_revert = false %>
       <% else %>
         <%= is_revert = false
