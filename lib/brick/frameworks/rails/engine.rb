@@ -674,13 +674,24 @@ def hide_bcrypt(val, max_len = 200)
   end
 end
 def display_value(col_type, val)
+  is_mssql_geography = nil
+  # Some binary thing that really looks like a Microsoft-encoded WGS84 point?  (With the first two bytes, E6 10, indicating an EPSG code of 4326)
+  if col_type == :binary && val && val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12]
+    col_type = 'geography'
+    is_mssql_geography = true
+  end
   case col_type
   when 'geometry', 'geography'
     if Object.const_defined?('RGeo')
       @is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name) if @is_mysql.nil?
       @is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer' if @is_mssql.nil?
       val_err = nil
-      if @is_mysql || @is_mssql
+
+      if @is_mysql || (is_mssql_geography ||=
+                        (@is_mssql ||
+                          (val && val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12])
+                        )
+                      )
         # MySQL's \"Internal Geometry Format\" and MSSQL's Geography are like WKB, but with an initial 4 bytes that indicates the SRID.
         if (srid = val&.[](0..3)&.unpack('I'))
           val = val.dup.force_encoding('BINARY')[4..-1].bytes
@@ -694,20 +705,25 @@ def display_value(col_type, val)
           # xx1x xxxx = IsWholeGlobe
           # Convert Microsoft's unique geography binary to standard WKB
           # (MSSQL point usually has two doubles, lng / lat, and can also have Z)
-          if @is_mssql
+          if is_mssql_geography
             if val[0] == 1 && (val[1] & 8 > 0) && # Single point?
-              (val.length - 2) % 8 == 0 && val.length < 27 # And containing up to three 8-byte values?
-              idx = 2
-              new_val = [0, 0, 0, 0, 1]
-              new_val.concat(val[idx - 8...idx].reverse) while (idx += 8) <= val.length
-              val = new_val
+               (val.length - 2) % 8 == 0 && val.length < 27 # And containing up to three 8-byte values?
+              val = [0, 0, 0, 0, 1] + val[2..-1].reverse
             else
               val_err = '(Microsoft internal SQL geography type)'
             end
           end
         end
       end
-      val_err || (val ? RGeo::WKRep::WKBParser.new.parse(val.pack('c*')) : nil)
+      unless val_err || val.nil?
+        if (geometry = RGeo::WKRep::WKBParser.new.parse(val.pack('c*'))).is_a?(RGeo::Cartesian::PointImpl) &&
+           !(geometry.y == 0.0 && geometry.x == 0.0)
+          # Create a POINT link to this style of Google maps URL:  https://www.google.com/maps/place/38.7071296+-121.2810649/@38.7071296,-121.2810649,12z
+          geometry = \"<a href=\\\"https://www.google.com/maps/place/#\{geometry.y}+#\{geometry.x}/@#\{geometry.y},#\{geometry.x},12z\\\" target=\\\"blank\\\">#\{geometry.to_s}</a>\"
+        end
+        val = geometry
+      end
+      val_err || val
     else
       '(Add RGeo gem to parse geometry detail)'
     end
@@ -1404,7 +1420,14 @@ end
           val %>
       <% when :binary %>
         <%= is_revert = false
-           display_binary(val).html_safe if val %>
+           if val
+             # %%% This same kind of geography check is done two other times above ... would be great to DRY it up.
+             if val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12]
+               display_value('geography', val)
+             else
+               display_binary(val)
+             end.html_safe
+           end %>
       <% when :primary_key
            is_revert = false %>
       <% else %>
