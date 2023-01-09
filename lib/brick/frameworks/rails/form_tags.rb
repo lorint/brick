@@ -143,6 +143,16 @@ module Brick::Rails::FormTags
   def link_to_brick(*args, **kwargs)
     return unless ::Brick.config.mode == :on
 
+    kwargs.merge!(args.pop) if args.last.is_a?(Hash)
+    # Avoid infinite recursion
+    if (visited = kwargs.fetch(:visited, nil))
+      return if visited.key?(object_id)
+
+      kwargs[:visited][object_id] = nil
+    else
+      kwargs[:visited] = {}
+    end
+
     text = ((args.first.is_a?(String) || args.first.is_a?(Proc)) && args.shift) || args[1]
     text = text.call if text.is_a?(Proc)
     klass_or_obj = ((args.first.is_a?(ActiveRecord::Relation) ||
@@ -192,13 +202,14 @@ module Brick::Rails::FormTags
       app_routes = Rails.application.routes # In case we're operating in another engine, reference the application since Brick routes are placed there.
       if (klass_or_obj&.is_a?(Class) && klass_or_obj < ActiveRecord::Base) ||
          (klass_or_obj&.is_a?(ActiveRecord::Base) && klass_or_obj.new_record? && (klass_or_obj = klass_or_obj.class))
-        path = (proc = kwargs[:index_proc]) ? proc.call(klass_or_obj) : "#{app_routes.path_for(controller: klass_or_obj.base_class._brick_index, action: :index)}#{filter}"
+        path = (proc = kwargs[:index_proc]) ? proc.call(klass_or_obj) : "#{app_routes.path_for(controller: klass_or_obj.base_class._brick_index(nil, '/'), action: :index)}#{filter}"
         lt_args = [text || "Index for #{klass_or_obj.name.pluralize}", path]
       else
         # If there are multiple incoming parameters then last one is probably the actual ID, and first few might be some nested tree of stuff leading up to it
-        path = (proc = kwargs[:show_proc]) ? proc.call(klass_or_obj) : "#{app_routes.path_for(controller: klass_or_obj.class.base_class._brick_index, action: :show, id: klass_or_obj)}#{filter}"
+        path = (proc = kwargs[:show_proc]) ? proc.call(klass_or_obj) : "#{app_routes.path_for(controller: klass_or_obj.class.base_class._brick_index(nil, '/'), action: :show, id: klass_or_obj)}#{filter}"
         lt_args = [text || "Show this #{klass_or_obj.class.name}", path]
       end
+      kwargs.delete(:visited)
       link_to(*lt_args, **kwargs)
     else
       # puts "Warning:  link_to_brick could not find a class for \"#{controller_path}\" -- consider setting @_brick_model within that controller."
@@ -215,7 +226,7 @@ module Brick::Rails::FormTags
       if links.length == 1 # If there's only one match then use any text that was supplied
         link_to_brick(text || links.first.last.join('/'), links.first.first, **kwargs)
       else
-        links.map { |k, v| link_to_brick(v.join('/'), v, **kwargs) }.join(' &nbsp; ').html_safe
+        links.each_with_object([]) { |v, s| s << link if link = link_to_brick(v.join('/'), v, **kwargs) }.join(' &nbsp; ').html_safe
       end
     end
   end # link_to_brick

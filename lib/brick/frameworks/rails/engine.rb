@@ -228,8 +228,8 @@ window.addEventListener(\"popstate\", linkSchemas);
             # When available, add a clickable brick icon to go to the Brick version of the page
             PanelComponent.class_exec do
               alias _brick_init initialize
-              def initialize(*args)
-                _brick_init(*args)
+              def initialize(*args, **kwargs)
+                _brick_init(*args, **kwargs)
                 @name = BrickTitle.new(@name, self)
               end
             end
@@ -261,6 +261,16 @@ window.addEventListener(\"popstate\", linkSchemas);
                 return if @resource.model&.class&.is_view?
 
                 _brick_resource_view_path
+              end
+            end
+
+            module Concerns::HasFields
+              class_methods do
+                alias _brick_field field
+                def field(name, *args, **kwargs, &block)
+                  kwargs.merge!(args.pop) if args.last.is_a?(Hash)
+                  _brick_field(name, **kwargs, &block)
+                end
               end
             end
           end # module Avo

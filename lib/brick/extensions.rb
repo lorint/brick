@@ -257,11 +257,11 @@ module ActiveRecord
       assoc_html_name ? "#{assoc_name}-#{link}".html_safe : link
     end
 
-    def self._brick_index(mode = nil)
+    def self._brick_index(mode = nil, separator = '_')
       tbl_parts = ((mode == :singular) ? table_name.singularize : table_name).split('.')
       tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.length > 1 && tbl_parts.first == ::Brick.apartment_default_tenant
       tbl_parts.unshift(::Brick.config.path_prefix) if ::Brick.config.path_prefix
-      index = tbl_parts.map(&:underscore).join('_')
+      index = tbl_parts.map(&:underscore).join(separator)
       # Rails applies an _index suffix to that route when the resource name is singular
       index << '_index' if mode != :singular && index == index.singularize
       index
