@@ -288,15 +288,17 @@ if ActiveRecord::Base.respond_to?(:brick_select)
 
   # # POLYMORPHIC ASSOCIATIONS
 
-  # # Database schema to use when analysing existing data, such as deriving a list of polymorphic classes in the case that
-  # # it wasn't originally specified.
+  # # Polymorphic associations are set up by providing a model name and polymorphic association name#{poly}
+
+  # # For multi-tenant databases that use a separate schema for each tenant, a single representative database schema
+  # # can be analysed to determine the range of polymorphic classes that can be used for each association.  Hopefully
+  # # the schema chosen is one loaded with existing data that is representative of all possible polymorphic
+  # # associations.
   # Brick.schema_behavior = :namespaced
 #{Brick.config.schema_behavior.present? ? "  Brick.schema_behavior = { multitenant: { schema_to_analyse: #{
   Brick.config.schema_behavior[:multitenant]&.fetch(:schema_to_analyse, nil).inspect}" :
 "  # Brick.schema_behavior = { multitenant: { schema_to_analyse: 'engineering'"
 } } }
-
-  # # Polymorphic associations are set up by providing a model name and polymorphic association name#{poly}
 
   # # DEFAULT ROOT ROUTE
 

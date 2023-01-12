@@ -454,6 +454,12 @@ window.addEventListener(\"popstate\", linkSchemas);
               table_options << "<option value=\"#{prefix}brick_orphans\">(Orphans)</option>".html_safe if is_orphans
               table_options << "<option value=\"#{prefix}brick_orphans\">(Crosstab)</option>".html_safe if is_crosstab
               css = +"<style>
+#titleBox {
+  position: sticky;
+  display: inline-block;
+  left: 0;
+}
+
 h1, h3 {
   margin-bottom: 0;
 }
@@ -465,7 +471,6 @@ h1, h3 {
   cursor: pointer;
 }
 #mermaidErd {
-  position: relative;
   display: none;
 }
 #mermaidErd .exclude {
@@ -1112,6 +1117,7 @@ erDiagram
 %></title>
 </head>
 <body>
+<div id=\"titleBox\">
 <p style=\"color: green\"><%= notice %></p>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
@@ -1162,6 +1168,7 @@ erDiagram
     });
   </script>
 <% end %>
+</div>
 #{erd_markup}
 
 <%= # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
@@ -1327,7 +1334,7 @@ end
       options[:url] = send(\"#\{#{model_name}._brick_index(:singular)}_path\".to_sym, obj) if ::Brick.config.path_prefix
  %>
   <br><br>
-  <%= form_for(obj.becomes(#{model_name}), options) do |f| %>
+<%= form_for(obj.becomes(#{model_name}), options) do |f| %>
   <table class=\"shadow\">
   <% has_fields = false
     @#{obj_name}.attributes.each do |k, val|
@@ -1432,7 +1439,7 @@ end
            is_revert = false %>
       <% else %>
         <%= is_revert = false
-           display_value(col_type, val) %>
+           display_value(col_type, val).html_safe %>
       <% end
        end
        if is_revert
@@ -1449,7 +1456,7 @@ end
     <tr><td colspan=\"2\">(No displayable fields)</td></tr>
   <% end %>
   </table>
-<%   end %>
+<%  end %>
 
 #{unless args.first == 'new'
   # Was:  confirm_are_you_sure = ActionView.version < ::Gem::Version.new('7.0') ? "data: { confirm: 'Delete #\{model_name} -- Are you sure?' }" : "form: { data: { turbo_confirm: 'Delete #\{model_name} -- Are you sure?' } }"
@@ -1538,7 +1545,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
   if (imgErd) imgErd.addEventListener(\"click\", showErd);
   function showErd() {
     imgErd.style.display = \"none\";
-    mermaidErd.style.display = \"inline-block\";
+    mermaidErd.style.display = \"block\";
     if (mermaidCode) return; // Cut it short if we've already rendered the diagram
 
     mermaidCode = document.createElement(\"SCRIPT\");
