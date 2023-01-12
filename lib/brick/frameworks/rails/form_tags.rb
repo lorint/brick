@@ -56,85 +56,85 @@ module Brick::Rails::FormTags
          end
     out << "</tr></thead>
   <tbody>"
-  # %%% Have once gotten this error with MSSQL referring to http://localhost:3000/warehouse/cold_room_temperatures__archive
-  #     ActiveRecord::StatementTimeout in Warehouse::ColdRoomTemperatures_Archive#index
-  #     TinyTds::Error: Adaptive Server connection timed out
-  #     (After restarting the server it worked fine again.)
-  relation.each do |obj|
-    out << "<tr>\n"
-    out << "<td>#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym,
-                                    pk.map { |pk_part| obj.send(pk_part.to_sym) }), { class: 'big-arrow' })}</td>\n" if pk.present?
-    sequence.each do |col_name|
-      val = obj.attributes[col_name]
-      out << '<td'
-      out << ' class=\"dimmed\"' unless cols.key?(col_name) || (cust_col = cust_cols[col_name]) || 
-                                                 (col_name.is_a?(Symbol) && bts.key?(col_name)) # HOT
-      out << '>'
-      if (bt = bts[col_name])
-        if bt[2] # Polymorphic?
-          bt_class = obj.send("#{bt.first}_type")
-          base_class_underscored = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class._brick_index(:singular)
-          poly_id = obj.send("#{bt.first}_id")
-          out << link_to("#{bt_class} ##{poly_id}", send("#{base_class_underscored}_path".to_sym, poly_id)) if poly_id
-        else # BT or HOT
-          bt_class = bt[1].first.first
-          descrips = bt_descrip[bt.first][bt_class]
-          bt_id_col = if descrips.nil?
-                        puts "Caught it in the act for obj / #{col_name}!"
-                      elsif descrips.length == 1
-                        [obj.class.reflect_on_association(bt.first)&.foreign_key]
-                      else
-                        descrips.last
-                      end
-          bt_txt = bt_class.brick_descrip(
-            # 0..62 because Postgres column names are limited to 63 characters
-            obj, descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, bt_id_col
-          )
-          bt_txt = display_binary(bt_txt).html_safe if bt_txt&.encoding&.name == 'ASCII-8BIT'
-          bt_txt ||= "<span class=\"orphan\">&lt;&lt; Orphaned ID: #{val} >></span>" if val
-          bt_id = bt_id_col&.map { |id_col| obj.respond_to?(id_sym = id_col.to_sym) ? obj.send(id_sym) : id_col }
-          out << (bt_id&.first ? link_to(bt_txt, send("#{bt_class.base_class._brick_index(:singular)}_path".to_sym, bt_id)) : bt_txt || '')
-        end
-      elsif (hms_col = hms_cols[col_name])
-        if hms_col.length == 1
-          out << hms_col.first
-        else
-          hm_klass = (col = cols[col_name])[1]
-          if col[2] == 'HO'
-            descrips = bt_descrip[col_name.to_sym][hm_klass]
-            if (ho_id = (ho_id_col = descrips.last).map { |id_col| obj.send(id_col.to_sym) })&.first
-              ho_txt = hm_klass.brick_descrip(obj, descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, ho_id_col)
-              out << link_to(ho_txt, send("#{hm_klass.base_class._brick_index(:singular)}_path".to_sym, ho_id))
-            end
+    # %%% Have once gotten this error with MSSQL referring to http://localhost:3000/warehouse/cold_room_temperatures__archive
+    #     ActiveRecord::StatementTimeout in Warehouse::ColdRoomTemperatures_Archive#index
+    #     TinyTds::Error: Adaptive Server connection timed out
+    #     (After restarting the server it worked fine again.)
+    relation.each do |obj|
+      out << "<tr>\n"
+      out << "<td>#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym,
+                                      pk.map { |pk_part| obj.send(pk_part.to_sym) }), { class: 'big-arrow' })}</td>\n" if pk.present?
+      sequence.each do |col_name|
+        val = obj.attributes[col_name]
+        out << '<td'
+        out << ' class=\"dimmed\"' unless cols.key?(col_name) || (cust_col = cust_cols[col_name]) ||
+                                          (col_name.is_a?(Symbol) && bts.key?(col_name)) # HOT
+        out << '>'
+        if (bt = bts[col_name])
+          if bt[2] # Polymorphic?
+            bt_class = obj.send("#{bt.first}_type")
+            base_class_underscored = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class._brick_index(:singular)
+            poly_id = obj.send("#{bt.first}_id")
+            out << link_to("#{bt_class} ##{poly_id}", send("#{base_class_underscored}_path".to_sym, poly_id)) if poly_id
+          else # BT or HOT
+            bt_class = bt[1].first.first
+            descrips = bt_descrip[bt.first][bt_class]
+            bt_id_col = if descrips.nil?
+                          puts "Caught it in the act for obj / #{col_name}!"
+                        elsif descrips.length == 1
+                          [obj.class.reflect_on_association(bt.first)&.foreign_key]
+                        else
+                          descrips.last
+                        end
+            bt_txt = bt_class.brick_descrip(
+              # 0..62 because Postgres column names are limited to 63 characters
+              obj, descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, bt_id_col
+            )
+            bt_txt = display_binary(bt_txt).html_safe if bt_txt&.encoding&.name == 'ASCII-8BIT'
+            bt_txt ||= "<span class=\"orphan\">&lt;&lt; Orphaned ID: #{val} >></span>" if val
+            bt_id = bt_id_col&.map { |id_col| obj.respond_to?(id_sym = id_col.to_sym) ? obj.send(id_sym) : id_col }
+            out << (bt_id&.first ? link_to(bt_txt, send("#{bt_class.base_class._brick_index(:singular)}_path".to_sym, bt_id)) : bt_txt || '')
+          end
+        elsif (hms_col = hms_cols[col_name])
+          if hms_col.length == 1
+            out << hms_col.first
           else
-            if (ct = obj.send(hms_col[1].to_sym)&.to_i)&.positive?
-              out << "#{link_to("#{ct || 'View'} #{hms_col.first}",
-                                   send("#{hm_klass._brick_index}_path".to_sym,
-                                        hms_col[2].each_with_object({}) { |v, s| s[v.first] = v.last.is_a?(String) ? v.last : obj.send(v.last) })
-                               )}\n"
+            hm_klass = (col = cols[col_name])[1]
+            if col[2] == 'HO'
+              descrips = bt_descrip[col_name.to_sym][hm_klass]
+              if (ho_id = (ho_id_col = descrips.last).map { |id_col| obj.send(id_col.to_sym) })&.first
+                ho_txt = hm_klass.brick_descrip(obj, descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, ho_id_col)
+                out << link_to(ho_txt, send("#{hm_klass.base_class._brick_index(:singular)}_path".to_sym, ho_id))
+              end
+            else
+              if (ct = obj.send(hms_col[1].to_sym)&.to_i)&.positive?
+                out << "#{link_to("#{ct || 'View'} #{hms_col.first}",
+                                  send("#{hm_klass._brick_index}_path".to_sym,
+                                       hms_col[2].each_with_object({}) { |v, s| s[v.first] = v.last.is_a?(String) ? v.last : obj.send(v.last) })
+                                 )}\n"
+              end
             end
           end
+        elsif (col = cols[col_name]).is_a?(ActiveRecord::ConnectionAdapters::Column)
+          binding.pry if col.is_a?(Array)
+          col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
+          out << display_value(col_type || col&.sql_type, val).to_s
+        elsif cust_col
+          data = cust_col.first.map { |cc_part| obj.send(cc_part.last) }
+          cust_txt = klass.brick_descrip(cust_col[-2], data)
+          if (link_id = obj.send(cust_col.last[1]) if cust_col.last)
+            out << link_to(cust_txt, send("#{cust_col.last.first._brick_index(:singular)}_path", link_id))
+          else
+            out << (cust_txt || '')
+          end
+        else # Bad column name!
+          out << '?'
         end
-      elsif (col = cols[col_name]).is_a?(ActiveRecord::ConnectionAdapters::Column)
-        binding.pry if col.is_a?(Array)
-        col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
-        out << display_value(col_type || col&.sql_type, val).to_s
-      elsif cust_col
-        data = cust_col.first.map { |cc_part| obj.send(cc_part.last) }
-        cust_txt = klass.brick_descrip(cust_col[-2], data)
-        if (link_id = obj.send(cust_col.last[1]) if cust_col.last)
-          out << link_to(cust_txt, send("#{cust_col.last.first._brick_index(:singular)}_path", link_id))
-        else
-          out << (cust_txt || '')
-        end
-      else # Bad column name!
-        out << '?'
+        out << '</td>'
       end
-      out << '</td>'
+      out << '</tr>'
     end
-  out << '</tr>'
-  end
-  out << "  </tbody>
+    out << "  </tbody>
 </table>
 "
     out.html_safe
