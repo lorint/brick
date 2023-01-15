@@ -396,6 +396,8 @@ module ActiveRecord
   end
 
   class Relation
+    attr_accessor :_brick_page_num
+
     # Links from ActiveRecord association pathing names over to real table correlation names
     # that get chosen when the AREL AST tree is walked.
     def brick_links
@@ -785,8 +787,21 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
         end
         self.order_values |= final_order_by # Same as:  order!(*final_order_by)
       end
-      # Don't want to get too carried away just yet
-      self.limit_value = 1000 # Same as:  limit!(1000)
+      if (page = params['_brick_page']&.to_i)
+        page = 1 if page < 1
+        limit = params['_brick_page_size'] || 1000
+        offset = (page - 1) * limit.to_i
+      else
+        offset = params['_brick_offset']
+        limit = params['_brick_limit']
+      end
+      if offset.is_a?(Numeric) || offset&.present?
+        offset = offset.to_i
+        self.offset_value = offset unless offset == 0
+        @_brick_page_num = (offset / limit.to_i) + 1 if limit&.!= 0 && (offset % limit.to_i) == 0
+      end
+      # By default just 1000 rows  (Like doing:  limit!(1000)  but this way is compatible with AR <= 4.2)
+      self.limit_value = limit&.to_i || 1000 unless limit.is_a?(String) && limit.empty?
       wheres unless wheres.empty? # Return the specific parameters that we did use
     end
 

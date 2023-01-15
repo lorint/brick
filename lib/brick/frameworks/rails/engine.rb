@@ -1132,9 +1132,11 @@ erDiagram
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><tr>
-  <td><h1><%= model.name %></h1></td>
+  <td><h1><%= td_count = 2
+              model.name %></h1></td>
   <td id=\"imgErd\" title=\"Show ERD\"></td>
-  <% if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) %>
+  <% if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace)
+       td_count += 1 %>
     <td><%= link_to_brick(
         avo_svg,
         { index_proc: Proc.new do |avo_model|
@@ -1143,7 +1145,9 @@ erDiagram
           title: \"#\{model.name} in Avo\" }
       ) %></td>
   <% end %>
-</tr></table>#{template_link}<%
+</tr><%= if (page_num = @#{table_name}._brick_page_num)
+           \"<tr><td colspan=\\\"#\{td_count}\\\">Page #\{page_num}</td></tr>\".html_safe
+         end %></table>#{template_link}<%
    if description.present? %><%=
      description %><br><%
    end
