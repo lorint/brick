@@ -464,7 +464,7 @@ window.addEventListener(\"popstate\", linkSchemas);
               table_options << "<option value=\"#{prefix}brick_orphans\">(Orphans)</option>".html_safe if is_orphans
               table_options << "<option value=\"#{prefix}brick_orphans\">(Crosstab)</option>".html_safe if is_crosstab
               css = +"<style>
-#titleBox {
+#titleSticky {
   position: sticky;
   display: inline-block;
   left: 0;
@@ -881,6 +881,7 @@ if (grid) {
   // });
 }
 function setHeaderSizes() {
+  document.getElementById(\"titleBox\").style.width = grid.clientWidth;
   // console.log(\"start\");
   // See if the headerTop is already populated
   // %%% Grab the TRs from headerTop, clear it out, do this stuff, add them back
@@ -1127,7 +1128,7 @@ erDiagram
 %></title>
 </head>
 <body>
-<div id=\"titleBox\">
+<div id=\"titleBox\"><div id=\"titleSticky\">
 <p style=\"color: green\"><%= notice %></p>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
@@ -1182,7 +1183,7 @@ erDiagram
     });
   </script>
 <% end %>
-</div>
+</div></div>
 #{erd_markup}
 
 <%= # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
