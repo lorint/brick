@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.104        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.105        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -354,10 +354,11 @@ here for the lowermost four models associated to BusinessEntity:
 
 ### 1.d. Exposing an API
 
-**The Brick** will automatically create API endpoints with documentation for all tables and views when
-it detects that the **[rswag-ui gem](https://github.com/rswag/rswag)** has been configured.
-When you have bundled that gem into your project, configuration for RSwag UI can be automatically put
-into place by running `rails g rswag:ui:install`, which performs these two actions:
+**The Brick** will automatically create API endpoints when it sees that `::Brick.api_roots=` has been
+set with at least one path.  Further, OpanAPI 3.0 compatible documentation becomes available when the
+**[rswag-ui gem](https://github.com/rswag/rswag)** has been configured.  With that gem bundled into
+your project, configuration for RSwag UI can be automatically put into place by running
+`rails g rswag:ui:install`, which performs these two actions:
 ```
   create  config/initializers/rswag_ui.rb
    route  mount Rswag::Ui::Engine => '/api-docs'
@@ -376,7 +377,7 @@ The API itself gets served from `/api/v1/` by default, and you can change that r
 wish by going into the Brick initializer file and uncommenting this entry:
 
 ```
-# ::Brick.api_root = '/api/v1/' # Path from which to serve out API resources when the RSwag gem is present
+# ::Brick.api_roots = ['/api/v1/'] # Paths from which to serve out API resources when the RSwag gem is present
 ```
 
 With all of this in place, when you run `bin/rails s` then right before the message about the rack
@@ -391,6 +392,48 @@ And then navigating to http://localhost:3000/api-docs/v1 should look something l
 ![API view of EmployeeDepartmentHistory](./docs/api1.png)
 
 You can test any of the endpoints with the "Try it out" button.
+
+When surfacing database views through the API there's a convenient way to make multiple versions
+available -- Brick recognises special naming prefixes to make things as painless as possible.  The
+convention to use is to apply `v#_` prefixes to the view names, so `v1_` (or even just `v_`) means the
+first version, `v2_` and `v3_` for the second and third versions, etc.  Then if a **v1** version is
+provided but not a **v2** version, no worries because when asking for the **v2** version Brick
+inherits from the **v1** version.  Technically this is accomplished by creating a route for **v2**
+which points back to that older **v1** version of the API controller during Rails startup.  Brick
+auto-creates these routes during the same time in which Rails is finalising all the routes.
+
+Perhaps an example will make this whole concept a bit clearer -- say for example you wanted to make
+three different versions of an API available.  With **v1** there should only be two views, one for
+sales and another for products.  Then in **v2** and **v3** there's another view added for customers.
+As well, in **v3** the sales view gets updated with new logic.  At first it might seem as if you would
+have to duplicate some of the views to have the **v2** API render the same sales and products info
+that **v1** does.  But Brick allows you to do this with no duplicated code, using just 4 views
+altogether.  The magic here is in those `v#_` prefixes:
+
+| Path     | sales        | products       | customers        |
+| -------- | ------------ | -------------- | ---------------- |
+| /api/v1/ | **v1_sales** | **v_products** |                  |
+| /api/v2/ |              |                | **v2_customers** |
+| /api/v3/ | **v3_sales** |                |                  |
+
+With this naming then what actually gets served out is this, and these __italicised__ view names are
+the ones that have been inherited from a prior version.
+
+| Path     | sales       | products       | customers        |
+| -------- | ----------- | -------------- | ---------------- |
+| /api/v1/ | v_sales     | v_products     |                  |
+| /api/v2/ | __v_sales__ | __v_products__ | v2_customers     |
+| /api/v3/ | v3_sales    | __v_products__ | __v2_customers__ |
+
+Some final coolness which you can leverage is with querystring parameters -- API calls allow you to
+specify `_brick_order`, `_brick_page`, `_brick_page_size`, and also filtering for any column.  An
+example is this request to use API v2 to show page 3 of all products which cost £10, with each page
+having 20 items:
+
+`http://localhost:3000/api/v2/products.json?_brick_page=3&_brick_page_size=20&price=10`
+
+In this request, not having specified any column for ordering, by default the system will order by
+the primary key if one is available.
 
 ### 1.f. Autogenerate Model Files
 

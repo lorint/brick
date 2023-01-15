@@ -159,8 +159,9 @@ if ActiveRecord::Base.respond_to?(:brick_select)
   # Brick.enable_views = true # Setting this to \"false\" will disable views in development
 
   # # If The Brick sees that RSwag gem is present, it allows for API resources to be automatically served out.
-  # # You can configure the root path for these resources:
-  # ::Brick.api_root = '/api/v1/'
+  # # You can configure one or more root path(s) for these resources, and when there are multiple then an attempt
+  # # is made to return data from that version of the view or table name, or the most recent prior to that version:
+  # ::Brick.api_roots = ['/api/v1/']
   # # You may also want to add an OpenAPI 3.0 documentation endpoint using Rswag::Ui:
   # Rswag::Ui.configure do |config|
   #   config.swagger_endpoint '/api-docs/v1/swagger.json', 'API V1 Docs'

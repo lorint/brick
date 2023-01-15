@@ -334,12 +334,17 @@ module Brick
 
     # @api public
     def api_root=(path)
-      Brick.config.api_root = path
+      Brick.config.api_roots = [path]
     end
 
     # @api public
-    def api_root
-      Brick.config.api_root
+    def api_roots=(paths)
+      Brick.config.api_roots = paths
+    end
+
+    # @api public
+    def api_roots
+      Brick.config.api_roots
     end
 
     # @api public
@@ -657,19 +662,65 @@ In config/initializers/brick.rb appropriate entries would look something like:
                              # Turn something like {"::Spouse"=>"Person", "::Friend"=>"Person"} into {"Person"=>["Spouse", "Friend"]}
                              s[v.last] << v.first[2..-1] unless v.first.end_with?('::')
                            end
+          versioned_views = {} # Track which views have already been done for each api_root
           ::Brick.relations.each do |k, v|
             next if !(controller_name = v.fetch(:resource, nil)&.pluralize) || existing_controllers.key?(controller_name)
 
+            schema_name = v.fetch(:schema, nil)
             options = {}
             options[:only] = [:index, :show] if v.key?(:isView)
-            # First do the API routes
+            # First do the API routes if necessary
             full_resource = nil
-            if (schema_name = v.fetch(:schema, nil))
-              full_resource = "#{schema_name}/#{v[:resource]}"
-              send(:get, "#{::Brick.api_root}#{full_resource}", { to: "#{controller_prefix}#{schema_name}/#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
-            else
-              # Normally goes to something like:  /api/v1/employees
-              send(:get, "#{::Brick.api_root}#{v[:resource]}", { to: "#{controller_prefix}#{controller_name}#index" }) if Object.const_defined?('Rswag::Ui')
+            ::Brick.api_roots&.each do |api_root|
+              api_done_views = (versioned_views[api_root] ||= {})
+              found = nil
+              view_relation = nil
+              # If it's a view then see if there's a versioned one available by searching for resource names
+              # versioned with the closest number (equal to or less than) compared with our API version number.
+              if v.key?(:isView) && (ver = k.match(/^v([\d_]*)/).captures.first)[-1] == '_'
+                next if api_done_views.key?(unversioned = k[ver.length + 1..-1])
+
+                # # if ().length.positive? # Does it have a version number?
+                # try_num = (ver_num = (ver = ver[1..-1].gsub('_', '.')).to_d)
+
+                # Expect that the last item in the path generally holds versioning information
+                api_ver = api_root.split('/')[-1]&.gsub('_', '.')
+                vn_idx = api_ver.rindex(/[^\d._]/) # Position of the first numeric digit at the end of the version number
+                # Was:  .to_d
+                api_ver_num = api_ver[vn_idx + 1..-1].gsub('_', '.').to_i # Attempt to turn something like "v3" into the decimal value 3
+                # puts [api_ver, vn_idx, api_ver_num, unversioned].inspect
+
+                next if ver.to_i > api_ver_num # Don't surface any newer views in an older API
+
+                api_ver_num -= 1 until api_ver_num.zero? ||
+                                       (view_relation = ::Brick.relations.fetch(
+                                         found = "v#{api_ver_num}_#{k[ver.length + 1..-1]}", nil
+                                       ))
+                api_done_views[unversioned] = nil # Mark that for this API version this view is done
+
+                # puts "Found #{found}" if view_relation
+                # If we haven't found "v3_view_name" or "v2_view_name" or so forth, at the last
+                # fall back to simply looking for "v_view_name", and then finally  "view_name".
+                unversioned = "v_#{unversioned}"
+                view_relation ||= ::Brick.relations.fetch(found = unversioned,
+                                                          ::Brick.relations.fetch(found = unversioned, nil)
+                                                         )
+                if found && view_relation && k != (found = unversioned)
+                  view_relation[:api][api_ver_num] = found
+                end
+              end
+
+              # view_ver_num = if (first_part = k.split('_').first) =~ /^v[\d_]+/
+              #                  first_part[1..-1].gsub('_', '.').to_i
+              #                end
+              controller_name = view_relation.fetch(:resource, nil)&.pluralize if view_relation
+              if schema_name
+                full_resource = "#{schema_name}/#{found || v[:resource]}"
+                send(:get, "#{api_root}#{full_resource}", { to: "#{controller_prefix}#{schema_name}/#{controller_name}#index" })
+              else
+                # Normally goes to something like:  /api/v1/employees
+                send(:get, "#{api_root}#{found || v[:resource]}", { to: "#{controller_prefix}#{controller_name}#index" })
+              end
             end
 
             # Track routes being built
@@ -716,15 +767,19 @@ In config/initializers/brick.rb appropriate entries would look something like:
           unless ::Brick.routes_done
             if Object.const_defined?('Rswag::Ui')
               rswag_path = ::Rails.application.routes.routes.find { |r| r.app.app == Rswag::Ui::Engine }&.instance_variable_get(:@path_formatter)&.instance_variable_get(:@parts)&.join
-              if (doc_endpoint = Rswag::Ui.config.config_object[:urls]&.last)
+              first_endpoint_parts = nil
+              (doc_endpoints = Rswag::Ui.config.config_object[:urls]&.uniq!)&.each do |doc_endpoint|
                 puts "Mounting OpenApi 3.0 documentation endpoint for \"#{doc_endpoint[:name]}\" on #{doc_endpoint[:url]}"
                 send(:get, doc_endpoint[:url], { to: 'brick_openapi#index' })
                 endpoint_parts = doc_endpoint[:url]&.split('/')
-                if rswag_path && endpoint_parts
-                  puts "API documentation now available when navigating to:  /#{endpoint_parts&.find(&:present?)}/index.html"
+                first_endpoint_parts ||= endpoint_parts
+              end
+              if doc_endpoints.present?
+                if rswag_path && first_endpoint_parts
+                  puts "API documentation now available when navigating to:  /#{first_endpoint_parts&.find(&:present?)}/index.html"
                 else
                   puts "In order to make documentation available you can put this into your routes.rb:"
-                  puts "  mount Rswag::Ui::Engine => '/#{endpoint_parts&.find(&:present?) || 'api-docs'}'"
+                  puts "  mount Rswag::Ui::Engine => '/#{first_endpoint_parts&.find(&:present?) || 'api-docs'}'"
                 end
               else
                 sample_path = rswag_path || '/api-docs'

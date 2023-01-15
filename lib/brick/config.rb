@@ -94,13 +94,13 @@ module Brick
       @mutex.synchronize { @enable_api = enable }
     end
 
-    def api_root
+    def api_roots
       ver = api_version
-      @mutex.synchronize { @api_root || "/api/#{ver}/" }
+      @mutex.synchronize { @api_roots || ["/api/#{ver}/"] }
     end
 
-    def api_root=(path)
-      @mutex.synchronize { @api_root = path }
+    def api_roots=(path)
+      @mutex.synchronize { @api_roots = path }
     end
 
     def api_version
