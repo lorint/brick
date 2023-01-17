@@ -787,21 +787,21 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
         end
         self.order_values |= final_order_by # Same as:  order!(*final_order_by)
       end
-      if (page = params['_brick_page']&.to_i)
-        page = 1 if page < 1
-        limit = params['_brick_page_size'] || 1000
-        offset = (page - 1) * limit.to_i
-      else
-        offset = params['_brick_offset']
-        limit = params['_brick_limit']
-      end
+      # By default just 1000 rows
+      row_limit = params['_brick_limit'] || params['_brick_page_size'] || 1000
+      offset = if (page = params['_brick_page']&.to_i)
+                 page = 1 if page < 1
+                 (page - 1) * row_limit.to_i
+               else
+                 params['_brick_offset']
+               end
       if offset.is_a?(Numeric) || offset&.present?
         offset = offset.to_i
         self.offset_value = offset unless offset == 0
-        @_brick_page_num = (offset / limit.to_i) + 1 if limit&.!= 0 && (offset % limit.to_i) == 0
+        @_brick_page_num = (offset / row_limit.to_i) + 1 if row_limit&.!= 0 && (offset % row_limit.to_i) == 0
       end
-      # By default just 1000 rows  (Like doing:  limit!(1000)  but this way is compatible with AR <= 4.2)
-      self.limit_value = limit&.to_i || 1000 unless limit.is_a?(String) && limit.empty?
+      # Setting limit_value= is the same as doing:  limit!(1000)  but this way is compatible with AR <= 4.2
+      self.limit_value = row_limit.to_i unless row_limit.is_a?(String) && row_limit.empty?
       wheres unless wheres.empty? # Return the specific parameters that we did use
     end
 
@@ -1616,8 +1616,8 @@ class Object
 
             ar_relation = ActiveRecord.version < Gem::Version.new('4') ? model.preload : model.all
             @_brick_params = ar_relation.brick_select(params, (selects ||= []), order_by,
-                                                               translations = {},
-                                                               join_array = ::Brick::JoinArray.new)
+                                                      translations = {},
+                                                      join_array = ::Brick::JoinArray.new)
             # %%% Add custom HM count columns
             # %%% What happens when the PK is composite?
             counts = model._br_hm_counts.each_with_object([]) do |v, s|
@@ -2127,7 +2127,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
           # AND kcu2.TABLE_NAME = ?;", Apartment::Tenant.current, table_name
         fk_references = ActiveRecord::Base.execute_sql(sql)
       when 'SQLite'
-        sql = "SELECT m.name, fkl.\"from\", fkl.\"table\", m.name || '_' || fkl.\"from\" AS constraint_name
+        sql = "SELECT NULL AS constraint_schema, m.name, fkl.\"from\", NULL AS primary_schema, fkl.\"table\", m.name || '_' || fkl.\"from\" AS constraint_name
         FROM sqlite_master m
           INNER JOIN pragma_foreign_key_list(m.name) fkl ON m.type = 'table'
         ORDER BY m.name, fkl.seq"
