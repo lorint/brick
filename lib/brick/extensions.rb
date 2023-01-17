@@ -1616,8 +1616,8 @@ class Object
 
             ar_relation = ActiveRecord.version < Gem::Version.new('4') ? model.preload : model.all
             @_brick_params = ar_relation.brick_select(params, (selects ||= []), order_by,
-                                                               translations = {},
-                                                               join_array = ::Brick::JoinArray.new)
+                                                      translations = {},
+                                                      join_array = ::Brick::JoinArray.new)
             # %%% Add custom HM count columns
             # %%% What happens when the PK is composite?
             counts = model._br_hm_counts.each_with_object([]) do |v, s|
@@ -2127,7 +2127,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
           # AND kcu2.TABLE_NAME = ?;", Apartment::Tenant.current, table_name
         fk_references = ActiveRecord::Base.execute_sql(sql)
       when 'SQLite'
-        sql = "SELECT m.name, fkl.\"from\", fkl.\"table\", m.name || '_' || fkl.\"from\" AS constraint_name
+        sql = "SELECT NULL AS constraint_schema, m.name, fkl.\"from\", NULL AS primary_schema, fkl.\"table\", m.name || '_' || fkl.\"from\" AS constraint_name
         FROM sqlite_master m
           INNER JOIN pragma_foreign_key_list(m.name) fkl ON m.type = 'table'
         ORDER BY m.name, fkl.seq"

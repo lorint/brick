@@ -406,24 +406,25 @@ Perhaps an example will make this whole concept a bit clearer -- say for example
 three different versions of an API available.  With **v1** there should only be two views, one for
 sales and another for products.  Then in **v2** and **v3** there's another view added for customers.
 As well, in **v3** the sales view gets updated with new logic.  At first it might seem as if you would
-have to duplicate some of the views to have the **v2** API render the same sales and products info
-that **v1** does.  But Brick allows you to do this with no duplicated code, using just 4 views
-altogether.  The magic here is in those `v#_` prefixes:
+have to duplicate some of the views to have the **v2** and **v3** APIs render the same sales,
+products, and customers info that previous versions do.  But Brick allows you to do this with no
+duplicated code, using just 4 views altogether that get inherited.  The magic here is in those `v#_`
+prefixes:
 
 | Path     | sales        | products       | customers        |
 | -------- | ------------ | -------------- | ---------------- |
-| /api/v1/ | **v1_sales** | **v_products** |                  |
+| /api/v1/ | **v_sales** | **v1_products** |                  |
 | /api/v2/ |              |                | **v2_customers** |
 | /api/v3/ | **v3_sales** |                |                  |
 
-With this naming then what actually gets served out is this, and these __italicised__ view names are
+With this naming then what actually gets served out is this, and these _italicised_ view names are
 the ones that have been inherited from a prior version.
 
-| Path     | sales       | products       | customers        |
-| -------- | ----------- | -------------- | ---------------- |
-| /api/v1/ | v_sales     | v_products     |                  |
-| /api/v2/ | __v_sales__ | __v_products__ | v2_customers     |
-| /api/v3/ | v3_sales    | __v_products__ | __v2_customers__ |
+| Path     | sales        | products       | customers        |
+| -------- | ------------ | -------------- | ---------------- |
+| /api/v1/ | **v_sales**  | **v1_products** |                  |
+| /api/v2/ | _v_sales_    | _v1_products_   | **v2_customers** |
+| /api/v3/ | **v3_sales** | _v1_products_   | _v2_customers_   |
 
 Some final coolness which you can leverage is with querystring parameters -- API calls allow you to
 specify `_brick_order`, `_brick_page`, `_brick_page_size`, and also filtering for any column.  An
