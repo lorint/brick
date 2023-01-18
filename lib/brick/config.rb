@@ -95,20 +95,19 @@ module Brick
     end
 
     def api_roots
-      ver = api_version
-      @mutex.synchronize { @api_roots || ["/api/#{ver}/"] }
+      @mutex.synchronize { @api_roots || ["/api/v1/"] }
     end
 
     def api_roots=(path)
       @mutex.synchronize { @api_roots = path }
     end
 
-    def api_version
-      @mutex.synchronize { @api_version || 'v1' }
+    def api_filter
+      @mutex.synchronize { @api_filter }
     end
 
-    def api_version=(ver)
-      @mutex.synchronize { @api_version = ver }
+    def api_filter=(proc)
+      @mutex.synchronize { @api_filter = proc }
     end
 
     # Additional table associations to use (Think of these as virtual foreign keys perhaps)
