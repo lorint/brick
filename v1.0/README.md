@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.105        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.108        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -353,6 +353,8 @@ here for the lowermost four models associated to BusinessEntity:
 (The above diagrams can be seen by installing the Adventureworks sample and navigating to http://localhost:3000/person/businessentities?_brick_erd=1 and http://localhost:3000/sales/salesorderheaders?_brick_erd=1.)
 
 ### 1.d. Exposing an API
+
+A [video walkthrough](https://github.com/lorint/brick/blob/master/docs/api.md) is now available!
 
 **The Brick** will automatically create API endpoints when it sees that `::Brick.api_roots=` has been
 set with at least one path.  Further, OpanAPI 3.0 compatible documentation becomes available when the

@@ -124,6 +124,8 @@ if Gem::Specification.all_names.any? { |g| g.start_with?('rails-') }
   require 'brick/frameworks/rails'
 end
 module Brick
+  ALL_API_ACTIONS = [:index, :show, :create, :update, :destroy]
+
   class << self
     def sti_models
       @sti_models ||= {}
@@ -345,6 +347,16 @@ module Brick
     # @api public
     def api_roots
       Brick.config.api_roots
+    end
+
+    # @api public
+    def api_filter=(proc)
+      Brick.config.api_filter = proc
+    end
+
+    # @api public
+    def api_filter
+      Brick.config.api_filter
     end
 
     # @api public
@@ -666,7 +678,10 @@ In config/initializers/brick.rb appropriate entries would look something like:
           ::Brick.relations.each do |k, v|
             next if !(controller_name = v.fetch(:resource, nil)&.pluralize) || existing_controllers.key?(controller_name)
 
-            schema_name = v.fetch(:schema, nil)
+            object_name = k.split('.').last # Take off any first schema part
+            if (schema_name = v.fetch(:schema, nil))
+              schema_prefix = "#{schema_name}."
+            end
             options = {}
             options[:only] = [:index, :show] if v.key?(:isView)
             # First do the API routes if necessary
@@ -674,52 +689,126 @@ In config/initializers/brick.rb appropriate entries would look something like:
             ::Brick.api_roots&.each do |api_root|
               api_done_views = (versioned_views[api_root] ||= {})
               found = nil
+              test_ver_num = nil
               view_relation = nil
               # If it's a view then see if there's a versioned one available by searching for resource names
               # versioned with the closest number (equal to or less than) compared with our API version number.
-              if v.key?(:isView) && (ver = k.match(/^v([\d_]*)/).captures.first)[-1] == '_'
-                next if api_done_views.key?(unversioned = k[ver.length + 1..-1])
+              if v.key?(:isView)
+                if (ver = object_name.match(/^v([\d_]*)/)&.captures&.first) && ver[-1] == '_'
+                  core_object_name = object_name[ver.length + 1..-1]
+                  next if api_done_views.key?(unversioned = "#{schema_prefix}v_#{core_object_name}")
 
-                # # if ().length.positive? # Does it have a version number?
-                # try_num = (ver_num = (ver = ver[1..-1].gsub('_', '.')).to_d)
+                  # Expect that the last item in the path generally holds versioning information
+                  api_ver = api_root.split('/')[-1]&.gsub('_', '.')
+                  vn_idx = api_ver.rindex(/[^\d._]/) # Position of the first numeric digit at the end of the version number
+                  # Was:  .to_d
+                  test_ver_num = api_ver_num = api_ver[vn_idx + 1..-1].gsub('_', '.').to_i # Attempt to turn something like "v3" into the decimal value 3
+                  # puts [api_ver, vn_idx, api_ver_num, unversioned].inspect
 
-                # Expect that the last item in the path generally holds versioning information
-                api_ver = api_root.split('/')[-1]&.gsub('_', '.')
-                vn_idx = api_ver.rindex(/[^\d._]/) # Position of the first numeric digit at the end of the version number
-                # Was:  .to_d
-                api_ver_num = api_ver[vn_idx + 1..-1].gsub('_', '.').to_i # Attempt to turn something like "v3" into the decimal value 3
-                # puts [api_ver, vn_idx, api_ver_num, unversioned].inspect
+                  next if ver.to_i > api_ver_num # Don't surface any newer views in an older API
 
-                next if ver.to_i > api_ver_num # Don't surface any newer views in an older API
+                  test_ver_num -= 1 until test_ver_num.zero? ||
+                                          (view_relation = ::Brick.relations.fetch(
+                                            found = "#{schema_prefix}v#{test_ver_num}_#{core_object_name}", nil
+                                          ))
+                  api_done_views[unversioned] = nil # Mark that for this API version this view is done
 
-                api_ver_num -= 1 until api_ver_num.zero? ||
-                                       (view_relation = ::Brick.relations.fetch(
-                                         found = "v#{api_ver_num}_#{k[ver.length + 1..-1]}", nil
-                                       ))
-                api_done_views[unversioned] = nil # Mark that for this API version this view is done
-
-                # puts "Found #{found}" if view_relation
-                # If we haven't found "v3_view_name" or "v2_view_name" or so forth, at the last
-                # fall back to simply looking for "v_view_name", and then finally  "view_name".
-                unversioned = "v_#{unversioned}"
-                view_relation ||= ::Brick.relations.fetch(found = unversioned,
-                                                          ::Brick.relations.fetch(found = unversioned, nil)
-                                                         )
-                if found && view_relation && k != (found = unversioned)
-                  view_relation[:api][api_ver_num] = found
+                  # puts "Found #{found}" if view_relation
+                  # If we haven't found "v3_view_name" or "v2_view_name" or so forth, at the last
+                  # fall back to simply looking for "v_view_name", and then finally  "view_name".
+                  no_v_prefix_name = "#{schema_prefix}#{core_object_name}"
+                  standard_prefix = 'v_'
+                else
+                  core_object_name = object_name
                 end
+                if (rvp = ::Brick.config.api_remove_view_prefix) && core_object_name.start_with?(rvp)
+                  core_object_name.slice!(0, rvp.length)
+                end
+                no_prefix_name = "#{schema_prefix}#{core_object_name}"
+                unversioned = "#{schema_prefix}#{standard_prefix}#{::Brick.config.api_add_view_prefix}#{core_object_name}"
+              else
+                unversioned = k
               end
 
-              # view_ver_num = if (first_part = k.split('_').first) =~ /^v[\d_]+/
-              #                  first_part[1..-1].gsub('_', '.').to_i
-              #                end
-              controller_name = view_relation.fetch(:resource, nil)&.pluralize if view_relation
-              if schema_name
-                full_resource = "#{schema_name}/#{found || v[:resource]}"
-                send(:get, "#{api_root}#{full_resource}", { to: "#{controller_prefix}#{schema_name}/#{controller_name}#index" })
-              else
-                # Normally goes to something like:  /api/v1/employees
-                send(:get, "#{api_root}#{found || v[:resource]}", { to: "#{controller_prefix}#{controller_name}#index" })
+              view_relation ||= ::Brick.relations.fetch(found = unversioned, nil) ||
+                                (no_v_prefix_name && ::Brick.relations.fetch(found = no_v_prefix_name, nil)) ||
+                                (no_prefix_name && ::Brick.relations.fetch(found = no_prefix_name, nil))
+              if view_relation
+                actions = view_relation.key?(:isView) ? [:index, :show] : ::Brick::ALL_API_ACTIONS # By default all actions are allowed
+                # Call proc that limits which endpoints get surfaced based on version, table or view name, method (get list / get one / post / patch / delete)
+                # Returning nil makes it do nothing, false makes it skip creating this endpoint, and an array of up to
+                # these 3 things controls and changes the nature of the endpoint that gets built:
+                # (updated api_name, name of different relation to route to, allowed actions such as :index, :show, :create, etc)
+                proc_result = if (filter = ::Brick.config.api_filter).is_a?(Proc)
+                                begin
+                                  num_args = filter.arity.negative? ? 6 : filter.arity
+                                  filter.call(*[unversioned, k, actions, api_ver_num, found, test_ver_num][0...num_args])
+                                rescue StandardError => e
+                                  puts "::Brick.api_filter Proc error: #{e.message}"
+                                end
+                              end
+                # proc_result expects to receive back: [updated_api_name, to_other_relation, allowed_actions]
+
+                case proc_result
+                when NilClass
+                  # Do nothing differently than what normal behaviour would be
+                when FalseClass # Skip implementing this endpoint
+                  view_relation[:api][api_ver_num] = nil
+                  next
+                when Array # Did they give back an array of actions?
+                  unless proc_result.any? { |pr| ::Brick::ALL_API_ACTIONS.exclude?(pr) }
+                    proc_result = [unversioned, to_relation, proc_result]
+                  end
+                  # Otherwise don't change this array because it's probably legit
+                when String
+                  proc_result = [proc_result] # Treat this as the surfaced api_name (path) they want to use for this endpoint
+                else
+                  puts "::Brick.api_filter Proc warning: Unable to parse this result returned: \n  #{proc_result.inspect}"
+                  proc_result = nil # Couldn't understand what in the world was returned
+                end
+
+                if proc_result&.present?
+                  if proc_result[1] # to_other_relation
+                    if (new_view_relation = ::Brick.relations.fetch(proc_result[1], nil))
+                      k = proc_result[1] # Route this call over to this different relation
+                      view_relation = new_view_relation
+                    else
+                      puts "::Brick.api_filter Proc warning: Unable to find new suggested relation with name #{proc_result[1]} -- sticking with #{k} instead."
+                    end
+                  end
+                  if proc_result.first&.!=(k) # updated_api_name -- a different name than this relation would normally have
+                    found = proc_result.first
+                  end
+                  actions &= proc_result[2] if proc_result[2] # allowed_actions
+                end
+                (view_relation[:api][api_ver_num] ||= {})[unversioned] = actions # Add to the list of API paths this resource responds to
+
+                # view_ver_num = if (first_part = k.split('_').first) =~ /^v[\d_]+/
+                #                  first_part[1..-1].gsub('_', '.').to_i
+                #                end
+
+                controller_name = if (last = view_relation.fetch(:resource, nil)&.pluralize)
+                                    "#{schema_prefix}#{last}"
+                                  else
+                                    found
+                                  end.tr('.', '/')
+
+                { :index => 'get', :create => 'post' }.each do |action, method|
+                  if actions.include?(action)
+                    # Normally goes to something like:  /api/v1/employees
+                    send(method, "#{api_root}#{unversioned.tr('.', '/')}", { to: "#{controller_prefix}#{controller_name}##{action}" })
+                  end
+                end
+                # %%% We do not yet surface the #show action
+                if (id_col = view_relation[:pk]&.first) # ID-dependent stuff
+                  { :update => ['put', 'patch'], :destroy => ['delete'] }.each do |action, methods|
+                    if actions.include?(action)
+                      methods.each do |method|
+                        send(method, "#{api_root}#{unversioned.tr('.', '/')}/:#{id_col}", { to: "#{controller_prefix}#{controller_name}##{action}" })
+                      end
+                    end
+                  end
+                end
               end
             end
 
@@ -731,7 +820,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
               else
                 table_class_length = class_name.length if class_name.length > table_class_length
                 tables
-              end << [class_name, full_resource || v[:resource]]
+              end << [class_name, "#{schema_prefix&.tr('.', '/')}#{v[:resource]}"]
             end
 
             # Now the normal routes

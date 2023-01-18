@@ -95,20 +95,63 @@ module Brick
     end
 
     def api_roots
-      ver = api_version
-      @mutex.synchronize { @api_roots || ["/api/#{ver}/"] }
+      @mutex.synchronize { @api_roots || ["/api/v1/"] }
     end
 
     def api_roots=(path)
       @mutex.synchronize { @api_roots = path }
     end
 
-    def api_version
-      @mutex.synchronize { @api_version || 'v1' }
+    def api_filter
+      @mutex.synchronize { @api_filter }
     end
 
-    def api_version=(ver)
-      @mutex.synchronize { @api_version = ver }
+    def api_filter=(proc)
+      @mutex.synchronize { @api_filter = proc }
+    end
+
+    # # Proc gets called with up to 4 arguments:  object_name, api_version, columns, data
+    # # Expected to return an array, either just of symbols defining column names, or an array with two sub-arrays, first of column detail and second of data
+    # def api_column_filter
+    #   @mutex.synchronize { @api_column_filter }
+    # end
+
+    # def api_column_filter=(proc)
+    #   @mutex.synchronize { @api_column_filter = proc }
+    # end
+
+    # Allows you to rename and exclude columns either specific to a given API version, or generally for a database object name
+    def api_column_renaming
+      @mutex.synchronize { @api_column_renaming }
+    end
+
+    def api_column_renaming=(renames)
+      @mutex.synchronize { @api_column_renaming = renames }
+    end
+
+    # All the view prefix things
+    def api_view_prefix
+      @mutex.synchronize { @api_view_prefix }
+    end
+
+    def api_view_prefix=(view_prefix)
+      @mutex.synchronize { @api_view_prefix = view_prefix }
+    end
+
+    def api_remove_view_prefix
+      @mutex.synchronize { @api_remove_view_prefix || @api_view_prefix }
+    end
+
+    def api_remove_view_prefix=(view_prefix)
+      @mutex.synchronize { @api_remove_view_prefix = view_prefix }
+    end
+
+    def api_add_view_prefix
+      @mutex.synchronize { @api_add_view_prefix || @api_view_prefix }
+    end
+
+    def api_add_view_prefix=(view_prefix)
+      @mutex.synchronize { @api_add_view_prefix = view_prefix }
     end
 
     # Additional table associations to use (Think of these as virtual foreign keys perhaps)

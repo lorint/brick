@@ -44,16 +44,20 @@
 
 module ActiveRecord
   class Base
-    def self.is_brick?
-      instance_variables.include?(:@_brick_built) && instance_variable_get(:@_brick_built)
-    end
+    class << self
+      attr_reader :_brick_relation
 
-    def self._assoc_names
-      @_assoc_names ||= {}
-    end
+      def is_brick?
+        instance_variables.include?(:@_brick_built) && instance_variable_get(:@_brick_built)
+      end
 
-    def self.is_view?
-      false
+      def _assoc_names
+        @_assoc_names ||= {}
+      end
+
+      def is_view?
+        false
+      end
     end
 
     def self._brick_primary_key(relation = nil)
@@ -1261,6 +1265,7 @@ class Object
       # Having this separate -- will this now work out better?
         built_model.class_exec do
           @_brick_built = true
+          @_brick_relation = relation
           hmts&.each do |hmt_fk, hms|
             hmt_fk = hmt_fk.tr('.', '_')
             hms.each do |hm|
@@ -1526,9 +1531,10 @@ class Object
         self.protect_from_forgery unless: -> { self.request.format.js? }
         unless is_avo
           self.define_method :index do
+            request_ver = request.path.split('/')[-2]
             current_api_root = ::Brick.config.api_roots.find do |ar|
               request.path.start_with?(ar) || # Exact match?
-              request.path.split('/')[-2] == ar.split('/').last # Version at least matches?
+              request_ver == ar.split('/').last # Version at least matches?
             end
             if (current_api_root || is_openapi) &&
                !params&.key?('_brick_schema') &&
@@ -1542,51 +1548,81 @@ class Object
             _schema, @_is_show_schema_list = ::Brick.set_db_schema(params || api_params)
 
             if is_openapi
+              api_name = Rswag::Ui.config.config_object[:urls].find do |api_url|
+                api_url[:url] == request.path
+              end&.fetch(:name, 'API documentation')
               current_api_ver = current_api_root.split('/').last&.[](1..-1).to_i
-              json = { 'openapi': '3.0.1', 'info': { 'title': Rswag::Ui.config.config_object[:urls].last&.fetch(:name, 'API documentation'), 'version': ::Brick.config.api_version },
+              json = { 'openapi': '3.0.1', 'info': { 'title': api_name, 'version': request_ver },
                        'servers': [
-                         { 'url': '{scheme}://{defaultHost}', 'variables': {
-                           'scheme': { 'default': request.env['rack.url_scheme'] },
-                           'defaultHost': { 'default': request.env['HTTP_HOST'] }
-                         } }
+                         { 'url': '{scheme}://{defaultHost}',
+                           'variables': {
+                             'scheme': { 'default': request.env['rack.url_scheme'] },
+                             'defaultHost': { 'default': request.env['HTTP_HOST'] }
+                           }
+                         }
                        ]
                      }
-              json['paths'] = relations.each_with_object({}) do |relation, s|
-                unless ::Brick.config.enable_api == false
+              unless ::Brick.config.enable_api == false
+                json['paths'] = relations.each_with_object({}) do |relation, s|
                   next if (api_vers = relation.last.fetch(:api, nil)) &&
-                          !(api_ver_path = api_vers[current_api_ver])
+                          !(api_ver_paths = api_vers[current_api_ver] || api_vers[nil])
 
-                  relation_name = api_ver_path || relation.first.tr('.', '/')
-                  table_description = relation.last[:description]
-                  s["#{current_api_root}#{relation_name}"] = {
-                    'get': {
-                      'summary': "list #{relation.first}",
-                      'description': table_description,
-                      'parameters': relation.last[:cols].map do |k, v|
-                                      param = { in: 'query', 'name' => k, 'schema': { 'type': v.first } }
-                                      if (col_descrip = relation.last.fetch(:col_descrips, nil)&.fetch(k, nil))
-                                        param['description'] = col_descrip
+                  schema_tag = {}
+                  if (schema_name = relation.last&.fetch(:schema, nil))
+                    schema_tag['tags'] = [schema_name]
+                  end
+                  all_actions = relation.last.key?(:isView) ? [:index, :show] : ::Brick::ALL_API_ACTIONS
+                  (api_ver_paths || { relation.first => all_actions }).each do |api_ver_path, actions|
+                    relation_name = (api_ver_path || relation.first).tr('.', '/')
+                    table_description = relation.last[:description]
+
+                    # Column renaming / exclusions
+                    renamed_columns = if (column_renaming = ::Brick.find_col_renaming(api_ver_path, relation.first))
+                                        column_renaming.each_with_object({}) do |rename, s|
+                                          s[rename.last] = relation.last[:cols][rename.first] if rename.last
+                                        end
+                                      else
+                                        relation.last[:cols]
                                       end
-                                      param
-                                    end,
-                      'responses': { '200': { 'description': 'successful' } }
-                    }
-                  }
+                    { :index => [:get, 'list'], :create => [:post, 'create a'] }.each do |k, v|
+                      unless actions&.exclude?(k)
+                        this_resource = (s["#{current_api_root}#{relation_name}"] ||= {})
+                        this_resource[v.first] = {
+                          'summary': "#{v[1]} #{relation.first}",
+                          'description': table_description,
+                          'parameters': renamed_columns.map do |k2, v2|
+                                          param = { in: 'query', 'name': k2, 'schema': { 'type': v2.first } }
+                                          if (col_descrip = relation.last.fetch(:col_descrips, nil)&.fetch(k2, nil))
+                                            param['description'] = col_descrip
+                                          end
+                                          param
+                                        end,
+                          'responses': { '200': { 'description': 'successful' } }
+                        }.merge(schema_tag)
+                      end
+                    end
 
-                  s["#{current_api_root}#{relation_name}/{id}"] = {
-                    'patch': {
-                      'summary': "update a #{relation.first.singularize}",
-                      'description': table_description,
-                      'parameters': relation.last[:cols].reject { |k, v| Brick.config.metadata_columns.include?(k) }.map do |k, v|
-                        param = { 'name' => k, 'schema': { 'type': v.first } }
-                        if (col_descrip = relation.last.fetch(:col_descrips, nil)&.fetch(k, nil))
-                          param['description'] = col_descrip
+                    # We have not yet implemented the #show action
+                    if (id_col = relation.last[:pkey]&.values&.first&.first) # ... ID-dependent stuff
+                      { :update => [:patch, 'update'], :destroy => [:delete, 'delete'] }.each do |k, v|
+                        unless actions&.exclude?(k)
+                          this_resource = (s["#{current_api_root}#{relation_name}/{#{id_col}}"] ||= {})
+                          this_resource[v.first] = {
+                            'summary': "#{v[1]} a #{relation.first.singularize}",
+                            'description': table_description,
+                            'parameters': renamed_columns.reject { |k1, _v1| Brick.config.metadata_columns.include?(k1) }.map do |k2, v2|
+                              param = { 'name': k2, 'schema': { 'type': v2.first } }
+                              if (col_descrip = relation.last.fetch(:col_descrips, nil)&.fetch(k2, nil))
+                                param['description'] = col_descrip
+                              end
+                              param
+                            end,
+                            'responses': { '200': { 'description': 'successful' } }
+                          }.merge(schema_tag)
                         end
-                        param
-                      end,
-                      'responses': { '200': { 'description': 'successful' } }
-                    }
-                  } unless relation.last.fetch(:isView, nil)
+                      end
+                    end
+                  end # Do multiple api_ver_paths
                 end
               end
               render inline: json.to_json, content_type: request.format
@@ -1600,11 +1636,11 @@ class Object
               end
               render inline: exported_csv, content_type: request.format
               return
-            elsif request.format == :js || current_api_root # Asking for JSON?
-              # %%% Add:  where, order, page, page_size, offset, limit
-              data = (model.is_view? || !Object.const_defined?('DutyFree')) ? model.limit(1000) : model.df_export(model.brick_import_template)
-              render inline: { data: data }.to_json, content_type: request.format == '*/*' ? 'application/json' : request.format
-              return
+            # elsif request.format == :js || current_api_root # Asking for JSON?
+            #   # %%% Add:  where, order, page, page_size, offset, limit
+            #   data = (model.is_view? || !Object.const_defined?('DutyFree')) ? model.limit(1000) : model.df_export(model.brick_import_template)
+            #   render inline: { data: data }.to_json, content_type: request.format == '*/*' ? 'application/json' : request.format
+            #   return
             end
 
             # Normal (not swagger or CSV) request
@@ -1618,6 +1654,43 @@ class Object
             @_brick_params = ar_relation.brick_select(params, (selects ||= []), order_by,
                                                       translations = {},
                                                       join_array = ::Brick::JoinArray.new)
+
+            if request.format == :js || current_api_root # Asking for JSON?
+              # Apply column renaming
+              data = ar_relation.respond_to?(:_select!) ? ar_relation.dup._select!(*selects) : ar_relation.select(selects)
+              if data.present? &&
+                 (column_renaming = ::Brick.find_col_renaming(current_api_root, model&._brick_relation)&.select { |cr| cr.last })
+                data.map!({}) do |row, s|
+                  column_renaming.each_with_object({}) do |rename, s|
+                    s[rename.last] = row[rename.first] if rename.last
+                  end
+                end
+              end
+
+              # %%% Still need to figure out column filtering and transformations
+              # proc_result = if (column_filter = ::Brick.config.api_column_filter).is_a?(Proc)
+              #                 object_columns = relation.last[:cols]
+              #                 begin
+              #                   num_args = column_filter.arity.negative? ? 5 : column_filter.arity
+              #                   # object_name, api_version, columns, data
+              #                   column_filter.call(*[relation.first, api_ver_path, object_columns, nil][0...num_args])
+              #                 rescue StandardError => e
+              #                   puts "::Brick.api_column_filter Proc error: #{e.message}"
+              #                 end
+              #               end
+              # columns = if (proc_result) # Proc returns up to 2 things:  columns, data
+              #             # If it's all valid column name strings then we're just rearranging the column sequence
+              #             col_names = proc_result.all? { |pr| object_columns.key?(pr) } ? proc_result : proc_result.first.keys
+              #             col_names.each_with_object({}) { |cn, s| s[cn] = relation.last[:cols][cn] }
+              #           else
+              #             relation.last[:cols]
+              #           end
+              # binding.pry
+
+              render inline: { data: data }.to_json, content_type: ['*/*', 'text/html'].include?(request.format) ? 'application/json' : request.format
+              return
+            end
+
             # %%% Add custom HM count columns
             # %%% What happens when the PK is composite?
             counts = model._br_hm_counts.each_with_object([]) do |v, s|
@@ -2572,6 +2645,11 @@ module Brick
           end
         end
       end
+    end
+
+    def find_col_renaming(api_ver_path, relation_name)
+      (column_renames = ::Brick.config.api_column_renaming&.fetch(api_ver_path, nil) ||
+                        ::Brick.config.api_column_renaming)&.fetch(relation_name, nil)
     end
 
     def _class_pk(dotted_name, multitenant)
