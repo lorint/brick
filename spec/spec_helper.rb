@@ -60,6 +60,8 @@ if original_ruby_version
   Object.const_set('RUBY_VERSION', original_ruby_version)
 end
 
+# ActiveRecord::Base.configurations = YAML.load_file("#{__dir__}/test_app/config/database.yml")
+# ActiveRecord::Base.establish_connection
 require 'brick/frameworks/rspec'
 require 'ffaker'
 
