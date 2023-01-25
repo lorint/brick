@@ -146,7 +146,7 @@ Rails 5.2.6, 7.0, and 7.1 are the versions which have been tested most extensive
 When used with really old versions of Rails, 4.x and older, Brick automatically applies various
 compatibility patches so it will run under much newer versions of Ruby than would normally be
 allowed.  This makes it easier to test the broad range of supported versions of ActiveRecord
-without the headaches of having to use older versions of Ruby.  If you're using Ruby 2.7.6 then
+without the headaches of having to use older versions of Ruby.  If you're using Ruby 2.7.7 then
 any Rails from 4.2 up to 7.1 will work, all due to these various patches put in place as the gem
 starts up.  If you get string frozen errors with older versions then move back to using Ruby
 2.6.10, and if you get the error "undefined method 'new' for BigDecimal:Class (NoMethodError)"
@@ -244,7 +244,7 @@ starting up:
 ```
 Lorins-Macbook:example_oracle lorin$ bin/rails s
 => Booting Puma
-=> Rails 7.0.4 application starting in development
+=> Rails 7.0.4.2 application starting in development
 => Run `rails server --help` for more startup options
 
 Classes that can be built from tables:  Path:
