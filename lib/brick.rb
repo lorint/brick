@@ -135,7 +135,7 @@ module Brick
       @existing_stis ||= Brick.config.sti_namespace_prefixes.each_with_object({}) { |snp, s| s[snp.first[2..-1]] = snp.last unless snp.first.end_with?('::') }
     end
 
-    attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle, :is_eager_loading, :auto_models
+    attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle, :is_eager_loading, :auto_models, :initializer_loaded
 
     def set_db_schema(params = nil)
       # If Apartment::Tenant.current is not still the default (usually 'public') then an elevator has brought us into
@@ -742,7 +742,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
                 proc_result = if (filter = ::Brick.config.api_filter).is_a?(Proc)
                                 begin
                                   num_args = filter.arity.negative? ? 6 : filter.arity
-                                  filter.call(*[unversioned, k, actions, api_ver_num, found, test_ver_num][0...num_args])
+                                  filter.call(*[unversioned, k, view_relation, actions, api_ver_num, found, test_ver_num][0...num_args])
                                 rescue StandardError => e
                                   puts "::Brick.api_filter Proc error: #{e.message}"
                                 end
@@ -857,7 +857,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
             if Object.const_defined?('Rswag::Ui')
               rswag_path = ::Rails.application.routes.routes.find { |r| r.app.app == Rswag::Ui::Engine }&.instance_variable_get(:@path_formatter)&.instance_variable_get(:@parts)&.join
               first_endpoint_parts = nil
-              (doc_endpoints = Rswag::Ui.config.config_object[:urls]&.uniq!)&.each do |doc_endpoint|
+              (doc_endpoints = Rswag::Ui.config.config_object[:urls])&.each do |doc_endpoint|
                 puts "Mounting OpenApi 3.0 documentation endpoint for \"#{doc_endpoint[:name]}\" on #{doc_endpoint[:url]}"
                 send(:get, doc_endpoint[:url], { to: 'brick_openapi#index' })
                 endpoint_parts = doc_endpoint[:url]&.split('/')
@@ -1192,8 +1192,13 @@ ActiveSupport.on_load(:active_record) do
     arsc.class_exec do
       def self.create(connection, callable = nil, &block)
         relation = (callable || block).call ::ActiveRecord::StatementCache::Params.new
-        bind_map = ::ActiveRecord::StatementCache::BindMap.new relation.bound_attributes
-        query_builder = connection.cacheable_query(self, relation.arel)
+        bind_map = ::ActiveRecord::StatementCache::BindMap.new(
+                     # AR <= 4.2 uses relation.bind_values
+                     relation.respond_to?(:bound_attributes) ? relation.bound_attributes : relation.bind_values
+                   )
+        options = [self, relation.arel]
+        options.shift if connection.method(:cacheable_query).arity == 1 # Rails <= 5.0
+        query_builder = connection.cacheable_query(*options)
         new query_builder, bind_map
       end
     end
@@ -1237,7 +1242,8 @@ ActiveSupport.on_load(:active_record) do
     end
   end
 
-  if Psych.respond_to?(:unsafe_load) && ActiveRecord.version < ::Gem::Version.new('6.1')
+  if ActiveRecord.version < ::Gem::Version.new('6.1') &&
+     Psych.method(:load).parameters.any? { |param| param.first == :key && param.last == :aliases }
     Psych.class_exec do
       class << self
         alias _original_load load
@@ -1279,7 +1285,9 @@ ActiveSupport.on_load(:active_record) do
       def initialize(base, associations, joins, eager_loading: true)
         araat = ::ActiveRecord::Associations::AliasTracker
         if araat.respond_to?(:create_with_joins) # Rails 5.0 and 5.1
-          @alias_tracker = araat.create_with_joins(base.connection, base.table_name, joins)
+          cwj_options = [base.connection, base.table_name, joins]
+          cwj_options << base.type_caster if araat.method(:create_with_joins).arity > 3 # Rails <= 5.1
+          @alias_tracker = araat.create_with_joins(*cwj_options)
           @eager_loading = eager_loading # (Unused in Rails 5.0)
         else # Rails 4.2
           @alias_tracker = araat.create(base.connection, joins)
@@ -1648,21 +1656,24 @@ if ActiveRecord.version < ::Gem::Version.new('6.0') && ruby_version >= ::Gem::Ve
   end
 
   require 'active_model'
-  require 'active_model/type'
-  require 'active_model/type/value'
-  class ActiveModel::Type::Value
-    def initialize(*args, precision: nil, limit: nil, scale: nil)
-      @precision = precision
-      @scale = scale
-      @limit = limit
+  begin
+    require 'active_model/type'
+    require 'active_model/type/value'
+    class ActiveModel::Type::Value
+      def initialize(*args, precision: nil, limit: nil, scale: nil)
+        @precision = precision
+        @scale = scale
+        @limit = limit
+      end
     end
+  rescue LoadError => e # AR <= 4.2 doesn't have ActiveModel::Type
   end
 
   if Object.const_defined?('I18n')
     module I18n::Base
       alias _brick_translate translate
       def translate(key = nil, *args, throw: false, raise: false, locale: nil, **options)
-        options.merge!(args.pop) if args.length > 0 && args.last.is_a?(Hash)
+        options.merge!(args.pop) if args.last.is_a?(Hash)
         _brick_translate(key = nil, throw: false, raise: false, locale: nil, **options)
       end
     end
@@ -1673,8 +1684,12 @@ if ActiveRecord.version < ::Gem::Version.new('6.0') && ruby_version >= ::Gem::Ve
 
     # Creates the authenticity token for the current request.
     def form_authenticity_token(*args, form_options: {}) # :doc:
-      form_options.merge!(args.pop) if args.length > 0 && args.last.is_a?(Hash)
-      masked_authenticity_token(session, form_options: form_options)
+      if method(:masked_authenticity_token).arity == 1
+        masked_authenticity_token(session) # AR <= 4.2 doesn't use form_options
+      else
+        form_options.merge!(args.pop) if args.last.is_a?(Hash)
+        masked_authenticity_token(session, form_options: form_options)
+      end
     end
   end
 
@@ -1684,7 +1699,7 @@ if ActiveRecord.version < ::Gem::Version.new('6.0') && ruby_version >= ::Gem::Ve
         encrypted = if method(:_encrypt).arity == 1
                       _encrypt(value) # Rails <= 5.1
                     else
-                      if args.length > 0 && args.last.is_a?(Hash)
+                      if args.last.is_a?(Hash)
                         expires_at ||= args.last[:expires_at]
                         expires_in ||= args.last[:expires_in]
                         purpose ||= args.last[:purpose]
@@ -1697,7 +1712,7 @@ if ActiveRecord.version < ::Gem::Version.new('6.0') && ruby_version >= ::Gem::Ve
     if const_defined?('Messages')
       class Messages::Metadata
         def self.wrap(message, *args, expires_at: nil, expires_in: nil, purpose: nil)
-          if args.length > 0 && args.last.is_a?(Hash)
+          if args.last.is_a?(Hash)
             expires_at ||= args.last[:expires_at]
             expires_in ||= args.last[:expires_in]
             purpose ||= args.last[:purpose]

@@ -421,7 +421,10 @@ module ActiveRecord
       is_distinct = nil
       wheres = {}
       params.each do |k, v|
-        next if ['_brick_schema', '_brick_order', 'controller', 'action'].include?(k)
+        next if ['_brick_schema', '_brick_order',
+                 '_brick_erd', '_brick_exclude', '_brick_unexclude',
+                 '_brick_page', '_brick_page_size', '_brick_offset', '_brick_limit',
+                 '_brick_is_api', 'controller', 'action'].include?(k)
 
         if (where_col = (ks = k.split('.')).last)[-1] == '!'
           where_col = where_col[0..-2]
@@ -448,7 +451,10 @@ module ActiveRecord
         # %%% Have once gotten this error with MSSQL referring to http://localhost:3000/warehouse/cold_room_temperatures__archive
         #     ActiveRecord::StatementInvalid (TinyTds::Error: DBPROCESS is dead or not enabled)
         #     Relevant info here:  https://github.com/rails-sqlserver/activerecord-sqlserver-adapter/issues/402
+        is_api = params['_brick_is_api']
         columns.each do |col|
+          next if (col.type.nil? || col.type == :binary) && is_api
+
           col_alias = " AS #{col.name}_" if (col_name = col.name) == 'class'
           selects << if is_mysql
                        "`#{tbl_no_schema}`.`#{col_name}`#{col_alias}"
@@ -1538,9 +1544,13 @@ class Object
             end
             if (current_api_root || is_openapi) &&
                !params&.key?('_brick_schema') &&
-               (referrer_params = request.env['HTTP_REFERER']&.split('?')&.last&.split('&')&.map { |x| x.split('=') }).present?
+               (referrer_params = request.env['HTTP_REFERER']&.split('?')&.last&.split('&')&.each_with_object({}) do |x, s|
+                 if (kv = x.split('=')).length > 1
+                   s[kv.first] = kv[1..-1].join('=')
+                 end
+               end).present?
               if params
-                referrer_params.each { |k, v| params.send(:parameters)[k] = v }
+                referrer_params.each { |k, v| (params.respond_to?(:parameters) ? send(:parameters) : params)[k] = v }
               else
                 api_params = referrer_params&.to_h
               end
@@ -1651,11 +1661,12 @@ class Object
             order_by, _ = model._brick_calculate_ordering(ordering, true) # Don't do the txt part
 
             ar_relation = ActiveRecord.version < Gem::Version.new('4') ? model.preload : model.all
+            params['_brick_is_api'] = true if (is_api = request.format == :js || current_api_root)
             @_brick_params = ar_relation.brick_select(params, (selects ||= []), order_by,
                                                       translations = {},
                                                       join_array = ::Brick::JoinArray.new)
 
-            if request.format == :js || current_api_root # Asking for JSON?
+            if is_api # Asking for JSON?
               # Apply column renaming
               data = ar_relation.respond_to?(:_select!) ? ar_relation.dup._select!(*selects) : ar_relation.select(selects)
               if data.present? &&
@@ -1667,13 +1678,16 @@ class Object
                 end
               end
 
-              # %%% Still need to figure out column filtering and transformations
+              # # %%% This currently only gives a window to check security and raise an exception if someone isn't
+              # # authenticated / authorised. Still need to figure out column filtering and transformations.
               # proc_result = if (column_filter = ::Brick.config.api_column_filter).is_a?(Proc)
-              #                 object_columns = relation.last[:cols]
+              #                 object_columns = (relation = model&._brick_relation)[:cols]
               #                 begin
               #                   num_args = column_filter.arity.negative? ? 5 : column_filter.arity
               #                   # object_name, api_version, columns, data
-              #                   column_filter.call(*[relation.first, api_ver_path, object_columns, nil][0...num_args])
+              #                   api_ver_path = request.path[0..-relation[:resource].length]
+              #                   # Call the api_column_filter in the context of this auto-built controller
+              #                   instance_exec(*[relation[:resource], relation, api_ver_path, object_columns, data][0...num_args], &column_filter)
               #                 rescue StandardError => e
               #                   puts "::Brick.api_column_filter Proc error: #{e.message}"
               #                 end
@@ -1685,7 +1699,6 @@ class Object
               #           else
               #             relation.last[:cols]
               #           end
-              # binding.pry
 
               render inline: { data: data }.to_json, content_type: ['*/*', 'text/html'].include?(request.format) ? 'application/json' : request.format
               return
@@ -1984,7 +1997,6 @@ end.class_exec do
 
     # return if ActiveRecord::Base.connection.current_database == 'postgres'
 
-    initializer_loaded = false
     orig_schema = nil
     if (relations = ::Brick.relations).empty?
       # Very first thing, load inflections since we'll be using .pluralize and .singularize on table and model names
@@ -1993,7 +2005,7 @@ end.class_exec do
       end
       # Now the Brick initializer since there may be important schema things configured
       if File.exist?(brick_initializer = ::Rails.root.join('config/initializers/brick.rb'))
-        initializer_loaded = load brick_initializer
+        ::Brick.initializer_loaded = load brick_initializer
       end
       # Load the initializer for the Apartment gem a little early so that if .excluded_models and
       # .default_schema are specified then we can work with non-tenanted models more appropriately
@@ -2266,7 +2278,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       end
       v[:class_name] = (schema_names + [singular]).map(&:camelize).join('::')
     end
-    ::Brick.load_additional_references if initializer_loaded
+    ::Brick.load_additional_references if ::Brick.initializer_loaded
 
     if orig_schema && (orig_schema = (orig_schema - ['pg_catalog', 'pg_toast', 'heroku_ext']).first)
       puts "Now switching back to \"#{orig_schema}\" schema."
@@ -2648,8 +2660,10 @@ module Brick
     end
 
     def find_col_renaming(api_ver_path, relation_name)
-      (column_renames = ::Brick.config.api_column_renaming&.fetch(api_ver_path, nil) ||
-                        ::Brick.config.api_column_renaming)&.fetch(relation_name, nil)
+      ::Brick.config.api_column_renaming&.fetch(
+        api_ver_path,
+        ::Brick.config.api_column_renaming&.fetch(relation_name, nil)
+      )
     end
 
     def _class_pk(dotted_name, multitenant)

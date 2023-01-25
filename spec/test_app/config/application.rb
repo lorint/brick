@@ -54,7 +54,7 @@ module TestApp
       config.active_record.belongs_to_required_by_default = true
       config.active_record.time_zone_aware_types = [:datetime]
     end
-    if v >= Gem::Version.new('5.1')
+    if config.respond_to?(:load_defaults) # Rails >= 5.1
       config.load_defaults '5.1'
       config.active_record.time_zone_aware_types = [:datetime]
     end
