@@ -682,9 +682,38 @@ In config/initializers/brick.rb appropriate entries would look something like:
             if (schema_name = v.fetch(:schema, nil))
               schema_prefix = "#{schema_name}."
             end
+
+            # Track routes being built
+            if (class_name = v.fetch(:class_name, nil))
+              if v.key?(:isView)
+                view_class_length = class_name.length if class_name.length > view_class_length
+                views
+              else
+                table_class_length = class_name.length if class_name.length > table_class_length
+                tables
+              end << [class_name, "#{schema_prefix&.tr('.', '/')}#{v[:resource]}"]
+            end
+
             options = {}
             options[:only] = [:index, :show] if v.key?(:isView)
-            # First do the API routes if necessary
+
+            # First do the normal routes
+            if path_prefix
+              # Was:  send(:scope, path: path_prefix) do
+              send(:namespace, path_prefix) do
+                brick_routes_create.call(schema_name, v[:resource], options)
+                sti_subclasses.fetch(class_name, nil)&.each do |sc| # Add any STI subclass routes for this relation
+                  brick_routes_create.call(schema_name, sc.underscore.tr('/', '_').pluralize, options)
+                end
+              end
+            else
+              brick_routes_create.call(schema_name, v[:resource], options)
+              sti_subclasses.fetch(class_name, nil)&.each do |sc| # Add any STI subclass routes for this relation
+                brick_routes_create.call(schema_name, sc.underscore.tr('/', '_').pluralize, options)
+              end
+            end
+
+            # Now the API routes if necessary
             full_resource = nil
             ::Brick.api_roots&.each do |api_root|
               api_done_views = (versioned_views[api_root] ||= {})
@@ -809,33 +838,6 @@ In config/initializers/brick.rb appropriate entries would look something like:
                     end
                   end
                 end
-              end
-            end
-
-            # Track routes being built
-            if (class_name = v.fetch(:class_name, nil))
-              if v.key?(:isView)
-                view_class_length = class_name.length if class_name.length > view_class_length
-                views
-              else
-                table_class_length = class_name.length if class_name.length > table_class_length
-                tables
-              end << [class_name, "#{schema_prefix&.tr('.', '/')}#{v[:resource]}"]
-            end
-
-            # Now the normal routes
-            if path_prefix
-              # Was:  send(:scope, path: path_prefix) do
-              send(:namespace, path_prefix) do
-                brick_routes_create.call(schema_name, v[:resource], options)
-                sti_subclasses.fetch(class_name, nil)&.each do |sc| # Add any STI subclass routes for this relation
-                  brick_routes_create.call(schema_name, sc.underscore.tr('/', '_').pluralize, options)
-                end
-              end
-            else
-              brick_routes_create.call(schema_name, v[:resource], options)
-              sti_subclasses.fetch(class_name, nil)&.each do |sc| # Add any STI subclass routes for this relation
-                brick_routes_create.call(schema_name, sc.underscore.tr('/', '_').pluralize, options)
               end
             end
           end
