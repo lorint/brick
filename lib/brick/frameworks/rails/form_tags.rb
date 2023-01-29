@@ -162,8 +162,9 @@ module Brick::Rails::FormTags
                    @_brick_model
     # If not provided, do a best-effort to automatically determine the resource class or object
     filter_parts = []
+    rel_name = nil
     klass_or_obj ||= begin
-                       klass, sti_type = ::Brick.ctrl_to_klass(controller_path)
+                       klass, sti_type, rel_name = ::Brick.ctrl_to_klass(controller_path)
                        if klass
                          type_col = klass.inheritance_column # Usually 'type'
                          filter_parts << "#{type_col}=#{sti_type}" if sti_type && klass.column_names.include?(type_col)
@@ -202,11 +203,11 @@ module Brick::Rails::FormTags
       app_routes = Rails.application.routes # In case we're operating in another engine, reference the application since Brick routes are placed there.
       if (klass_or_obj&.is_a?(Class) && klass_or_obj < ActiveRecord::Base) ||
          (klass_or_obj&.is_a?(ActiveRecord::Base) && klass_or_obj.new_record? && (klass_or_obj = klass_or_obj.class))
-        path = (proc = kwargs[:index_proc]) ? proc.call(klass_or_obj) : "#{app_routes.path_for(controller: klass_or_obj.base_class._brick_index(nil, '/'), action: :index)}#{filter}"
+        path = (proc = kwargs[:index_proc]) ? proc.call(klass_or_obj, relation) : "#{app_routes.path_for(controller: klass_or_obj.base_class._brick_index(nil, '/', relation), action: :index)}#{filter}"
         lt_args = [text || "Index for #{klass_or_obj.name.pluralize}", path]
       else
         # If there are multiple incoming parameters then last one is probably the actual ID, and first few might be some nested tree of stuff leading up to it
-        path = (proc = kwargs[:show_proc]) ? proc.call(klass_or_obj) : "#{app_routes.path_for(controller: klass_or_obj.class.base_class._brick_index(nil, '/'), action: :show, id: klass_or_obj)}#{filter}"
+        path = (proc = kwargs[:show_proc]) ? proc.call(klass_or_obj, relation) : "#{app_routes.path_for(controller: klass_or_obj.class.base_class._brick_index(nil, '/', relation), action: :show, id: klass_or_obj)}#{filter}"
         lt_args = [text || "Show this #{klass_or_obj.class.name}", path]
       end
       kwargs.delete(:visited)

@@ -601,7 +601,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
     def display_classes(prefix, rels, max_length)
       rels.sort.each do |rel|
         (::Brick.auto_models ||= []) << rel.first
-        puts "#{rel.first}#{' ' * (max_length - rel.first.length)}  /#{prefix}#{rel.last}"
+        puts "#{rel.first}#{' ' * (max_length - rel.first.length)}  /#{prefix}#{"#{rel[1]}/" if rel[1]}#{rel.last}"
       end
       puts "\n"
     end
@@ -620,16 +620,21 @@ In config/initializers/brick.rb appropriate entries would look something like:
       end
 
       c_path_parts = ctrl_path.split('/')
+      found = nil
       while c_path_parts.present?
         possible_c_path = c_path_parts.join('.')
         possible_c_path_singular = c_path_parts[0..-2] + [c_path_parts.last.singularize]
         possible_sti = possible_c_path_singular.join('/').camelize
         break if (
-                   res_name = res_names[possible_c_path] ||
+                   res_name = res_names[found = possible_c_path] ||
                               ((klass = Brick.config.sti_namespace_prefixes.key?("::#{possible_sti}") && possible_sti.constantize) &&
                                (sti_type = possible_sti)) ||
                               # %%% Used to have the more flexible:  (DidYouMean::SpellChecker.new(dictionary: res_names.keys).correct(possible_c_path)).first
-                              res_names[possible_c_path] || res_names[possible_c_path_singular.join('.')]
+                              res_names[found = possible_c_path] || res_names[found = possible_c_path_singular.join('.')] ||
+                              ((::Brick.config.table_name_prefixes.key?(tn_prefix = c_path_parts.first) ||
+                                ::Brick.config.table_name_prefixes.key?(tn_prefix = "#{c_path_parts.first}_")) &&
+                               res_names[found = tn_prefix + c_path_parts.last]
+                              )
                  ) &&
                  (
                    klass ||
@@ -638,7 +643,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
                  )
         c_path_parts.shift
       end
-      [klass, sti_type]
+      [klass, sti_type, found]
     end
   end
 
@@ -657,10 +662,14 @@ In config/initializers/brick.rb appropriate entries would look something like:
           table_class_length = 38 # Length of "Classes that can be built from tables:"
           view_class_length = 37 # Length of "Classes that can be built from views:"
 
-          brick_routes_create = lambda do |schema_name, res_name, options|
-            if schema_name # && !Object.const_defined('Apartment')
-              send(:namespace, schema_name) do
-                send(:resources, res_name.to_sym, **options)
+          brick_namespace_create = lambda do |path_names, res_name, options|
+            if path_names&.present?
+              if (path_name = path_names.pop).is_a?(Array)
+                module_name = path_name[1]
+                path_name = path_name.first
+              end
+              send(:scope, { module: module_name || path_name, path: path_name, as: path_name }) do
+                brick_namespace_create.call(path_names, res_name, options)
               end
             else
               send(:resources, res_name.to_sym, **options)
@@ -676,12 +685,23 @@ In config/initializers/brick.rb appropriate entries would look something like:
                            end
           versioned_views = {} # Track which views have already been done for each api_root
           ::Brick.relations.each do |k, v|
-            next if !(controller_name = v.fetch(:resource, nil)&.pluralize) || existing_controllers.key?(controller_name)
-
-            object_name = k.split('.').last # Take off any first schema part
             if (schema_name = v.fetch(:schema, nil))
               schema_prefix = "#{schema_name}."
             end
+
+            next if !(resource_name = v.fetch(:resource, nil)) ||
+                    existing_controllers.key?(controller_name = (
+                                                resource_name = "#{schema_prefix&.tr('.', '/')}#{resource_name}"
+                                             ).pluralize)
+
+            object_name = k.split('.').last # Take off any first schema part
+
+            full_schema_prefix = if (aps = v.fetch(:auto_prefixed_schema, nil))
+                                   aps = aps[0..-2] if aps[-1] == '_'
+                                   (schema_prefix&.dup || +'') << "#{aps}."
+                                 else
+                                   schema_prefix
+                                 end
 
             # Track routes being built
             if (class_name = v.fetch(:class_name, nil))
@@ -691,26 +711,20 @@ In config/initializers/brick.rb appropriate entries would look something like:
               else
                 table_class_length = class_name.length if class_name.length > table_class_length
                 tables
-              end << [class_name, "#{schema_prefix&.tr('.', '/')}#{v[:resource]}"]
+              end << [class_name, aps, resource_name]
             end
 
             options = {}
             options[:only] = [:index, :show] if v.key?(:isView)
 
             # First do the normal routes
-            if path_prefix
-              # Was:  send(:scope, path: path_prefix) do
-              send(:namespace, path_prefix) do
-                brick_routes_create.call(schema_name, v[:resource], options)
-                sti_subclasses.fetch(class_name, nil)&.each do |sc| # Add any STI subclass routes for this relation
-                  brick_routes_create.call(schema_name, sc.underscore.tr('/', '_').pluralize, options)
-                end
-              end
-            else
-              brick_routes_create.call(schema_name, v[:resource], options)
-              sti_subclasses.fetch(class_name, nil)&.each do |sc| # Add any STI subclass routes for this relation
-                brick_routes_create.call(schema_name, sc.underscore.tr('/', '_').pluralize, options)
-              end
+            prefixes = []
+            prefixes << [aps, v[:class_name]&.split('::')[-2]&.underscore] if aps
+            prefixes << schema_name if schema_name
+            prefixes << path_prefix if path_prefix
+            brick_namespace_create.call(prefixes, v[:resource], options)
+            sti_subclasses.fetch(class_name, nil)&.each do |sc| # Add any STI subclass routes for this relation
+              brick_namespace_create.call(prefixes, sc.underscore.tr('/', '_').pluralize, options)
             end
 
             # Now the API routes if necessary
@@ -815,9 +829,8 @@ In config/initializers/brick.rb appropriate entries would look something like:
                 # view_ver_num = if (first_part = k.split('_').first) =~ /^v[\d_]+/
                 #                  first_part[1..-1].gsub('_', '.').to_i
                 #                end
-
                 controller_name = if (last = view_relation.fetch(:resource, nil)&.pluralize)
-                                    "#{schema_prefix}#{last}"
+                                    "#{full_schema_prefix}#{last}"
                                   else
                                     found
                                   end.tr('.', '/')

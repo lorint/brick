@@ -261,9 +261,16 @@ module ActiveRecord
       assoc_html_name ? "#{assoc_name}-#{link}".html_safe : link
     end
 
-    def self._brick_index(mode = nil, separator = '_')
+    # Providing a relation object allows auto-modules built from table name prefixes to work
+    def self._brick_index(mode = nil, separator = '_', relation = nil)
       tbl_parts = ((mode == :singular) ? table_name.singularize : table_name).split('.')
       tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.length > 1 && tbl_parts.first == ::Brick.apartment_default_tenant
+      if (aps = relation&.fetch(:auto_prefixed_schema, nil)) && tbl_parts.last.start_with?(aps)
+        last_part = tbl_parts.last[aps.length..-1]
+        aps = aps[0..-2] if aps[-1] == '_'
+        tbl_parts[-1] = aps
+        tbl_parts << last_part
+      end
       tbl_parts.unshift(::Brick.config.path_prefix) if ::Brick.config.path_prefix
       index = tbl_parts.map(&:underscore).join(separator)
       # Rails applies an _index suffix to that route when the resource name is singular
@@ -1005,7 +1012,8 @@ Module.class_exec do
 
              # MODULE
              elsif (::Brick.enable_models? || ::Brick.enable_controllers?) && # Schema match?
-                   base_module == Object && # %%% This works for Person::Person -- but also limits us to not being able to allow more than one level of namespacing
+                   # %%% This works for Person::Person -- but also limits us to not being able to allow more than one level of namespacing
+                   (base_module == Object || (camelize_prefix && base_module == Object.const_get(camelize_prefix))) &&
                    (schema_name = [(singular_table_name = class_name.underscore),
                                    (table_name = singular_table_name.pluralize),
                                    ::Brick.is_oracle ? class_name.upcase : class_name,
@@ -2272,11 +2280,20 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       schema_names.shift if ::Brick.apartment_multitenant && schema_names.first == ::Brick.apartment_default_tenant
       v[:schema] = schema_names.join('.') unless schema_names.empty?
       # %%% If more than one schema has the same table name, will need to add a schema name prefix to have uniqueness
-      v[:resource] = rel_name.last
       if (singular = rel_name.last.singularize).blank?
         singular = rel_name.last
       end
-      v[:class_name] = (schema_names + [singular]).map(&:camelize).join('::')
+      name_parts = if (tnp = ::Brick.config.table_name_prefixes
+                                    .find { |k1, _v1| singular.start_with?(k1) && singular.length > k1.length }
+                      ).present?
+                     v[:auto_prefixed_schema] = tnp.first
+                     v[:resource] = rel_name.last[(tnp_length = tnp.first.length)..-1]
+                     [tnp.last, singular[tnp_length..-1]]
+                   else
+                     v[:resource] = rel_name.last
+                     [singular]
+                   end
+      v[:class_name] = (schema_names + name_parts).map(&:camelize).join('::')
     end
     ::Brick.load_additional_references if ::Brick.initializer_loaded
 

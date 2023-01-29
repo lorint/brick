@@ -10,10 +10,13 @@ module Brick
   if (param === undefined || param === null || param === -1) {
     hrefParts = hrefParts[0].split(\"://\");
     var pathParts = hrefParts[hrefParts.length - 1].split(\"/\").filter(function (pp) {return pp !== \"\";});
-    if (value === undefined)
+    if (value === undefined) {
       // A couple possibilities if it's namespaced, starting with two parts in the path -- and then try just one
-      return [pathParts.slice(1, 3).join('/'), pathParts.slice(1, 2)[0]];
-    else {
+      if (pathParts.length > 3)
+        return [pathParts.slice(1, 4).join('/'), pathParts.slice(1, 3).join('/')];
+      else
+        return [pathParts.slice(1, 3).join('/'), pathParts[1]];
+    } else {
       var queryString = param ? \"?\" + params.join(\"&\") : \"\";
       return hrefParts[0] + \"://\" + pathParts[0] + \"/\" + value + queryString;
     }
@@ -453,11 +456,22 @@ window.addEventListener(\"popstate\", linkSchemas);
               # %%% If we are not auto-creating controllers (or routes) then omit by default, and if enabled anyway, such as in a development
               # environment or whatever, then get either the controllers or routes list instead
               prefix = "#{::Brick.config.path_prefix}/" if ::Brick.config.path_prefix
-              table_options = (::Brick.relations.keys - ::Brick.config.exclude_tables).each_with_object({}) do |tbl, s|
-                                if (tbl_parts = tbl.split('.')).first == apartment_default_schema
-                                  tbl = tbl_parts.last
+              table_options = ::Brick.relations.each_with_object({}) do |rel, s|
+                                next if ::Brick.config.exclude_tables.include?(rel.first)
+
+                                tbl_parts = rel.first.split('.')
+                                if (aps = rel.last.fetch(:auto_prefixed_schema, nil))
+                                  tbl_parts << tbl_parts.last[aps.length..-1]
+                                  aps = aps[0..-2] if aps[-1] == '_'
+                                  tbl_parts[-2] = aps
                                 end
-                                s[tbl] = nil
+                                if tbl_parts.first == apartment_default_schema
+                                  tbl_parts.shift
+                                end
+                                # %%% When table_name_prefixes are use then during rendering empty non-TNP
+                                # entries get added at some point when an attempt is made to find the table.
+                                # Will have to hunt that down at some point.
+                                s[tbl_parts.join('.')] = nil unless rel.last[:cols].empty?
                               end.keys.sort.each_with_object(+'') do |v, s|
                                 s << "<option value=\"#{prefix}#{v.underscore.gsub('.', '/')}\">#{v}</option>"
                               end.html_safe
@@ -1142,8 +1156,8 @@ erDiagram
        td_count += 1 %>
     <td><%= link_to_brick(
         avo_svg,
-        { index_proc: Proc.new do |avo_model|
-                        path_helper = \"resources_#\{model.model_name.route_key}_path\".to_sym
+        { index_proc: Proc.new do |avo_model, relation|
+                        path_helper = \"resources_#\{relation.fetch(:auto_prefixed_schema, nil)}#\{model.model_name.route_key}_path\".to_sym
                         ::Avo.railtie_routes_url_helpers.send(path_helper) if ::Avo.railtie_routes_url_helpers.respond_to?(path_helper)
                       end,
           title: \"#\{model.name} in Avo\" }
@@ -1331,8 +1345,8 @@ erDiagram
 <% if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) %>
   <td><%= link_to_brick(
       avo_svg,
-      { show_proc: Proc.new do |obj|
-                     path_helper = \"resources_#\{obj.class.base_class.model_name.singular_route_key}_path\".to_sym
+      { show_proc: Proc.new do |obj, relation|
+                     path_helper = \"resources_#\{relation.fetch(:auto_prefixed_schema, nil)}#\{obj.class.base_class.model_name.singular_route_key}_path\".to_sym
                      ::Avo.railtie_routes_url_helpers.send(path_helper, obj) if ::Avo.railtie_routes_url_helpers.respond_to?(path_helper)
                    end,
         title: \"#\{page_title} in Avo\" }
