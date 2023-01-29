@@ -187,7 +187,8 @@ function linkSchemas() {
                                  s[r.name[0..-9]] = nil if r.name.end_with?('Resource')
                                end
                     ::Brick.relations.each do |k, v|
-                      unless existing.key?(class_name = v[:class_name]) || Brick.config.exclude_tables.include?(k) || class_name.blank?
+                      unless existing.key?(class_name = v[:class_name]) || Brick.config.exclude_tables.include?(k) ||
+                             class_name.blank? || class_name.include?('::')
                         Object.const_get("#{class_name}Resource")
                       end
                     end
@@ -1137,12 +1138,13 @@ erDiagram
   <td><h1><%= td_count = 2
               model.name %></h1></td>
   <td id=\"imgErd\" title=\"Show ERD\"></td>
-  <% if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace)
+  <% if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) && model.name.exclude?('::')
        td_count += 1 %>
     <td><%= link_to_brick(
         avo_svg,
         { index_proc: Proc.new do |avo_model|
-                        ::Avo.railtie_routes_url_helpers.send(\"resources_#\{model.model_name.route_key}_path\".to_sym)
+                        path_helper = \"resources_#\{model.model_name.route_key}_path\".to_sym
+                        ::Avo.railtie_routes_url_helpers.send(path_helper) if ::Avo.railtie_routes_url_helpers.respond_to?(path_helper)
                       end,
           title: \"#\{model.name} in Avo\" }
       ) %></td>
@@ -1330,7 +1332,8 @@ erDiagram
   <td><%= link_to_brick(
       avo_svg,
       { show_proc: Proc.new do |obj|
-                     ::Avo.railtie_routes_url_helpers.send(\"resources_#\{obj.class.base_class.model_name.singular_route_key}_path\".to_sym, obj)
+                     path_helper = \"resources_#\{obj.class.base_class.model_name.singular_route_key}_path\".to_sym
+                     ::Avo.railtie_routes_url_helpers.send(path_helper, obj) if ::Avo.railtie_routes_url_helpers.respond_to?(path_helper)
                    end,
         title: \"#\{page_title} in Avo\" }
     ) %></td>
