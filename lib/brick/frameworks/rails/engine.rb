@@ -881,7 +881,8 @@ if (grid) {
   // });
 }
 function setHeaderSizes() {
-  document.getElementById(\"titleBox\").style.width = grid.clientWidth;
+  if (grid.clientWidth > window.outerWidth)
+    document.getElementById(\"titleBox\").style.width = grid.clientWidth;
   // console.log(\"start\");
   // See if the headerTop is already populated
   // %%% Grab the TRs from headerTop, clear it out, do this stuff, add them back
@@ -1408,8 +1409,8 @@ end
             \"<span class=\\\"orphan\\\">Orphaned ID: #\{val}</span>\".html_safe
           end %>
     <% else
-      col_type = col.sql_type == 'geography' ? col.sql_type : col.type
-      case (col_type ||= col.sql_type)
+      col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
+      case (col_type ||= col&.sql_type)
       when :string, :text %>
         <% if is_bcrypt?(val) # || .readonly?
              is_revert = false %>
@@ -1489,9 +1490,9 @@ end
                        # association that points to an STI model then filtering for the __able_type column is done
                        # with a .where(). And the polymorphic class name it points to is the base class name of
                        # the STI model instead of its subclass.
-                       if (poly_type = #{poly_type.inspect}) &&
-                           @#{obj_name}.respond_to?(:#{@_brick_model.inheritance_column}) &&
-                           (base_type = collection.where_values_hash[poly_type])
+                       poly_type = #{poly_type.inspect}
+                       if poly_type && @#{obj_name}.respond_to?(:#{@_brick_model.inheritance_column}) &&
+                          (base_type = collection.where_values_hash[poly_type])
                          collection = collection.rewhere(poly_type => [base_type, @#{obj_name}.#{@_brick_model.inheritance_column}])
                        end"
       end

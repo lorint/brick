@@ -1437,7 +1437,7 @@ class Object
       is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name)
 
-      code = +"class #{class_name} < #{controller_base&.name || 'ApplicationController'}\n"
+      code = +"class #{namespace}::#{class_name} < #{controller_base&.name || 'ApplicationController'}\n"
       built_controller = Class.new(controller_base || ActionController::Base) do |new_controller_class|
         (namespace || Object).const_set(class_name.to_sym, new_controller_class)
 
