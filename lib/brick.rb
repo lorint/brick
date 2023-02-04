@@ -1497,12 +1497,12 @@ module ActiveRecord
         # entry in your .select().
         # More information:  https://discuss.rubyonrails.org/t/includes-and-select-for-joined-data/81640
         def apply_column_aliases(relation)
-          if (sel_vals = relation.select_values.map(&:to_s)).first == '_brick_eager_load'
+          if !(@join_root_alias = relation.select_values.empty?) &&
+             relation.select_values.first.to_s == '_brick_eager_load'
+            relation.select_values.shift
             used_cols = {}
             # Find and expand out all column names being used in select(...)
-            new_select_values = sel_vals.each_with_object([]) do |col, s|
-              next if col == '_brick_eager_load'
-
+            new_select_values = relation.select_values.map(&:to_s).each_with_object([]) do |col, s|
               if col.include?(' ') # Some expression? (No chance for a simple column reference)
                 s << col # Just pass it through
               else

@@ -201,6 +201,7 @@ module Brick::Rails::FormTags
       end
       filter = "?#{filter_parts.join('&')}" if filter_parts.present?
       app_routes = Rails.application.routes # In case we're operating in another engine, reference the application since Brick routes are placed there.
+      relation = ::Brick.relations.fetch(rel_name || args.first.table_name, nil)
       if (klass_or_obj&.is_a?(Class) && klass_or_obj < ActiveRecord::Base) ||
          (klass_or_obj&.is_a?(ActiveRecord::Base) && klass_or_obj.new_record? && (klass_or_obj = klass_or_obj.class))
         path = (proc = kwargs[:index_proc]) ? proc.call(klass_or_obj, relation) : "#{app_routes.path_for(controller: klass_or_obj.base_class._brick_index(nil, '/', relation), action: :index)}#{filter}"

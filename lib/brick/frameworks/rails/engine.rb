@@ -40,7 +40,7 @@ var brickSchema;
 function linkSchemas() {
   var schemaSelect = document.getElementById(\"schema\");
   var tblSelect = document.getElementById(\"tbl\");
-  if (tblSelect) { // Always present
+  if (tblSelect) { // Always present for Brick pages
     // Used to be:  var i = # {::Brick.config.path_prefix ? '0' : 'schemaSelect ? 1 : 0'},
     var changeoutList = changeout(location.href);
     for (var i = 0; i < changeoutList.length; ++i) {
@@ -53,32 +53,32 @@ function linkSchemas() {
       if (brickSchema) lhr = changeout(lhr, \"_brick_schema\", schemaSelect.value);
       location.href = lhr;
     });
-  }
 
-  if (schemaSelect) { // First drop-down is only present if multitenant
-    if (brickSchema = changeout(location.href, \"_brick_schema\")) {
-      [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
+    if (schemaSelect) { // First drop-down is only present if multitenant
+      if (brickSchema = changeout(location.href, \"_brick_schema\")) {
+        [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
+      }
+      if (schemaSelect.options.length > 1) {
+        schemaSelect.value = brickSchema || \"public\";
+        schemaSelect.addEventListener(\"change\", function () {
+          // If there's an ID then remove it (trim after selected table)
+          location.href = changeout(location.href, \"_brick_schema\", this.value, tblSelect.value);
+        });
+      }
     }
-    if (schemaSelect.options.length > 1) {
-      schemaSelect.value = brickSchema || \"public\";
-      schemaSelect.addEventListener(\"change\", function () {
-        // If there's an ID then remove it (trim after selected table)
-        location.href = changeout(location.href, \"_brick_schema\", this.value, tblSelect.value);
-      });
-    }
-  }
-  tblSelect.focus();
+    tblSelect.focus();
 
-  [... document.getElementsByTagName(\"FORM\")].forEach(function (form) {
-    if (brickSchema)
-      form.action = changeout(form.action, \"_brick_schema\", brickSchema);
-    form.addEventListener('submit', function (ev) {
-      [... ev.target.getElementsByTagName(\"SELECT\")].forEach(function (select) {
-        if (select.value === \"^^^brick_NULL^^^\") select.value = null;
+    [... document.getElementsByTagName(\"FORM\")].forEach(function (form) {
+      if (brickSchema)
+        form.action = changeout(form.action, \"_brick_schema\", brickSchema);
+      form.addEventListener('submit', function (ev) {
+        [... ev.target.getElementsByTagName(\"SELECT\")].forEach(function (select) {
+          if (select.value === \"^^^brick_NULL^^^\") select.value = null;
+        });
+        return true;
       });
-      return true;
     });
-  });
+  }
 };
 "
 
@@ -359,15 +359,11 @@ window.addEventListener(\"popstate\", linkSchemas);
                      (is_status = ::Brick.config.add_status && args[0..1] == ['status', ['brick_gem']]) ||
                      (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']]) ||
                      (is_crosstab = args[0..1] == ['crosstab', ['brick_gem']])
-                if ActionView.version < ::Gem::Version.new('5.0') # %%% Not sure if this should be perhaps 4.2 instead
-                  begin
-                    if (possible_template = _brick_find_template(*args, **options))
-                      return possible_template
-                    end
-                  rescue
+                begin
+                  if (possible_template = _brick_find_template(*args, **options))
+                    return possible_template
                   end
-                elsif (possible_template = _brick_find_template(*args, **options))
-                  return possible_template
+                rescue
                 end
                 # Used to also have:  ActionView.version < ::Gem::Version.new('5.0') &&
                 model_name = (args[1].is_a?(Array) ? set_brick_model(args) : nil)&.name
