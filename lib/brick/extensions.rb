@@ -2072,13 +2072,27 @@ end.class_exec do
             schema = possible_schema
             orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
             ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
-          elsif Rails.env == 'test' # When testing, just find the most recently-created schema
-            ::Brick.default_schema = schema = ::Brick.db_schemas.to_a.sort { |a, b| b.last[:dt] <=> a.last[:dt] }.first.first
-            puts "While running tests, had noticed in the brick.rb initializer that the line \"::Brick.schema_behavior = ...\" refers to a schema called \"#{possible_schema}\" which does not exist.  Reading table structure from the most recently-created schema, #{schema}."
+          # When testing, just find the most recently-created schema
+          elsif begin
+                  Rails.env == 'test' ||
+                    ActiveRecord::Base.execute_sql("SELECT value FROM ar_internal_metadata WHERE key='environment';").first&.fetch('value', nil) == 'test'
+                rescue
+                end
+            ::Brick.default_schema = ::Brick.apartment_default_tenant
+            ::Brick.test_schema = schema = ::Brick.db_schemas.to_a.sort { |a, b| b.last[:dt] <=> a.last[:dt] }.first.first
+            if possible_schema.blank?
+              puts "While running tests, using the most recently-created schema, #{schema}."
+            else
+              puts "While running tests, had noticed in the brick.rb initializer that the line \"::Brick.schema_behavior = ...\" refers to a schema called \"#{possible_schema}\" which does not exist.  Reading table structure from the most recently-created schema, #{schema}."
+            end
             orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')
+            ::Brick.config.schema_behavior = { multitenant: {} } # schema_to_analyse: [schema]
             ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
           else
             puts "*** In the brick.rb initializer the line \"::Brick.schema_behavior = ...\" refers to schema(s) called #{possible_schemas.map { |s| "\"#{s}\"" }.join(', ')}.  No mentioned schema exists. ***"
+            if ::Brick.db_schemas.key?(::Brick.apartment_default_tenant)
+              ::Brick.default_schema = schema = ::Brick.apartment_default_tenant
+            end
           end
         end
       when 'Mysql2', 'Trilogy'

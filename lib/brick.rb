@@ -135,7 +135,8 @@ module Brick
       @existing_stis ||= Brick.config.sti_namespace_prefixes.each_with_object({}) { |snp, s| s[snp.first[2..-1]] = snp.last unless snp.first.end_with?('::') }
     end
 
-    attr_accessor :default_schema, :db_schemas, :routes_done, :is_oracle, :is_eager_loading, :auto_models, :initializer_loaded
+    attr_accessor :default_schema, :db_schemas, :test_schema,
+                  :routes_done, :is_oracle, :is_eager_loading, :auto_models, :initializer_loaded
 
     def set_db_schema(params = nil)
       # If Apartment::Tenant.current is not still the default (usually 'public') then an elevator has brought us into
@@ -148,6 +149,10 @@ module Brick
                   ::Brick.db_schemas&.key?(schema)
                  Apartment::Tenant.switch!(schema)
                  schema
+               elsif ::Brick.test_schema
+                 is_show_schema_list = true
+                 Apartment::Tenant.switch!(::Brick.test_schema)
+                 ::Brick.test_schema
                else
                  current_schema # Just return the current schema
                end

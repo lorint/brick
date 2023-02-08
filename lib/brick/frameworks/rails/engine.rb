@@ -36,7 +36,8 @@ module Brick
 // This PageTransitionEvent fires when the page first loads, as well as after any other history
 // transition such as when using the browser's Back and Forward buttons.
 window.addEventListener(\"pageshow\", linkSchemas);
-var brickSchema;
+var brickSchema,
+    brickTestSchema;
 function linkSchemas() {
   var schemaSelect = document.getElementById(\"schema\");
   var tblSelect = document.getElementById(\"tbl\");
@@ -59,7 +60,7 @@ function linkSchemas() {
         [... document.getElementsByTagName(\"A\")].forEach(function (a) { a.href = changeout(a.href, \"_brick_schema\", brickSchema); });
       }
       if (schemaSelect.options.length > 1) {
-        schemaSelect.value = brickSchema || \"public\";
+        schemaSelect.value = brickSchema || brickTestSchema || \"public\";
         schemaSelect.addEventListener(\"change\", function () {
           // If there's an ID then remove it (trim after selected table)
           location.href = changeout(location.href, \"_brick_schema\", this.value, tblSelect.value);
@@ -847,8 +848,9 @@ document.querySelectorAll(\"input[type=submit][data-confirm]\").forEach(function
   });
 });
 
-#{JS_CHANGEOUT}
-
+#{JS_CHANGEOUT}#{
+  "\nbrickTestSchema = \"#{::Brick.test_schema}\";" if ::Brick.test_schema
+}
 // Snag first TR for sticky header
 var grid = document.getElementById(\"#{table_name}\");
 #{table_name}HtColumns = grid && [grid.getElementsByTagName(\"TR\")[0]];
