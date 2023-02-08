@@ -2019,6 +2019,21 @@ end.class_exec do
       # .default_schema are specified then we can work with non-tenanted models more appropriately
       if (apartment = Object.const_defined?('Apartment')) &&
          File.exist?(apartment_initializer = ::Rails.root.join('config/initializers/apartment.rb'))
+        require 'apartment/adapters/abstract_adapter'
+        Apartment::Adapters::AbstractAdapter.class_exec do
+          if instance_methods.include?(:process_excluded_models)
+            def process_excluded_models
+              # All other models will share a connection (at Apartment.connection_class) and we can modify at will
+              Apartment.excluded_models.each do |excluded_model|
+                begin
+                  process_excluded_model(excluded_model)
+                rescue NameError => e
+                  (@bad_models ||= []) << excluded_model
+                end
+              end
+            end
+          end
+        end
         unless @_apartment_loaded
           load apartment_initializer
           @_apartment_loaded = true
