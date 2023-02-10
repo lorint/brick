@@ -322,22 +322,26 @@ window.addEventListener(\"popstate\", linkSchemas);
             end
 
             def set_brick_model(find_args)
-              # %%% Should cycle through all of args[1] because Devise comes up with something like:
-              # ["create", ["credentials/sessions", "sessions", "devise/sessions", "devise", "application"], false, []]
-
-              # Need to return true if we can fill in the blanks for a missing one
-              # args will be something like:  ["index", ["categories"]]
-              if (class_name = find_args[1].last&.singularize)
-                find_args[1][find_args[1].length - 1] = class_name # Make sure the last item, defining the class name, is singular
-                if Object.const_defined?(model_name = find_args[1].map(&:camelize).join('::')) &&
-                   (model = model_name.constantize) && (
-                     ['index', 'show'].include?(find_args.first) || # Everything has index and show
-                     # Only CUD stuff has create / update / destroy
-                     (!model.is_view? && ['new', 'create', 'edit', 'update', 'destroy'].include?(find_args.first))
-                   )
-                  @_brick_model = model
+              # Return an appropriate model for a given view template request.
+              # find_args will generally be something like:  ["index", ["categories"]]
+              # and must cycle through all of find_args[1] because in some cases such as with Devise we get something like:
+              # ["create", ["users/sessions", "sessions", "devise/sessions", "devise", "application"], false, []]
+              find_args[1]&.any? do |resource_name|
+                if (class_name = (resource_parts = resource_name.split('/')).last&.singularize)
+                  resource_parts[-1] = class_name # Make sure the last part, defining the class name, is singular
+                  begin
+                    if (model = Object.const_get(resource_parts.map(&:camelize).join('::')))&.is_a?(Class) && (
+                         ['index', 'show'].include?(find_args.first) || # Everything has index and show
+                         # Only CUD stuff has create / update / destroy
+                         (!model.is_view? && ['new', 'create', 'edit', 'update', 'destroy'].include?(find_args.first))
+                       )
+                      @_brick_model = model
+                    end
+                  rescue
+                  end
                 end
               end
+              @_brick_model
             end
 
             def path_keys(hm_assoc, fk_name, pk)
@@ -373,7 +377,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                   find_template_err = e # Can come up with stuff like Devise which has its own view templates
                 end
                 # Used to also have:  ActionView.version < ::Gem::Version.new('5.0') &&
-                model_name = (args[1].is_a?(Array) ? set_brick_model(args) : nil)&.name
+                model_name = set_brick_model(args)&.name
               end
 
               if @_brick_model
