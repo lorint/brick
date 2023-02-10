@@ -322,11 +322,15 @@ window.addEventListener(\"popstate\", linkSchemas);
             end
 
             def set_brick_model(find_args)
+              # %%% Should cycle through all of args[1] because Devise comes up with something like:
+              # ["create", ["credentials/sessions", "sessions", "devise/sessions", "devise", "application"], false, []]
+
               # Need to return true if we can fill in the blanks for a missing one
               # args will be something like:  ["index", ["categories"]]
               if (class_name = find_args[1].last&.singularize)
                 find_args[1][find_args[1].length - 1] = class_name # Make sure the last item, defining the class name, is singular
-                if (model = find_args[1].map(&:camelize).join('::').constantize) && (
+                if Object.const_defined?(model_name = find_args[1].map(&:camelize).join('::')) &&
+                   (model = model_name.constantize) && (
                      ['index', 'show'].include?(find_args.first) || # Everything has index and show
                      # Only CUD stuff has create / update / destroy
                      (!model.is_view? && ['new', 'create', 'edit', 'update', 'destroy'].include?(find_args.first))
@@ -356,6 +360,7 @@ window.addEventListener(\"popstate\", linkSchemas);
 
             alias :_brick_find_template :find_template
             def find_template(*args, **options)
+              find_template_err = nil
               unless (model_name = @_brick_model&.name) ||
                      (is_status = ::Brick.config.add_status && args[0..1] == ['status', ['brick_gem']]) ||
                      (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']]) ||
@@ -364,7 +369,8 @@ window.addEventListener(\"popstate\", linkSchemas);
                   if (possible_template = _brick_find_template(*args, **options))
                     return possible_template
                   end
-                rescue
+                rescue StandardError => e
+                  find_template_err = e # Can come up with stuff like Devise which has its own view templates
                 end
                 # Used to also have:  ActionView.version < ::Gem::Version.new('5.0') &&
                 model_name = (args[1].is_a?(Array) ? set_brick_model(args) : nil)&.name
@@ -1154,7 +1160,7 @@ erDiagram
        td_count += 1 %>
     <td><%= link_to_brick(
         avo_svg,
-        { index_proc: Proc.new do |avo_model, relation|
+        { index_proc: Proc.new do |_avo_model, relation|
                         path_helper = \"resources_#\{relation.fetch(:auto_prefixed_schema, nil)}#\{model.model_name.route_key}_path\".to_sym
                         ::Avo.railtie_routes_url_helpers.send(path_helper) if ::Avo.railtie_routes_url_helpers.respond_to?(path_helper)
                       end,
@@ -1542,7 +1548,12 @@ end}
 </body>
 </html>
 "
-
+                       else # args.first isn't index / show / edit / new / orphans / status
+                         if find_template_err # Can surface when gems have their own view templates
+                           raise find_template_err
+                         else # Can surface if someone made their own controller which has a screwy action
+                           puts "Couldn't work with action #{args.first}"
+                         end
                        end
               unless is_crosstab
                 inline << "
