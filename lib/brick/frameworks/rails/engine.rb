@@ -1446,11 +1446,9 @@ end
       <% when :boolean %>
         <%= f.check_box k.to_sym %>
       <% when :integer, :decimal, :float %>
-        <%= if col_type == :integer
-              f.text_field k.to_sym, { pattern: '\\d*', class: 'check-validity' }
-            else
-              f.number_field k.to_sym
-            end %>
+        <%= digit_pattern = col_type == :integer ? '\\d*' : '\\d*(?:\\.\\d*|)'
+            # Used to do this for float / decimal:  f.number_field k.to_sym
+            f.text_field k.to_sym, { pattern: digit_pattern, class: 'check-validity' } %>
       <% when *dt_pickers.keys
            is_includes_dates = true %>
         <%= f.text_field k.to_sym, { class: dt_pickers[col_type] } %>
