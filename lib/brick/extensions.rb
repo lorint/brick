@@ -1841,7 +1841,19 @@ class Object
               end
 
               instance_variable_set("@#{singular_table_name}".to_sym, (obj = find_obj))
-              obj.send(:update, send(params_name_sym))
+              upd_params = send(params_name_sym)
+              if (json_cols = model.columns.select { |c| c.type == :json }.map(&:name)).present?
+                upd_hash = upd_params.to_h
+                json_cols.each do |c|
+                  begin
+                    upd_hash[c] = JSON.parse(upd_hash[c]) # At least attempt to turn this into a parsed hash or array object
+                  rescue
+                  end
+                end
+                obj.send(:update, upd_hash)
+              else
+                obj.send(:update, upd_params)
+              end
             end
 
             code << "  def destroy\n"

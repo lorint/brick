@@ -648,6 +648,7 @@ input+svg.revert {
 </style>
 
 <% is_includes_dates = nil
+   is_includes_json = nil
 def is_bcrypt?(val)
   val.is_a?(String) && val.length == 60 && val.start_with?('$2a$')
 end
@@ -1478,6 +1479,13 @@ end
            end %>
       <% when :primary_key
            is_revert = false %>
+      <% when :json
+           is_includes_json = true %>
+        <%= # Because there are so danged many quotes in JSON, escape them specially by converting to backticks.
+            # (and previous to this, escape backticks with our own goofy code of ^^br_btick__ )
+            val_str = val.is_a?(String) ? val : val.to_json # Clean up bogus JSON if necessary
+            json_field = f.hidden_field k.to_sym, { class: 'jsonpicker', value: val_str.gsub('`', '^^br_btick__').tr('\"', '`').html_safe } %>
+        <div id=\"_br_json_<%= f.field_id(k) %>\"></div>
       <% else %>
         <%= is_revert = false
            display_value(col_type, val).html_safe %>
@@ -1579,6 +1587,35 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 <% if false # is_includes_dropdowns %>
 <script src=\"https://cdnjs.cloudflare.com/ajax/libs/slim-select/1.27.1/slimselect.min.js\"></script>
 <link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdnjs.cloudflare.com/ajax/libs/slim-select/1.27.1/slimselect.min.css\">
+<% end %>
+
+<% # Started with v0.14.4 of vanilla-jsoneditor
+   if is_includes_json %>
+<link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdn.jsdelivr.net/npm/vanilla-jsoneditor/themes/jse-theme-default.min.css\">
+<script type=\"module\">
+  import { JSONEditor } from \"https://cdn.jsdelivr.net/npm/vanilla-jsoneditor/index.min.js\";
+  document.querySelectorAll(\"input.jsonpicker\").forEach(function (inp) {
+    var jsonDiv;
+    if (jsonDiv = document.getElementById(\"_br_json_\" + inp.id)) {
+      new JSONEditor({
+        target: jsonDiv,
+        props: {
+          // Instead of text can also do: { json: JSONValue }
+          // Other options:  name: \"taco\", mode: \"tree\", navigationBar: false, mainMenuBar: false, statusBar: false, search: false, templates:, history: false
+          content: {text: inp.value.replace(/`/g, '\"').replace(/\\^\\^br_btick__/g, \"`\")},
+          onChange: (function (inp2) {
+            return function (updatedContent, previousContent, contentErrors, patchResult) {
+              // console.log('onChange', updatedContent.json, updatedContent.text);
+              inp2.value = updatedContent.text || JSON.stringify(updatedContent.json);
+            };
+          })(inp)
+        }
+      });
+    } else {
+      console.log(\"Could not find JSON picker for \" + inp.id);
+    }
+  });
+</script>
 <% end %>
 
 <% if true # @_brick_erd
