@@ -651,12 +651,15 @@ input+svg.revert {
 def is_bcrypt?(val)
   val.is_a?(String) && val.length == 60 && val.start_with?('$2a$')
 end
-def hide_bcrypt(val, max_len = 200)
+def hide_bcrypt(val, is_xml = nil, max_len = 200)
   if is_bcrypt?(val)
     '(hidden)'
   else
     if val.is_a?(String)
-      if (val = val.dup.strip).length > max_len
+      val = val.dup.force_encoding('UTF-8').strip
+      return CGI.escapeHTML(val) if is_xml
+
+      if val.length > max_len
         if val[0] == '<' # Seems to be HTML?
           cur_len = 0
           cur_idx = 0
@@ -703,7 +706,6 @@ def hide_bcrypt(val, max_len = 200)
         end
         val = \"#\{val}...\"
       end
-      val = val.dup.force_encoding('UTF-8') unless val.encoding.name == 'UTF-8'
       val
     else
       val.to_s
@@ -768,7 +770,7 @@ def display_value(col_type, val)
     display_binary(val) if val
   else
     if col_type
-      hide_bcrypt(val)
+      hide_bcrypt(val, col_type == :xml)
     else
       '?'
     end
@@ -1439,7 +1441,7 @@ end
       when :string, :text %>
         <% if is_bcrypt?(val) # || .readonly?
              is_revert = false %>
-          <%= hide_bcrypt(val, 1000) %>
+          <%= hide_bcrypt(val, nil, 1000) %>
         <% else %>
           <%= f.text_field(k.to_sym, html_options) %>
         <% end %>
