@@ -116,7 +116,7 @@ module Brick::Rails::FormTags
             end
           end
         elsif (col = cols[col_name]).is_a?(ActiveRecord::ConnectionAdapters::Column)
-          binding.pry if col.is_a?(Array)
+          # binding.pry if col.is_a?(Array)
           col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
           out << display_value(col_type || col&.sql_type, val).to_s
         elsif cust_col
@@ -201,7 +201,8 @@ module Brick::Rails::FormTags
       end
       filter = "?#{filter_parts.join('&')}" if filter_parts.present?
       app_routes = Rails.application.routes # In case we're operating in another engine, reference the application since Brick routes are placed there.
-      relation = ::Brick.relations.fetch(rel_name || args.first.table_name, nil)
+      klass = klass_or_obj.is_a?(ActiveRecord::Base) ? klass_or_obj.class : klass_or_obj
+      relation = ::Brick.relations.fetch(rel_name || klass.table_name, nil)
       if (klass_or_obj&.is_a?(Class) && klass_or_obj < ActiveRecord::Base) ||
          (klass_or_obj&.is_a?(ActiveRecord::Base) && klass_or_obj.new_record? && (klass_or_obj = klass_or_obj.class))
         path = (proc = kwargs[:index_proc]) ? proc.call(klass_or_obj, relation) : "#{app_routes.path_for(controller: klass_or_obj.base_class._brick_index(nil, '/', relation), action: :index)}#{filter}"

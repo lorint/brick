@@ -1602,11 +1602,11 @@ class Object
                                       else
                                         relation.last[:cols]
                                       end
-                    { :index => [:get, 'list'], :create => [:post, 'create a'] }.each do |k, v|
+                    { :index => [:get, 'list', true], :create => [:post, 'create a', false] }.each do |k, v|
                       unless actions&.exclude?(k)
                         this_resource = (s["#{current_api_root}#{relation_name}"] ||= {})
                         this_resource[v.first] = {
-                          'summary': "#{v[1]} #{relation.first}",
+                          'summary': "#{v[1]} #{relation.first.send(v[2] ? :pluralize : :singularize)}",
                           'description': table_description,
                           'parameters': renamed_columns.map do |k2, v2|
                                           param = { in: 'query', 'name': k2, 'schema': { 'type': v2.first } }
@@ -1865,11 +1865,14 @@ class Object
     @#{singular_table_name} = #{model.name}.find(id.is_a?(Array) && id.length == 1 ? id.first : id)
   end\n"
             self.define_method :find_obj do
-              id = if model.columns_hash[pk.first]&.type == :string
-                     is_pk_string = true
+              id = if pk.length == 1 # && model.columns_hash[pk.first]&.type == :string
                      params[:id].gsub('^^sl^^', '/')
                    else
-                     params[:id]&.split(/[\/,_]/).map do |val_part|
+                     if model.columns_hash[pk.first]&.type == :string
+                       params[:id]&.split('/')
+                     else
+                       params[:id]&.split(/[\/,_]/)
+                     end.map do |val_part|
                        val_part.gsub('^^sl^^', '/')
                      end
                    end
