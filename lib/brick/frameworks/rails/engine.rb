@@ -304,6 +304,26 @@ window.addEventListener(\"popstate\", linkSchemas);
           end
         end # Avo compatibility
 
+        # ActiveAdmin compatibility
+        if Object.const_defined?('ActiveAdmin') && ::ActiveAdmin.application&.site_title.present?
+          ::ActiveAdmin.class_exec do
+            class << self
+              ActiveAdmin.load!
+              alias _brick_routes routes
+              def routes(*args)
+                ::Brick.relations.each do |k, v|
+                  next if k == 'active_admin_comments'
+
+                  if (class_name = Object.const_get(v.fetch(:class_name, nil)))
+                    ::ActiveAdmin.register(class_name) { config.clear_batch_actions! }
+                  end
+                end
+                _brick_routes(*args)
+              end
+            end
+          end
+        end
+
         # ====================================
         # Dynamically create generic templates
         # ====================================
