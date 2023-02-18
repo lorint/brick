@@ -864,6 +864,14 @@ In config/initializers/brick.rb appropriate entries would look something like:
               end
             end
           end
+
+          # Trestle compatibility
+          if Object.const_defined?('Trestle') && ::Trestle.config.options&.key?(:site_title) &&
+             !Object.const_defined?("#{resource_name.camelize}Admin")
+            ::Trestle.resource(res_sym = k.to_sym) do
+              menu { item res_sym, icon: "fa fa-star" }
+            end
+          end
         end
 
         if ::Brick.config.add_status && instance_variable_get(:@set).named_routes.names.exclude?(:brick_status)
