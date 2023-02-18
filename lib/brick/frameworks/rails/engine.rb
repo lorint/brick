@@ -245,7 +245,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                 @_name = name || ''
               end
               def to_s
-                @_name.html_safe + @vc.instance_variable_get(:@__vc_helpers)&.link_to_brick(nil,
+                @_name.to_s.html_safe + @vc.instance_variable_get(:@__vc_helpers)&.link_to_brick(nil,
                   "<svg version=\"1.1\" style=\"display: inline; padding-left: 0.5em;\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"
   viewBox=\"0 0 58 58\" height=\"1.4em\" xml:space=\"preserve\">
 <g>

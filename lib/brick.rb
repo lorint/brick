@@ -529,7 +529,7 @@ module Brick
 You might be missing an STI namespace prefix entry for these tables:  #{missing_stis.keys.join(', ')}.
 In config/initializers/brick.rb appropriate entries would look something like:
   Brick.sti_namespace_prefixes = {"
-            puts missing_stis.map { |_k, missing_sti| "\n    '::#{missing_sti}' => 'SomeParentModel'" }.join(',')
+            puts missing_stis.map { |_k, missing_sti| "\n    '#{missing_sti}' => 'SomeParentModel'" }.join(',')
             puts "  }
 (Just trade out SomeParentModel with some more appropriate one.)"
           end

@@ -274,7 +274,7 @@ module ActiveRecord
       tbl_parts.unshift(::Brick.config.path_prefix) if ::Brick.config.path_prefix
       index = tbl_parts.map(&:underscore).join(separator)
       # Rails applies an _index suffix to that route when the resource name is singular
-      index << '_index' if mode != :singular && index == index.singularize
+      index << '_index' if mode != :singular && separator == '_' && index == index.singularize
       index
     end
 
