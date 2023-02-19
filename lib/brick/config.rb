@@ -213,6 +213,14 @@ module Brick
       @mutex.synchronize { @polymorphics = polys }
     end
 
+    def json_columns
+      @mutex.synchronize { @json_columns ||= {} }
+    end
+
+    def json_columns=(cols)
+      @mutex.synchronize { @json_columns = cols }
+    end
+
     def model_descrips
       @mutex.synchronize { @model_descrips ||= {} }
     end

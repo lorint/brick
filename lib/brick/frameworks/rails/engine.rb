@@ -1365,7 +1365,7 @@ erDiagram
 <% end %>
 </table>
 <%
-if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %><%=
+if (description = (relation = Brick.relations[tbl_name = #{model_name}.table_name])&.fetch(:description, nil)) %><%=
   description %><br><%
 end
 %><%= link_to '(See all #{obj_name.pluralize})', #{@_brick_model._brick_index}_path %>
@@ -1437,7 +1437,13 @@ end
             \"<span class=\\\"orphan\\\">Orphaned ID: #\{val}</span>\".html_safe
           end %>
     <% else
-      col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
+      col_type = if ::Brick.config.json_columns[tbl_name]&.include?(k)
+                   :json
+                 elsif col&.sql_type == 'geography'
+                   col.sql_type
+                 else
+                   col&.type
+                 end
       case (col_type ||= col&.sql_type)
       when :string, :text %>
         <% if is_bcrypt?(val) # || .readonly?

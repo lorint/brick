@@ -458,6 +458,11 @@ module Brick
       Brick.config.polymorphics = polys || {}
     end
 
+    # @api public
+    def json_columns=(cols)
+      Brick.config.json_columns = cols
+    end
+
     # DSL templates for individual models to provide prettier descriptions of objects
     # @api public
     def model_descrips=(descrips)

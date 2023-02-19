@@ -261,6 +261,10 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # # Designated by <table name>.<column name>
   # Brick.not_nullables = ['users.name']
 
+  # # String or text columns which for editing purposes should be treated as JSON.  Format for the hash is:
+  # # { table_name => [column names] }
+  # Brick.json_columns = { 'users' => ['info'] }
+
   # # FRIENDLY DSL
 
   # # A simple DSL is available to allow more user-friendly display of objects.  Normally a user object might be shown
