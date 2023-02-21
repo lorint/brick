@@ -352,6 +352,40 @@ window.addEventListener(\"popstate\", linkSchemas);
           end
         end
 
+        # MotorAdmin compatibility
+        if Object.const_defined?('Motor') && ::Motor.const_defined?('BuildSchema')
+          ::Motor::BuildSchema::LoadFromRails.class_exec do
+            class << self
+              alias _brick_models models
+              def models
+                # If RailsAdmin is also present and had already cached its list of models, this builds out the MotorAdmin
+                # models differently, so invalidate RailsAdmin's cached list.
+                if Object.const_defined?('RailsAdmin') && ::RailsAdmin::Config.class_variable_defined?(:@@system_models)
+                  ::RailsAdmin::Config.remove_class_variable(:@@system_models)
+                  ::RailsAdmin::AbstractModel.reset
+                end
+
+                eager_load_models!
+                # Auto-create Brick models (except for those related to Motor::ApplicationRecord)
+                mar_tables = Motor::ApplicationRecord.descendants.map(&:table_name)
+                # Add JSON fields
+                if mar_tables.include?('motor_api_configs')
+                  mac = (::Brick.config.json_columns['motor_api_configs'] ||= [])
+                  mac += ['preferences', 'credentials']
+                end
+                (::Brick.config.json_columns['motor_audits'] ||= []) << 'audited_changes' if mar_tables.include?('motor_audits')
+                (::Brick.config.json_columns['motor_configs'] ||= []) << 'value' if mar_tables.include?('motor_configs')
+                ::Brick.relations.each do |k, v|
+                  next if mar_tables.include?(k) || k == 'motor_audits'
+
+                  v[:class_name].constantize
+                end
+                _brick_models.reject { |m| mar_tables.include?(m.table_name) || m.table_name == 'motor_audits' }
+              end
+            end
+          end
+        end
+
         # ====================================
         # Dynamically create generic templates
         # ====================================
