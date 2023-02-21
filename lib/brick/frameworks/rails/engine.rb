@@ -82,6 +82,15 @@ function linkSchemas() {
   }
 };
 "
+      BRICK_SVG = "<svg version=\"1.1\" style=\"display: inline; padding-left: 0.5em;\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"
+  viewBox=\"0 0 58 58\" height=\"1.4em\" xml:space=\"preserve\">
+<g>
+  <polygon style=\"fill:#C2615F;\" points=\"58,15.831 19.106,35.492 0,26.644 40,6\"/>
+  <polygon style=\"fill:#6D4646;\" points=\"19,52 0,43.356 0,26.644 19,35\"/>
+  <polygon style=\"fill:#894747;\" points=\"58,31.559 19,52 19,35 58,15.831\"/>
+</g>
+</svg>
+".html_safe
 
       # paths['app/models'] << 'lib/brick/frameworks/active_record/models'
       config.brick = ActiveSupport::OrderedOptions.new
@@ -246,15 +255,7 @@ window.addEventListener(\"popstate\", linkSchemas);
               end
               def to_s
                 @_name.to_s.html_safe + @vc.instance_variable_get(:@__vc_helpers)&.link_to_brick(nil,
-                  "<svg version=\"1.1\" style=\"display: inline; padding-left: 0.5em;\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"
-  viewBox=\"0 0 58 58\" height=\"1.4em\" xml:space=\"preserve\">
-<g>
-  <polygon style=\"fill:#C2615F;\" points=\"58,15.831 19.106,35.492 0,26.644 40,6\"/>
-  <polygon style=\"fill:#6D4646;\" points=\"19,52 0,43.356 0,26.644 19,35\"/>
-  <polygon style=\"fill:#894747;\" points=\"58,31.559 19,52 19,35 58,15.831\"/>
-</g>
-</svg>
-".html_safe,
+                  BRICK_SVG,
                   { title: "#{@_name} in Brick" }
                 )
               end
@@ -314,11 +315,31 @@ window.addEventListener(\"popstate\", linkSchemas);
                 ::Brick.relations.each do |k, v|
                   next if k == 'active_admin_comments'
 
-                  if (class_name = Object.const_get(v.fetch(:class_name, nil)))
-                    ::ActiveAdmin.register(class_name) { config.clear_batch_actions! }
+                  begin
+                    if (class_name = Object.const_get(v.fetch(:class_name, nil)))
+                      ::ActiveAdmin.register(class_name) { config.clear_batch_actions! }
+                    end
+                  rescue
                   end
                 end
                 _brick_routes(*args)
+              end
+            end
+          end
+          ::ActiveAdmin::Views::TitleBar.class_exec do
+            alias _brick_build_title_tag build_title_tag
+            def build_title_tag
+              if klass = begin
+                           aa_id = helpers.instance_variable_get(:@current_tab)&.id
+                           ::Brick.relations.fetch(aa_id, nil)&.fetch(:class_name, nil)&.constantize
+                         rescue
+                         end
+                h2((@title + link_to_brick(nil,
+                  BRICK_SVG, # This would do well to be sized a bit smaller
+                  { title: "#{@_name} in Brick" }
+                )).html_safe)
+              else
+                _brick_build_title_tag # Revert to the original
               end
             end
           end
