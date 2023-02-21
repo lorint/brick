@@ -299,7 +299,14 @@ window.addEventListener(\"popstate\", linkSchemas);
                     )
                 nil
               else # This is either a non-Avo request or a proper Avo request, so carry on
-                _brick_url_for(options, *args)
+                begin
+                  _brick_url_for(options, *args)
+                rescue
+                  # Last-ditch effort in case we were in yet a different RouteSet
+                  unless (rar = ::Rails.application.routes) == self
+                    rar.url_for(options, *args)
+                  end
+                end
               end
             end
           end

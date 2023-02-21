@@ -972,7 +972,10 @@ Module.class_exec do
                   end
     # puts "#{self.name} - #{args.first}"
     desired_classname = (self == Object || !name) ? requested : "#{name}::#{requested}"
-    if ((is_defined = self.const_defined?(args.first)) && (possible = self.const_get(args.first)) && possible.name == desired_classname) ||
+    if ((is_defined = self.const_defined?(args.first)) && (possible = self.const_get(args.first)) &&
+        # Reset `possible` if it's a controller request that's not a perfect match
+        # Was:  (possible = nil)  but changed to #local_variable_set in order to suppress the "= should be ==" warning
+        (possible.name == desired_classname || (is_controller && binding.local_variable_set(:possible, nil)))) ||
        # Try to require the respective Ruby file
        ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
                     (self != Object && ActiveSupport::Dependencies.search_for_file((desired_classname = requested).underscore))
@@ -983,7 +986,7 @@ Module.class_exec do
        # then return what we've found.
        (is_defined && !::Brick.is_eager_loading) # Used to also have:   && possible != self
       if (!brick_root && (filename || possible.instance_of?(Class))) ||
-         (possible.instance_of?(Module) && possible.module_parent == self) ||
+         (possible.instance_of?(Module) && possible&.module_parent == self) ||
          (possible.instance_of?(Class) && possible == self) # Are we simply searching for ourselves?
         return possible
       end
