@@ -660,7 +660,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
   module RouteSet
     def finalize!
       routeset_to_use = ::Rails.application.routes
-      return super unless self == routeset_to_use
+      return super if self != routeset_to_use || ::Brick.routes_done
 
       path_prefix = ::Brick.config.path_prefix
       existing_controllers = routes.each_with_object({}) do |r, s|
@@ -867,9 +867,12 @@ In config/initializers/brick.rb appropriate entries would look something like:
 
           # Trestle compatibility
           if Object.const_defined?('Trestle') && ::Trestle.config.options&.key?(:site_title) &&
-             !Object.const_defined?("#{resource_name.camelize}Admin")
-            ::Trestle.resource(res_sym = k.to_sym) do
-              menu { item res_sym, icon: "fa fa-star" }
+             !Object.const_defined?("#{(res_name = resource_name.tr('/', '_')).camelize}Admin")
+            begin
+              ::Trestle.resource(res_sym = res_name.to_sym, model: class_name&.constantize) do
+                menu { item res_sym, icon: "fa fa-star" }
+              end
+            rescue
             end
           end
         end
@@ -920,7 +923,6 @@ In config/initializers/brick.rb appropriate entries would look something like:
             end
           end
 
-          ::Brick.routes_done = true
           puts "\n" if tables.present? || views.present?
           if tables.present?
             puts "Classes that can be built from tables:#{' ' * (table_class_length - 38)}  Path:"
@@ -934,6 +936,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
           end
         end
       end
+      ::Brick.routes_done = true
       super
     end
   end
@@ -975,6 +978,21 @@ module ::Rails
     end
   end
 end
+
+# # Support for when a table or view is named just 's'
+# ActiveSupport::Inflector.class_eval do
+#   class << self
+#     alias _brick_singularize singularize
+#     def singularize(word, locale = :en)
+#       if word.present? && ((ret = _brick_singularize(word, locale)).empty? || ret[-1] == '/')
+#         # puts word
+#         # binding.pry if ret.empty? || ret[-1] == '/'
+#         ret << 's'
+#       end
+#       ret
+#     end
+#   end
+# end
 
 # Major compatibility fixes for ActiveRecord < 4.2
 # ================================================
