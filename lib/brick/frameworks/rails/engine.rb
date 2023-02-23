@@ -352,6 +352,25 @@ window.addEventListener(\"popstate\", linkSchemas);
           end
         end
 
+        # Forest Admin compatibility
+        if Object.const_defined?('ForestLiana')
+          ForestLiana::Bootstrapper.class_exec do
+            alias _brick_fetch_models fetch_models
+            def fetch_models
+              # Auto-create Brick models
+              ::Brick.relations.each do |k, v|
+                next if k == 'active_admin_comments'
+
+                begin
+                  v[:class_name].constantize
+                rescue
+                end
+              end
+              _brick_fetch_models
+            end
+          end
+        end
+
         # MotorAdmin compatibility
         if Object.const_defined?('Motor') && ::Motor.const_defined?('BuildSchema')
           ::Motor::BuildSchema::LoadFromRails.class_exec do
