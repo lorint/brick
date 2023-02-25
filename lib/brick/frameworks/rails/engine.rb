@@ -1877,9 +1877,24 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
 
               alias _brick_viable_models viable_models
               def viable_models
-                return _brick_viable_models if class_variables.include?(:@@system_models)
+                return _brick_viable_models if ::RailsAdmin::Config.class_variables.include?(:@@system_models)
 
-                @@system_models = (vm = _brick_viable_models) + (::Brick.auto_models - vm)
+                brick_models = ::Brick.relations.map { |_k, v| v[:class_name] }
+
+                # The original from RailsAdmin (now aliased as _brick_viable_models) loads all classes
+                # in the whole project. This Brick approach is a little more tame.
+                ::Brick.eager_load_classes
+                # All tables used by non-Brick models
+                ar_tables = (arbd = ActiveRecord::Base.descendants).each_with_object([]) do |ar, s|
+                  s << ar.table_name unless brick_models.include?(ar.name)
+                end
+                viable = arbd.each_with_object([]) do |ar, s|
+                  # Include all the app's models, plus any Brick models which describe tables not covered by the app's models
+                  unless ar.abstract_class? || (brick_models.include?(ar.name) && ar_tables.include?(ar.table_name))
+                    s << ar.name
+                  end
+                end
+                RailsAdmin::Config.class_variable_set(:@@system_models, viable)
               end
             end
           end
