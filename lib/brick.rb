@@ -137,6 +137,7 @@ module Brick
 
     attr_accessor :default_schema, :db_schemas, :test_schema,
                   :routes_done, :is_oracle, :is_eager_loading, :auto_models, :initializer_loaded
+    ::Brick.auto_models = []
 
     def set_db_schema(params = nil)
       # If Apartment::Tenant.current is not still the default (usually 'public') then an elevator has brought us into
@@ -610,7 +611,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
 
     def display_classes(prefix, rels, max_length)
       rels.sort.each do |rel|
-        (::Brick.auto_models ||= []) << rel.first
+        ::Brick.auto_models << rel.first
         puts "#{rel.first}#{' ' * (max_length - rel.first.length)}  /#{prefix}#{"#{rel[1]}/" if rel[1]}#{rel.last}"
       end
       puts "\n"
@@ -890,54 +891,56 @@ In config/initializers/brick.rb appropriate entries would look something like:
           get("/#{controller_prefix}brick_crosstab/data", to: 'brick_gem#crosstab_data')
         end
 
-        unless ::Brick.routes_done
-          if Object.const_defined?('Rswag::Ui')
-            rswag_path = routeset_to_use.routes.find { |r| r.app.app == Rswag::Ui::Engine }&.instance_variable_get(:@path_formatter)&.instance_variable_get(:@parts)&.join
-            first_endpoint_parts = nil
-            (doc_endpoints = Rswag::Ui.config.config_object[:urls])&.each do |doc_endpoint|
-              puts "Mounting OpenApi 3.0 documentation endpoint for \"#{doc_endpoint[:name]}\" on #{doc_endpoint[:url]}"
-              send(:get, doc_endpoint[:url], { to: 'brick_openapi#index' })
-              endpoint_parts = doc_endpoint[:url]&.split('/')
-              first_endpoint_parts ||= endpoint_parts
-            end
-            if doc_endpoints.present?
-              if rswag_path && first_endpoint_parts
-                puts "API documentation now available when navigating to:  /#{first_endpoint_parts&.find(&:present?)}/index.html"
-              else
-                puts "In order to make documentation available you can put this into your routes.rb:"
-                puts "  mount Rswag::Ui::Engine => '/#{first_endpoint_parts&.find(&:present?) || 'api-docs'}'"
-              end
-            else
-              sample_path = rswag_path || '/api-docs'
-              puts
-              puts "Brick:  rswag-ui gem detected -- to make OpenAPI 3.0 documentation available from a path such as  '#{sample_path}/v1/swagger.json',"
-              puts '        put code such as this in an initializer:'
-              puts '  Rswag::Ui.configure do |config|'
-              puts "    config.swagger_endpoint '#{sample_path}/v1/swagger.json', 'API V1 Docs'"
-              puts '  end'
-              unless rswag_path
-                puts
-                puts '        and put this into your routes.rb:'
-                puts "  mount Rswag::Ui::Engine => '/api-docs'"
-              end
-            end
-          end
-
-          puts "\n" if tables.present? || views.present?
-          if tables.present?
-            puts "Classes that can be built from tables:#{' ' * (table_class_length - 38)}  Path:"
-            puts "======================================#{' ' * (table_class_length - 38)}  ====="
-            ::Brick.display_classes(controller_prefix, tables, table_class_length)
-          end
-          if views.present?
-            puts "Classes that can be built from views:#{' ' * (view_class_length - 37)}  Path:"
-            puts "=====================================#{' ' * (view_class_length - 37)}  ====="
-            ::Brick.display_classes(controller_prefix, views, view_class_length)
+        if Object.const_defined?('Rswag::Ui')
+          rswag_path = routeset_to_use.routes.find { |r| r.app.app == Rswag::Ui::Engine }&.instance_variable_get(:@path_formatter)&.instance_variable_get(:@parts)&.join
+          first_endpoint_parts = nil
+          (doc_endpoints = Rswag::Ui.config.config_object[:urls])&.each do |doc_endpoint|
+            puts "Mounting OpenApi 3.0 documentation endpoint for \"#{doc_endpoint[:name]}\" on #{doc_endpoint[:url]}" unless ::Brick.routes_done
+            send(:get, doc_endpoint[:url], { to: 'brick_openapi#index' })
+            endpoint_parts = doc_endpoint[:url]&.split('/')
+            first_endpoint_parts ||= endpoint_parts
           end
         end
+        next if ::Brick.routes_done
+
+        if Object.const_defined?('Rswag::Ui')
+          if doc_endpoints.present?
+            if rswag_path && first_endpoint_parts
+              puts "API documentation now available when navigating to:  /#{first_endpoint_parts&.find(&:present?)}/index.html"
+            else
+              puts "In order to make documentation available you can put this into your routes.rb:"
+              puts "  mount Rswag::Ui::Engine => '/#{first_endpoint_parts&.find(&:present?) || 'api-docs'}'"
+            end
+          else
+            sample_path = rswag_path || '/api-docs'
+            puts
+            puts "Brick:  rswag-ui gem detected -- to make OpenAPI 3.0 documentation available from a path such as  '#{sample_path}/v1/swagger.json',"
+            puts '        put code such as this in an initializer:'
+            puts '  Rswag::Ui.configure do |config|'
+            puts "    config.swagger_endpoint '#{sample_path}/v1/swagger.json', 'API V1 Docs'"
+            puts '  end'
+            unless rswag_path
+              puts
+              puts '        and put this into your routes.rb:'
+              puts "  mount Rswag::Ui::Engine => '/api-docs'"
+            end
+          end
+        end
+
+        puts "\n" if tables.present? || views.present?
+        if tables.present?
+          puts "Classes that can be built from tables:#{' ' * (table_class_length - 38)}  Path:"
+          puts "======================================#{' ' * (table_class_length - 38)}  ====="
+          ::Brick.display_classes(controller_prefix, tables, table_class_length)
+        end
+        if views.present?
+          puts "Classes that can be built from views:#{' ' * (view_class_length - 37)}  Path:"
+          puts "=====================================#{' ' * (view_class_length - 37)}  ====="
+          ::Brick.display_classes(controller_prefix, views, view_class_length)
+        end
       end
-      ::Brick.routes_done = true
       super
+      ::Brick.routes_done = true
     end
   end
 
