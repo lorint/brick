@@ -76,6 +76,11 @@ function linkSchemas() {
         [... ev.target.getElementsByTagName(\"SELECT\")].forEach(function (select) {
           if (select.value === \"^^^brick_NULL^^^\") select.value = null;
         });
+        // Take outer <div> tag off the HTML being returned by any Trix editor
+        [... document.getElementsByTagName(\"TRIX-EDITOR\")].forEach(function (trix) {
+          var trixHidden = trix.inputElement;
+          if (trixHidden) trixHidden.value = trixHidden.value.slice(5, -6);
+        });
         return true;
       });
     });
@@ -791,6 +796,7 @@ input+svg.revert {
 
 <% is_includes_dates = nil
    is_includes_json = nil
+   is_includes_text = nil
 def is_bcrypt?(val)
   val.is_a?(String) && val.length == 60 && val.start_with?('$2a$')
 end
@@ -1619,8 +1625,12 @@ end
            if is_bcrypt?(val) # || .readonly?
              is_revert = false %>
           <%= hide_bcrypt(val, nil, 1000) %>
-        <% else %>
+        <% elsif col_type == :string %>
           <%= f.text_field(k.to_sym, html_options) %>
+        <% else
+             is_includes_text = true %>
+          <%= f.hidden_field(k.to_sym, html_options) %>
+          <trix-editor input=\"<%= f.field_id(k) %>\"></trix-editor>
         <% end %>
       <% when :boolean %>
         <%= f.check_box k.to_sym %>
@@ -1763,6 +1773,11 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 <% if false # is_includes_dropdowns %>
 <script src=\"https://cdnjs.cloudflare.com/ajax/libs/slim-select/1.27.1/slimselect.min.js\"></script>
 <link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdnjs.cloudflare.com/ajax/libs/slim-select/1.27.1/slimselect.min.css\">
+<% end %>
+
+<% if is_includes_text %>
+<script src=\"https://cdn.jsdelivr.net/npm/trix@2.0/dist/trix.umd.min.js\"></script>
+<link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdn.jsdelivr.net/npm/trix@2.0/dist/trix.min.css\">
 <% end %>
 
 <% # Started with v0.14.4 of vanilla-jsoneditor
