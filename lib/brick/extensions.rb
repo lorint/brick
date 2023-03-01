@@ -279,7 +279,7 @@ module ActiveRecord
     end
 
     def self.brick_import_template
-      template = constants.include?(:IMPORT_TEMPLATE) ? self::IMPORT_TEMPLATE : suggest_template(false, false, 0)
+      template = constants.include?(:IMPORT_TEMPLATE) ? self::IMPORT_TEMPLATE : suggest_template(0, false, true)
       # Add the primary key to the template as being unique (unless it's already there)
       template[:uniques] = [pk = primary_key.to_sym]
       template[:all].unshift(pk) unless template[:all].include?(pk)
@@ -1034,18 +1034,19 @@ Module.class_exec do
 
              # AVO Resource
              elsif base_module == Object && Object.const_defined?('Avo') && requested.end_with?('Resource') &&
-                   ['MotorResource'].exclude?(requested) # Expect that anything called MotorResource could be from that administrative gem
-               if (model = Object.const_get(requested[0..-9]))
+                   # Expect that anything called MotorResource or SpinaResource could be from those administrative gems
+                   requested.length > 8 && ['MotorResource', 'SpinaResource'].exclude?(requested)
+               if (model = Object.const_get(requested[0..-9])) && model < ActiveRecord::Base
                  require 'generators/avo/resource_generator'
                  field_generator = Generators::Avo::ResourceGenerator.new([''])
                  field_generator.instance_variable_set(:@model, model)
-                 fields = field_generator.send(:generate_fields).split("\n")
-                                         .each_with_object([]) do |f, s|
+                 fields = field_generator.send(:generate_fields)&.split("\n")
+                                         &.each_with_object([]) do |f, s|
                                            if (f = f.strip).start_with?('field ')
                                              f = f[6..-1].split(',')
                                              s << [f.first[1..-1].to_sym, [f[1][1..-1].split(': :').map(&:to_sym)].to_h]
                                            end
-                                         end
+                                         end || []
                  built_resource = Class.new(Avo::BaseResource) do |new_resource_class|
                    self.model_class = model
                    self.title = :brick_descrip
@@ -2389,7 +2390,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       AND t.table_schema = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }
   --          AND t.table_type IN ('VIEW') -- 'BASE TABLE', 'FOREIGN TABLE'
       AND t.table_name NOT IN ('pg_stat_statements', ?, ?)
-    ORDER BY 1, t.table_type DESC, 2, kcu.ordinal_position"
+    ORDER BY 1, t.table_type DESC, 2, c.ordinal_position"
     ActiveRecord::Base.execute_sql(sql, *ar_tables)
   end
 

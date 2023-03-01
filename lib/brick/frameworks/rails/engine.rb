@@ -215,16 +215,16 @@ function linkSchemas() {
             TurboFrameWrapperComponent.class_exec do
               alias _brick_content content
               def content
-                # Avo's logo partial fails if there is not a URL helper called exactly "root_path"
-                # (Finicky line over there is:  avo/app/views/avo/partials/_logo.html.erb:1)
                 if ::Brick.instance_variable_get(:@_brick_avo_js) == view_renderer.object_id
                   _brick_content
                 else
                   ::Brick.instance_variable_set(:@_brick_avo_js, view_renderer.object_id)
+                  # Avo's logo partial fails if there is not a URL helper called exactly "root_path"
+                  # (Finicky line over there is:  avo/app/views/avo/partials/_logo.html.erb:1)
                   unless ::Rails.application.routes.named_routes.names.include?(:root) || ActionView::Base.respond_to?(:root_path)
                     ActionView::Base.class_exec do
                       def root_path
-                        Avo::App.root_path
+                        Avo.configuration.root_path
                       end
                     end
                   end
@@ -1569,28 +1569,28 @@ end
     <td>
     <table><tr><td>
     <% dt_pickers = { datetime: 'datetimepicker', timestamp: 'datetimepicker', time: 'timepicker', date: 'datepicker' }
-    html_options = {}
-    html_options[:class] = 'dimmed' unless val
-    is_revert = true
-    if bt
-      html_options[:prompt] = \"Select #\{bt_name\}\" %>
-      <%= f.select k.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options %>
-      <%= if (bt_obj = bt_class&.find_by(bt_pair[1] => val))
-            link_to('⇛', send(\"#\{bt_class.base_class._brick_index(:singular)\}_path\".to_sym, bt_obj.send(bt_class.primary_key.to_sym)), { class: 'show-arrow' })
-          elsif val
-            \"<span class=\\\"orphan\\\">Orphaned ID: #\{val}</span>\".html_safe
-          end %>
+       html_options = {}
+       html_options[:class] = 'dimmed' unless val
+       is_revert = true
+       if bt
+         html_options[:prompt] = \"Select #\{bt_name\}\" %>
+     <%= f.select k.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options %>
+     <%= if (bt_obj = bt_class&.find_by(bt_pair[1] => val))
+           link_to('⇛', send(\"#\{bt_class.base_class._brick_index(:singular)\}_path\".to_sym, bt_obj.send(bt_class.primary_key.to_sym)), { class: 'show-arrow' })
+         elsif val
+           \"<span class=\\\"orphan\\\">Orphaned ID: #\{val}</span>\".html_safe
+         end %>
     <% else
-      col_type = if ::Brick.config.json_columns[tbl_name]&.include?(k)
-                   :json
-                 elsif col&.sql_type == 'geography'
-                   col.sql_type
-                 else
-                   col&.type
-                 end
-      case (col_type ||= col&.sql_type)
-      when :string, :text %>
-        <% if is_bcrypt?(val) # || .readonly?
+         col_type = if ::Brick.config.json_columns[tbl_name]&.include?(k)
+                     :json
+                   elsif col&.sql_type == 'geography'
+                     col.sql_type
+                   else
+                     col&.type
+                   end
+         case (col_type ||= col&.sql_type)
+         when :string, :text
+           if is_bcrypt?(val) # || .readonly?
              is_revert = false %>
           <%= hide_bcrypt(val, nil, 1000) %>
         <% else %>
