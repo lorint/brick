@@ -420,6 +420,32 @@ window.addEventListener(\"popstate\", linkSchemas);
           end
         end
 
+        # Unconfigured Mobility gem?
+        if Object.const_defined?('Mobility') && Mobility.respond_to?(:translations_class)
+          # Find the current defaults
+          defs = if Mobility.instance_variable_defined?(:@translations_class)
+                   ::Mobility.translations_class.defaults
+                 else
+                   {}
+                 end
+          # Fill in the blanks for any missing defaults
+          ::Mobility.configure do |config|
+            config.plugins do
+              # Default initializer would also set these:
+              #  :backend_reader=>true
+              #  :query=>:i18n
+              #  :cache=>true
+              #  :presence=>true
+              backend :key_value, type: :string unless defs.key?(:backend)
+              reader unless defs.key?(:reader)
+              writer unless defs.key?(:writer)
+              active_record unless ::Mobility::Plugins.instance_variable_get(:@plugins)&.key?(:active_record)
+              fallbacks false unless defs.key?(:fallbacks)
+              default nil unless defs.key?(:default)
+            end
+          end
+        end
+
         # ====================================
         # Dynamically create generic templates
         # ====================================
