@@ -2386,7 +2386,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         "NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'heroku_ext',
                  'INFORMATION_SCHEMA', 'sys')"
         :
-        "= '#{ActiveRecord::Base.connection.current_database.tr("'", "''")}'"}#{"
+        "= '#{ActiveRecord::Base.connection.current_database&.tr("'", "''")}'"}#{"
       AND t.table_schema = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }
   --          AND t.table_type IN ('VIEW') -- 'BASE TABLE', 'FOREIGN TABLE'
       AND t.table_name NOT IN ('pg_stat_statements', ?, ?)
