@@ -466,6 +466,13 @@ window.addEventListener(\"popstate\", linkSchemas);
           end
         end
 
+        # Spina compatibility
+        if Object.const_defined?('Spina')
+          # Add JSON fields
+          (::Brick.config.json_columns['spina_accounts'] ||= []) << 'json_attributes' if ::Spina.const_defined?('Account')
+          (::Brick.config.json_columns['spina_pages'] ||= []) << 'json_attributes' if ::Spina.const_defined?('Page')
+        end
+
         # ====================================
         # Dynamically create generic templates
         # ====================================
