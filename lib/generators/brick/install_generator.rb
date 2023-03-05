@@ -268,7 +268,7 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # # FRIENDLY DSL
 
   # # A simple DSL is available to allow more user-friendly display of objects.  Normally a user object might be shown
-  # # as its first non-metadata column, or if that is not available then something like \"User #45\" where 45 is that
+  # # as its first non-metadata column, or if that is not available then something like \"User #42\" where 42 is that
   # # object's ID.  If there is no primary key then even that is not possible, so the object's .to_s method is called.
   # # To override these defaults and specify exactly what you want shown, such as first names and last names for a
   # # user, then you can use model_descrips like this, putting expressions with property references in square brackets:

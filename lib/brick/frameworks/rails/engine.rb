@@ -186,6 +186,21 @@ function linkSchemas() {
               end
             end
 
+            # class Fields::TextField
+            #   alias _original_initialize initialize
+            #   def initialize(id, **args, &block)
+            #     if instance_of?(::Avo::Fields::TextField) || instance_of?(::Avo::Fields::TextareaField)
+            #       args[:format_using] ||= ->(value) do
+            #         if value.is_a?(String) && value.encoding != Encoding::UTF_8
+            #           value = value.encode!("UTF-8", invalid: :replace, undef: :replace, replace: "?")
+            #         end
+            #         value
+            #       end
+            #     end
+            #     _original_initialize(id, **args, &block)
+            #   end
+            # end
+
             class App
               class << self
                 alias _brick_eager_load eager_load
@@ -1551,8 +1566,11 @@ end
       # path_options << { '_brick_schema':  } if
       # url = send(:#\{model._brick_index(:singular)}_path, obj.#{pk})
       options = {}
-      options[:url] = send(\"#\{#{model_name}._brick_index(:singular)}_path\".to_sym, obj) if ::Brick.config.path_prefix
- %>
+      if ::Brick.config.path_prefix
+        path_helper = obj.new_record? ? #{model_name}._brick_index : #{model_name}._brick_index(:singular)
+        options[:url] = send(\"#\{path_helper}_path\".to_sym, obj)
+      end
+%>
   <br><br>
 <%= form_for(obj.becomes(#{model_name}), options) do |f| %>
   <table class=\"shadow\">
@@ -1666,10 +1684,17 @@ end
       <% when :primary_key
            is_revert = false %>
       <% when :json
-           is_includes_json = true %>
+           is_includes_json = true
+           if val.is_a?(String)
+             val_str = val
+           else
+             eheij = ActiveSupport::JSON::Encoding.escape_html_entities_in_json
+             ActiveSupport::JSON::Encoding.escape_html_entities_in_json = false if eheij
+             val_str = val.to_json
+             ActiveSupport::JSON::Encoding.escape_html_entities_in_json = eheij
+           end %>
         <%= # Because there are so danged many quotes in JSON, escape them specially by converting to backticks.
             # (and previous to this, escape backticks with our own goofy code of ^^br_btick__ )
-            val_str = val.is_a?(String) ? val : val.to_json # Clean up bogus JSON if necessary
             json_field = f.hidden_field k.to_sym, { class: 'jsonpicker', value: val_str.gsub('`', '^^br_btick__').tr('\"', '`').html_safe } %>
         <div id=\"_br_json_<%= f.field_id(k) %>\"></div>
       <% else %>
@@ -1797,7 +1822,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
           onChange: (function (inp2) {
             return function (updatedContent, previousContent, contentErrors, patchResult) {
               // console.log('onChange', updatedContent.json, updatedContent.text);
-              inp2.value = updatedContent.text || JSON.stringify(updatedContent.json);
+              inp2.value = (updatedContent.text || JSON.stringify(updatedContent.json)).replace(/`/g, \"\\^\\^br_btick__\").replace(/\"/g, '`');
             };
           })(inp)
         }
