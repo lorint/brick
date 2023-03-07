@@ -90,7 +90,7 @@ module Brick::Rails::FormTags
               # 0..62 because Postgres column names are limited to 63 characters
               obj, descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, bt_id_col
             )
-            bt_txt = display_binary(bt_txt).html_safe if bt_txt&.encoding&.name == 'ASCII-8BIT'
+            bt_txt = ::Brick::Rails.display_binary(bt_txt).html_safe if bt_txt&.encoding&.name == 'ASCII-8BIT'
             bt_txt ||= "<span class=\"orphan\">&lt;&lt; Orphaned ID: #{val} >></span>" if val
             bt_id = bt_id_col&.map { |id_col| obj.respond_to?(id_sym = id_col.to_sym) ? obj.send(id_sym) : id_col }
             out << (bt_id&.first ? link_to(bt_txt, send("#{bt_class.base_class._brick_index(:singular)}_path".to_sym, bt_id)) : bt_txt || '')

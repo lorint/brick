@@ -2,6 +2,39 @@
 
 module Brick
   module Rails
+    def self.display_binary(val)
+      @image_signatures ||= { (+"\xFF\xD8\xFF\xEE").force_encoding('ASCII-8BIT') => 'jpeg',
+                              (+"\xFF\xD8\xFF\xE0\x00\x10\x4A\x46\x49\x46\x00\x01").force_encoding('ASCII-8BIT') => 'jpeg',
+                              (+"\x89PNG\r\n\x1A\n").force_encoding('ASCII-8BIT') => 'png',
+                              '<svg' => 'svg+xml', # %%% Not yet very good detection for SVG
+                              (+'BM').force_encoding('ASCII-8BIT') => 'bmp',
+                              (+'GIF87a').force_encoding('ASCII-8BIT') => 'gif',
+                              (+'GIF89a').force_encoding('ASCII-8BIT') => 'gif' }
+
+      if val[0..1] == "\x15\x1C" # One of those goofy Microsoft OLE containers?
+        package_header_length = val[2..3].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+        # This will often be just FF FF FF FF
+        # object_size = val[16..19].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+        friendly_and_class_names = val[20...package_header_length].split("\0")
+        object_type_name_length = val[package_header_length + 8..package_header_length+11].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+        friendly_and_class_names << val[package_header_length + 12...package_header_length + 12 + object_type_name_length].strip
+        # friendly_and_class_names will now be something like:  ['Bitmap Image', 'Paint.Picture', 'PBrush']
+        real_object_size = val[package_header_length + 20 + object_type_name_length..package_header_length + 23 + object_type_name_length].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+        object_start = package_header_length + 24 + object_type_name_length
+        val = val[object_start...object_start + real_object_size]
+      end
+
+      if (signature = @image_signatures.find { |k, _v| val[0...k.length] == k })
+        if val.length < 500_000
+          "<img src=\"data:image/#{signature.last};base64,#{Base64.encode64(val)}\">"
+        else
+          "&lt;&nbsp;#{signature.last} image, #{val.length} bytes&nbsp;>"
+        end
+      else
+        "&lt;&nbsp;Binary, #{val.length} bytes&nbsp;>"
+      end
+    end
+
     # See http://guides.rubyonrails.org/engines.html
     class Engine < ::Rails::Engine
       JS_CHANGEOUT = "function changeout(href, param, value, trimAfter) {
@@ -938,46 +971,13 @@ def display_value(col_type, val)
       '(Add RGeo gem to parse geometry detail)'
     end
   when :binary
-    display_binary(val) if val
+    ::Brick::Rails.display_binary(val) if val
   else
     if col_type
       hide_bcrypt(val, col_type == :xml)
     else
       '?'
     end
-  end
-end
-
-def image_signatures
-  @image_signatures ||= { \"\\xFF\\xD8\\xFF\\xEE\".force_encoding('ASCII-8BIT') => 'jpeg',
-                          \"\\xFF\\xD8\\xFF\\xE0\\x00\\x10\\x4A\\x46\\x49\\x46\\x00\\x01\".force_encoding('ASCII-8BIT') => 'jpeg',
-                          \"\\x89PNG\\r\\n\\x1A\\n\".force_encoding('ASCII-8BIT') => 'png',
-                          '<svg' => 'svg+xml', # %%% Not yet very good detection for SVG
-                          'BM'.force_encoding('ASCII-8BIT') => 'bmp',
-                          'GIF87a'.force_encoding('ASCII-8BIT') => 'gif',
-                          'GIF89a'.force_encoding('ASCII-8BIT') => 'gif' }
-end
-def display_binary(val)
-  if val[0..1] == \"\\x15\\x1C\" # One of those goofy Microsoft OLE containers?
-    package_header_length = val[2..3].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
-    # This will often be just FF FF FF FF
-    # object_size = val[16..19].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
-    friendly_and_class_names = val[20...package_header_length].split(\"\\0\")
-    object_type_name_length = val[package_header_length + 8..package_header_length+11].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
-    friendly_and_class_names << val[package_header_length + 12...package_header_length + 12 + object_type_name_length].strip
-    # friendly_and_class_names will now be something like:  ['Bitmap Image', 'Paint.Picture', 'PBrush']
-    real_object_size = val[package_header_length + 20 + object_type_name_length..package_header_length + 23 + object_type_name_length].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
-    object_start = package_header_length + 24 + object_type_name_length
-    val = val[object_start...object_start + real_object_size]
-  end
-  if (signature = image_signatures.find { |k, _v| val[0...k.length] == k })
-    if val.length < 500_000
-      \"<img src=\\\"data:image/#\{signature.last};base64,#\{Base64.encode64(val)}\\\">\"
-    else
-      \"&lt;&nbsp;#\{signature.last} image, #\{val.length} bytes&nbsp;>\"
-    end
-  else
-    \"&lt;&nbsp;Binary, #\{val.length} bytes&nbsp;>\"
   end
 end
 
@@ -1685,7 +1685,7 @@ end
              if val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12]
                display_value('geography', val)
              else
-               display_binary(val)
+               ::Brick::Rails.display_binary(val)
              end.html_safe
            end %>
       <% when :primary_key
