@@ -2613,18 +2613,25 @@ module Brick
                    end
       abstract_activerecord_bases = ::Brick.eager_load_classes(true)
       models = if Dir.exist?(model_path = "#{rails_root}/app/models")
-                 Dir["#{model_path}/**/*.rb"].each_with_object({}) do |v, s|
-                   File.read(v).split("\n").each do |line|
+                 Dir["#{model_path}/**/*.rb"].each_with_object({}) do |path, s|
+                   modules = []
+                   File.read(path).split("\n").each do |line|
+                     # Capture a list of modules leading up to this class
+                     if line.lstrip.start_with?('module ') && (idx = line.index('module'))
+                       modules << line[idx + 6..-1].match(/[\s:]+([\w:]+)/)&.captures&.first
+                     end
                      # For all non-commented lines, look for any that start with "class " and also "< ApplicationRecord"
-                     if line.lstrip.start_with?('class') && (idx = line.index('class'))
-                       model = line[idx + 5..-1].match(/[\s:]+([\w:]+)/)&.captures&.first
-                       if model && abstract_activerecord_bases.exclude?(model)
+                     if line.lstrip.start_with?('class ') && (idx = line.index('class')) &&
+                        (model_name = line[idx + 5..-1].match(/[\s:]+([\w:]+)/)&.captures&.first)
+                       # Prefix model class name with module names, if any
+                       model_name = modules.map{|m| "#{m}::"}.join + model_name
+                       unless abstract_activerecord_bases.include?(model_name)
                          klass = begin
-                                   model.constantize
+                                   model_name.constantize
                                  rescue
                                  end
-                         s[model.underscore.tr('/', '.').pluralize] = [
-                           v.start_with?(rails_root) ? v[rails_root.length + 1..-1] : v,
+                         s[model_name.underscore.tr('/', '.').pluralize] = [
+                           path.start_with?(rails_root) ? path[rails_root.length + 1..-1] : path,
                            klass
                          ]
                        end
