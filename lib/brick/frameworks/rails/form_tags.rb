@@ -72,10 +72,12 @@ module Brick::Rails::FormTags
         out << '>'
         if (bt = bts[col_name])
           if bt[2] # Polymorphic?
-            bt_class = obj.send("#{bt.first}_type")
-            base_class_underscored = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class._brick_index(:singular)
-            poly_id = obj.send("#{bt.first}_id")
-            out << link_to("#{bt_class} ##{poly_id}", send("#{base_class_underscored}_path".to_sym, poly_id)) if poly_id
+            if (poly_id = obj.send("#{bt.first}_id"))
+              # Was:  obj.send("#{bt.first}_type")
+              bt_class = obj.send(obj.class.reflect_on_association(bt.first).foreign_type)
+              base_class_underscored = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class._brick_index(:singular)
+              out << link_to("#{bt_class} ##{poly_id}", send("#{base_class_underscored}_path".to_sym, poly_id))
+            end
           else # BT or HOT
             bt_class = bt[1].first.first
             descrips = bt_descrip[bt.first][bt_class]
