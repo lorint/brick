@@ -84,13 +84,19 @@ module Brick::Rails::FormTags
                         elsif descrips.length == 1
                           [obj.class.reflect_on_association(bt.first)&.foreign_key]
                         else
-                          descrips.last
+                          # Was:  descrips.last  -- but the ID stuff is not coming through anymore
+                          [bt.first]
                         end
-            bt_txt = bt_class.brick_descrip(
+            txt_parts = descrips.map do |id|
+              obj2 = obj
+              id[0..-2].each { |ref| obj2 = obj2&.send(ref) }
               # 0..62 because Postgres column names are limited to 63 characters
-              obj, descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, bt_id_col
-            )
-            bt_txt = ::Brick::Rails.display_binary(bt_txt).html_safe if bt_txt&.encoding&.name == 'ASCII-8BIT'
+              obj2&.send(id.last[0..62])
+            end
+            unless txt_parts.compact.empty?
+              bt_txt = bt_class.brick_descrip(obj, txt_parts, bt_id_col)
+              bt_txt = ::Brick::Rails.display_binary(bt_txt).html_safe if bt_txt&.encoding&.name == 'ASCII-8BIT'
+            end
             bt_txt ||= "<span class=\"orphan\">&lt;&lt; Orphaned ID: #{val} >></span>" if val
             bt_id = bt_id_col&.map { |id_col| obj.respond_to?(id_sym = id_col.to_sym) ? obj.send(id_sym) : id_col }
             out << (bt_id&.first ? link_to(bt_txt, send("#{bt_class.base_class._brick_index(:singular)}_path".to_sym, bt_id)) : bt_txt || '')
@@ -102,7 +108,7 @@ module Brick::Rails::FormTags
             hm_klass = (col = cols[col_name])[1]
             if col[2] == 'HO'
               descrips = bt_descrip[col_name.to_sym][hm_klass]
-              if (ho_id = (ho_id_col = descrips.last).map { |id_col| obj.send(id_col.to_sym) })&.first
+              if (ho_id = (ho_id_col = descrips.last).map { |id_col| obj.respond_to?(id_sym = id_col.to_sym) && obj.send(id_sym) })&.first
                 ho_txt = hm_klass.brick_descrip(obj, descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, ho_id_col)
                 out << link_to(ho_txt, send("#{hm_klass.base_class._brick_index(:singular)}_path".to_sym, ho_id))
               end
