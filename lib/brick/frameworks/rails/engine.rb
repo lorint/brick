@@ -1158,7 +1158,7 @@ erDiagram
    @_brick_bt_descrip&.each do |bt|
      bt_class = bt[1].first.first
      callbacks[bt_name = bt_class.name.split('::').last] = bt_class
-     is_has_one = #{@_brick_model.name}.reflect_on_association(bt.first).inverse_of&.macro == :has_one ||
+     is_has_one = #{@_brick_model.name}.reflect_on_association(bt.first)&.inverse_of&.macro == :has_one ||
                   ::Brick.config.has_ones&.fetch('#{@_brick_model.name}', nil)&.key?(bt.first.to_s)
     %>  <%= \"#\{model_short_name} #\{is_has_one ? '||' : '}o'}--|| #\{bt_name} : \\\"#\{
         bt_underscored = bt[1].first.first.name.underscore.singularize

@@ -1618,8 +1618,8 @@ module ActiveRecord
           end
         end
 
-        if JoinDependency.private_instance_methods.include?(:table_aliases_for)
-          # No matter if it's older or newer Rails, now extend so that we can associate AR links to table_alias names
+        # No matter if it's older or newer Rails, now extend so that we can associate AR links to table_alias names
+        if ActiveRecord.version < ::Gem::Version.new('6.1')
           alias _brick_table_aliases_for table_aliases_for
           def table_aliases_for(parent, node)
             result = _brick_table_aliases_for(parent, node)
@@ -1630,7 +1630,7 @@ module ActiveRecord
             end
             result
           end
-        else # Same idea but for Rails 7
+        else # Same idea but for Rails >= 6.1
           alias _brick_make_constraints make_constraints
           def make_constraints(parent, child, join_type)
             result = _brick_make_constraints(parent, child, join_type)
@@ -1657,7 +1657,7 @@ if Gem::Specification.all_names.any? { |g| g.start_with?('ransack-') }
   module Polyamorous::JoinDependencyExtensions
     def build(associations, base_klass, root = nil, path = '')
       root ||= associations
-      puts associations.map(&:first)
+      # puts associations.map(&:first)
 
       associations.map do |name, right|
         link_path = path.blank? ? name.to_s : path + ".#{name}"
