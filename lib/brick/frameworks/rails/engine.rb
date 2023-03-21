@@ -510,6 +510,16 @@ window.addEventListener(\"popstate\", linkSchemas);
         # Dynamically create generic templates
         # ====================================
         if ::Brick.enable_views?
+          # Add the params to the lookup_context so that we have context about STI classes when setting @_brick_model
+          ActionView::ViewPaths.class_exec do
+            alias :_brick_lookup_context :lookup_context
+            def lookup_context(*args)
+              ret = _brick_lookup_context(*args)
+              @_lookup_context.instance_variable_set(:@_brick_req_params, params)
+              ret
+            end
+          end
+
           ActionView::LookupContext.class_exec do
             # Used by Rails 5.0 and above
             alias :_brick_template_exists? :template_exists?
@@ -520,10 +530,10 @@ window.addEventListener(\"popstate\", linkSchemas);
               _brick_template_exists?(*args, **options) ||
               # Do not auto-create a template when it's searching for an application.html.erb, which comes in like:  ["edit", ["games", "application"]]
               ((args[1].length == 1 || args[1][-1] != 'application') &&
-               set_brick_model(args))
+               set_brick_model(args, @_brick_req_params))
             end
 
-            def set_brick_model(find_args)
+            def set_brick_model(find_args, params)
               # Return an appropriate model for a given view template request.
               # find_args will generally be something like:  ["index", ["categories"]]
               # and must cycle through all of find_args[1] because in some cases such as with Devise we get something like:
@@ -537,7 +547,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                          # Only CUD stuff has create / update / destroy
                          (!model.is_view? && ['new', 'create', 'edit', 'update', 'destroy'].include?(find_args.first))
                        )
-                      @_brick_model = model
+                      @_brick_model = model.real_model(params)
                     end
                   rescue
                   end
@@ -579,7 +589,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                   find_template_err = e # Can come up with stuff like Devise which has its own view templates
                 end
                 # Used to also have:  ActionView.version < ::Gem::Version.new('5.0') &&
-                model_name = set_brick_model(args)&.name
+                model_name = set_brick_model(args, @_brick_req_params)&.name
               end
 
               if @_brick_model
@@ -1320,13 +1330,9 @@ erDiagram
 +"<html>
 <head>
 #{css}
-<title><% model = #{model_name}
-          if sub_model = @_brick_params&.fetch(type_col = model.inheritance_column, nil)&.first
-            model = Object.const_get(sub_model.to_sym)
-          end
-       %><%= model.name %><%
-  if (description = (relation = Brick.relations[model.table_name])&.fetch(:description, nil)).present?
-    %> - <%= description
+<title><%= (model = #{model_name}).name %><%
+     if (description = (relation = Brick.relations[model.table_name])&.fetch(:description, nil)).present?
+       %> - <%= description
 %><% end
 %></title>
 </head>
@@ -1363,7 +1369,27 @@ erDiagram
         ) %></td>
   <%   end
      end %>
-</tr><%= if (page_num = @#{table_name}._brick_page_num)
+</tr>
+
+<%= if model < (base_model = model.base_class)
+      this_model = model
+      parent_links = []
+      until this_model == base_model do
+        this_model = this_model.superclass
+        path = send(\"#\{this_model._brick_index}_path\")
+        path << \"?#\{base_model.inheritance_column}=#\{this_model.name}\" unless this_model == base_model
+        parent_links << link_to(this_model.name, path)
+      end
+      \"<tr><td colspan=\\\"#\{td_count}\\\">Parent: #\{parent_links.join(' ')}</tr>\".html_safe
+    end
+%><%= if (children = model.descendants).present?
+  child_links = children.map do |child|
+    path = send(\"#\{child._brick_index}_path\") + \"?#\{base_model.inheritance_column}=#\{child.name}\"
+    link_to(child.name, path)
+  end
+  \"<tr><td colspan=\\\"#\{td_count}\\\">Children: #\{child_links.join(' ')}</tr>\".html_safe
+end
+%><%= if (page_num = @#{table_name}._brick_page_num)
            \"<tr><td colspan=\\\"#\{td_count}\\\">Page #\{page_num}</td></tr>\".html_safe
          end %></table>#{template_link}<%
    if description.present? %><%=

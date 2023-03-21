@@ -58,6 +58,16 @@ module ActiveRecord
       def is_view?
         false
       end
+
+      def real_model(params)
+        if params && (sub_model = params.fetch(type_col = inheritance_column, nil))
+          sub_model = sub_model.first if sub_model.is_a?(Array) # Support the params style that gets returned from #brick_select
+          # Make sure the chosen model is really the same or a subclass of this model
+          (possible_model = sub_model.constantize) <= self ? possible_model : self
+        else
+          self
+        end
+      end
     end
 
     def self._brick_primary_key(relation = nil)
@@ -1651,16 +1661,18 @@ class Object
               return
             end
 
+            real_model = model.real_model(params)
+
             if request.format == :csv # Asking for a template?
               require 'csv'
               exported_csv = CSV.generate(force_quotes: false) do |csv_out|
-                model.df_export(model.brick_import_template).each { |row| csv_out << row }
+                real_model.df_export(real_model.brick_import_template).each { |row| csv_out << row }
               end
               render inline: exported_csv, content_type: request.format
               return
             # elsif request.format == :js || current_api_root # Asking for JSON?
             #   # %%% Add:  where, order, page, page_size, offset, limit
-            #   data = (model.is_view? || !Object.const_defined?('DutyFree')) ? model.limit(1000) : model.df_export(model.brick_import_template)
+            #   data = (real_model.is_view? || !Object.const_defined?('DutyFree')) ? real_model.limit(1000) : real_model.df_export(real_model.brick_import_template)
             #   render inline: { data: data }.to_json, content_type: request.format == '*/*' ? 'application/json' : request.format
             #   return
             end
@@ -1670,9 +1682,9 @@ class Object
             # %%% Allow params to define which columns to use for order_by
             # Overriding the default by providing a querystring param?
             ordering = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
-            order_by, _ = model._brick_calculate_ordering(ordering, true) # Don't do the txt part
+            order_by, _ = real_model._brick_calculate_ordering(ordering, true) # Don't do the txt part
 
-            ar_relation = ActiveRecord.version < Gem::Version.new('4') ? model.preload : model.all
+            ar_relation = ActiveRecord.version < Gem::Version.new('4') ? real_model.preload : real_model.all
             params['_brick_is_api'] = true if (is_api = request.format == :js || current_api_root)
             @_brick_params = ar_relation.brick_select(params, (selects ||= []), order_by,
                                                       translations = {},
@@ -1682,7 +1694,7 @@ class Object
               # Apply column renaming
               data = ar_relation.respond_to?(:_select!) ? ar_relation.dup._select!(*selects) : ar_relation.select(selects)
               if data.present? &&
-                 (column_renaming = ::Brick.find_col_renaming(current_api_root, model&._brick_relation)&.select { |cr| cr.last })
+                 (column_renaming = ::Brick.find_col_renaming(current_api_root, real_model&._brick_relation)&.select { |cr| cr.last })
                 data.map!({}) do |row, s|
                   column_renaming.each_with_object({}) do |rename, s|
                     s[rename.last] = row[rename.first] if rename.last
@@ -1693,7 +1705,7 @@ class Object
               # # %%% This currently only gives a window to check security and raise an exception if someone isn't
               # # authenticated / authorised. Still need to figure out column filtering and transformations.
               # proc_result = if (column_filter = ::Brick.config.api_column_filter).is_a?(Proc)
-              #                 object_columns = (relation = model&._brick_relation)[:cols]
+              #                 object_columns = (relation = real_model&._brick_relation)[:cols]
               #                 begin
               #                   num_args = column_filter.arity.negative? ? 5 : column_filter.arity
               #                   # object_name, api_version, columns, data
@@ -1718,7 +1730,7 @@ class Object
 
             # %%% Add custom HM count columns
             # %%% What happens when the PK is composite?
-            counts = model._br_hm_counts.each_with_object([]) do |v, s|
+            counts = real_model._br_hm_counts.each_with_object([]) do |v, s|
               s << if is_mysql
                      "`b_r_#{v.first}`.c_t_ AS \"b_r_#{v.first}_ct\""
                    elsif is_postgres
@@ -1738,8 +1750,8 @@ class Object
                                s << excl_parts.last
                              end
                            end
-            @_brick_bt_descrip = model._br_bt_descrip
-            @_brick_hm_counts = model._br_hm_counts
+            @_brick_bt_descrip = real_model._br_bt_descrip
+            @_brick_hm_counts = real_model._br_hm_counts
             @_brick_join_array = join_array
             @_brick_erd = params['_brick_erd']&.to_i
           end
