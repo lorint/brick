@@ -848,6 +848,10 @@ input+svg.revert {
   color: #FFF;
 }
 </style>
+<script>
+  if (window.history.state && window.history.state.turbo)
+    window.addEventListener(\"popstate\", function () { location.reload(true); });
+</script>
 
 <% is_includes_dates = nil
    is_includes_json = nil
