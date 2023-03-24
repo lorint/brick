@@ -2056,6 +2056,16 @@ end.class_exec do
       # Now the Brick initializer since there may be important schema things configured
       if !::Brick.initializer_loaded && File.exist?(brick_initializer = ::Rails.root.join('config/initializers/brick.rb'))
         ::Brick.initializer_loaded = load brick_initializer
+
+        # After loading the initializer, add compatibility for ActiveStorage and ActionText if those haven't already been
+        # defined.  (Further JSON configuration for ActiveStorage metadata happens later in the after_initialize hook.)
+        ['ActiveStorage', 'ActionText'].each do |ar_extension|
+          if Object.const_defined?(ar_extension) &&
+             (extension = Object.const_get(ar_extension)).respond_to?(:table_name_prefix) &&
+             !::Brick.config.table_name_prefixes.key?(as_tnp = extension.table_name_prefix)
+            ::Brick.config.table_name_prefixes[as_tnp] = ar_extension
+          end
+        end
       end
       # Load the initializer for the Apartment gem a little early so that if .excluded_models and
       # .default_schema are specified then we can work with non-tenanted models more appropriately

@@ -188,6 +188,17 @@ function linkSchemas() {
           (app.config.assets.paths ||= []) << assets_path
         end
 
+        # Treat ActiveStorage::Blob metadata as JSON
+        if ::Brick.config.table_name_prefixes.fetch('active_storage_', nil) == 'ActiveStorage' &&
+           ActiveStorage.const_defined?('Blob')
+          unless (md = (::Brick.config.model_descrips ||= {})).key?('ActiveStorage::Blob')
+            md['ActiveStorage::Blob'] = '[filename]'
+          end
+          unless (asbm = (::Brick.config.json_columns['active_storage_blobs'] ||= [])).include?('metadata')
+            asbm << 'metadata'
+          end
+        end
+
         # Smarten up Avo so it recognises Brick's querystring option for Apartment multi-tenancy
         if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace)
           module ::Avo
