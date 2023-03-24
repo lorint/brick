@@ -586,7 +586,11 @@ window.addEventListener(\"popstate\", linkSchemas);
                     return possible_template
                   end
                 rescue StandardError => e
-                  find_template_err = e # Can come up with stuff like Devise which has its own view templates
+                  # Search through the routes to confirm that something might match (Devise stuff for instance, which has its own view templates),
+                  # and bubble the same exception (probably an ActionView::MissingTemplate) if a legitimate option is found.
+                  raise if ::Rails.application.routes.set.find { |x| args[1].include?(x.defaults[:controller]) && args[0] == x.defaults[:action] }
+
+                  find_template_err = e
                 end
                 # Used to also have:  ActionView.version < ::Gem::Version.new('5.0') &&
                 model_name = set_brick_model(args, @_brick_req_params)&.name
@@ -646,7 +650,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                                      (hm_fk_name.is_a?(String) && hm_fk_name.include?('.')) # HMT?  (Could do a better check for this)
                                     predicates = path_keys(hm_assoc, hm_fk_name, pk).map do |k, v|
                                                    if v == '[sti_type]'
-                                                     "'#{k}': @#{obj_name}.#{hm_assoc.active_record.inheritance_column}"
+                                                     "'#{k}': (@#{obj_name}.#{hm_assoc.active_record.inheritance_column}).constantize.base_class.name"
                                                    else
                                                      v.is_a?(String) ? "'#{k}': '#{v}'" : "'#{k}': @#{obj_name}.#{v}"
                                                    end
@@ -1551,8 +1555,12 @@ end
 <head>
 #{css}
 <title><%=
-  model = (obj = @#{obj_name})&.class
-  model_name = @#{obj_name}.#{inh_col = @_brick_model.inheritance_column} if obj.respond_to?(:#{inh_col})
+  base_model = (model = (obj = @#{obj_name})&.class).base_class
+  see_all_path = send(\"#\{base_model._brick_index}_path\")
+  if obj.respond_to?(:#{inh_col = @_brick_model.inheritance_column}) &&
+     (model_name = @#{obj_name}.#{inh_col}) != base_model.name
+    see_all_path << \"?#{inh_col}=#\{model_name}\"
+  end
   page_title = (\"#\{model_name ||= model.name}: #\{obj&.brick_descrip || controller_name}\")
 %></title>
 </head>
@@ -1596,7 +1604,7 @@ end
 if (description = (relation = Brick.relations[tbl_name = #{model_name}.table_name])&.fetch(:description, nil)) %><%=
   description %><br><%
 end
-%><%= link_to '(See all #{obj_name.pluralize})', #{@_brick_model._brick_index}_path %>
+%><%= link_to \"(See all #\{model_name.pluralize})\", see_all_path %>
 #{erd_markup}
 <% if obj
       # path_options = [obj.#{pk}]
@@ -1612,11 +1620,11 @@ end
 <%= form_for(obj.becomes(#{model_name}), options) do |f| %>
   <table class=\"shadow\">
   <% has_fields = false
-    @#{obj_name}.attributes.each do |k, val|
-      col = #{model_name}.columns_hash[k] %>
-    <tr>
-    <% next if (#{(pk || []).inspect}.include?(k) && !bts.key?(k)) ||
+     @#{obj_name}.attributes.each do |k, val|
+       next if !(col = #{model_name}.columns_hash[k]) ||
+               (#{(pk || []).inspect}.include?(k) && !bts.key?(k)) ||
                ::Brick.config.metadata_columns.include?(k) %>
+    <tr>
     <th class=\"show-field\"<%= \" title=\\\"#\{col.comment}\\\"\".html_safe if col.respond_to?(:comment) && !col.comment.blank? %>>
     <% has_fields = true
       if (bt = bts[k])

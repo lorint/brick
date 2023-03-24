@@ -1859,18 +1859,27 @@ class Object
               instance_variable_set("@#{singular_table_name}".to_sym, (obj = find_obj))
               upd_params = send(params_name_sym)
               json_overrides = ::Brick.config.json_columns&.fetch(table_name, nil)
-              if (json_cols = model.columns.select { |c| c.type == :json || json_overrides&.include?(c.name) }.map(&:name)).present?
+              if model.respond_to?(:devise_modules)
                 upd_hash = upd_params.to_h
+                upd_hash['reset_password_token'] = nil if upd_hash['reset_password_token'].blank?
+                upd_hash['reset_password_sent_at'] = nil if upd_hash['reset_password_sent_at'].blank?
+                if model.devise_modules.include?(:invitable)
+                  upd_hash['invitation_token'] = nil if upd_hash['invitation_token'].blank?
+                  upd_hash['invitation_created_at'] = nil if upd_hash['invitation_created_at'].blank?
+                  upd_hash['invitation_sent_at'] = nil if upd_hash['invitation_sent_at'].blank?
+                  upd_hash['invitation_accepted_at'] = nil if upd_hash['invitation_accepted_at'].blank?
+                end
+              end
+              if (json_cols = model.columns.select { |c| c.type == :json || json_overrides&.include?(c.name) }.map(&:name)).present?
+                upd_hash ||= upd_params.to_h
                 json_cols.each do |c|
                   begin
                     upd_hash[c] = JSON.parse(upd_hash[c].tr('`', '"').gsub('^^br_btick__', '`'))
                   rescue
                   end
                 end
-                obj.send(:update, upd_hash)
-              else
-                obj.send(:update, upd_params)
               end
+              obj.send(:update, upd_hash || upd_params)
             end
 
             code << "  def destroy\n"
@@ -1906,10 +1915,11 @@ class Object
                      end
                    end
               # Support friendly_id gem
+              id_simplified = id.is_a?(Array) && id.length == 1 ? id.first : id
               if Object.const_defined?('FriendlyId') && model.instance_variable_get(:@friendly_id_config)
-                model.friendly.find(id.is_a?(Array) && id.length == 1 ? id.first : id)
+                model.friendly.find(id_simplified)
               else
-                model.find(id.is_a?(Array) && id.length == 1 ? id.first : id)
+                model.find(id_simplified)
               end
             end
           end
@@ -2044,7 +2054,7 @@ end.class_exec do
         load inflections
       end
       # Now the Brick initializer since there may be important schema things configured
-      if File.exist?(brick_initializer = ::Rails.root.join('config/initializers/brick.rb'))
+      if !::Brick.initializer_loaded && File.exist?(brick_initializer = ::Rails.root.join('config/initializers/brick.rb'))
         ::Brick.initializer_loaded = load brick_initializer
       end
       # Load the initializer for the Apartment gem a little early so that if .excluded_models and
