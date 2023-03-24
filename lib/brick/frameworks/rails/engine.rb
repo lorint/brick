@@ -1688,9 +1688,13 @@ end
            if is_bcrypt?(val) # || .readonly?
              is_revert = false %>
           <%= hide_bcrypt(val, nil, 1000) %>
-        <% elsif col_type == :string %>
-          <%= f.text_field(k.to_sym, html_options) %>
-        <% else
+        <% elsif col_type == :string
+             if model.respond_to?(:enumerized_attributes) && (opts = model.enumerized_attributes[k]&.options).present? %>
+               <%= f.select(k.to_sym, [[\"(No #\{k} chosen)\", '^^^brick_NULL^^^']] + opts, { value: val || '^^^brick_NULL^^^' }, html_options) %><%
+             else %>
+               <%= f.text_field(k.to_sym, html_options) %><%
+             end
+           else
              is_includes_text = true %>
           <%= f.hidden_field(k.to_sym, html_options) %>
           <trix-editor input=\"<%= f.field_id(k) %>\"></trix-editor>

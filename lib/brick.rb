@@ -1694,6 +1694,29 @@ if Gem::Specification.all_names.any? { |g| g.start_with?('ransack-') }
   end
 end
 
+# Patch Enumerize so that #becomes works when an STI subclass is becoming a base class
+# which does not include Enumerize.
+# (See https://github.com/brainspec/enumerize/issues/426)
+if Object.const_defined?('Enumerize') && Enumerize.const_defined?('ActiveRecordSupport')
+  Enumerize::ActiveRecordSupport::InstanceMethods.class_exec do
+    def becomes(klass)
+      became = super
+      klass = self.class unless klass.respond_to?(:enumerized_attributes)
+      klass.enumerized_attributes.each do |attr|
+        begin
+          if became.respond_to?(setter = "#{attr.name}=")
+            became.send(setter, send(attr.name))
+          end
+        rescue ActiveModel::MissingAttributeError
+        rescue ActiveRecord::SerializationTypeMismatch
+          became.send(setter, send(attr.name).to_ary)
+        end
+      end
+      became
+    end
+  end
+end
+
 # Keyword arguments updates for Rails <= 5.2.x and Ruby >= 3.0
 if ActiveRecord.version < ::Gem::Version.new('6.0') && ruby_version >= ::Gem::Version.new('3.0')
   admsm = ActionDispatch::MiddlewareStack::Middleware
