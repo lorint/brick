@@ -182,7 +182,16 @@ module Brick::Rails::FormTags
                            ((klass.column_names - [pk.to_s]) & path_params.keys.map(&:to_s)).each do |path_param|
                              next if [:controller, :action].include?(path_param)
 
-                             filter_parts << "#{path_param}=#{path_params[path_param.to_sym]}"
+                             foreign_id = path_params[path_param.to_sym]
+                             # Need to convert a friendly_id slug to a real ID?
+                             if Object.const_defined?('FriendlyId') &&
+                                (assoc = klass.reflect_on_all_associations.find { |a| a.belongs_to? && a.foreign_key == path_param }) &&
+                                (assoc_klass = assoc.klass).instance_variable_get(:@friendly_id_config) &&
+                                (new_id = assoc_klass.where(assoc_klass.friendly_id_config.query_field => foreign_id)
+                                                     .pluck(assoc_klass.primary_key).first)
+                               foreign_id = new_id
+                             end
+                             filter_parts << "#{path_param}=#{foreign_id}"
                            end
                            klass
                          end
