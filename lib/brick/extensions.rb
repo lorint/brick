@@ -638,6 +638,7 @@ module ActiveRecord
       # Add derived table JOIN for the has_many counts
       nix = []
       klass._br_hm_counts.each do |k, hm|
+        num_bt_things = 0
         count_column = if hm.options[:through]
                          # Build the chain of JOINs going to the final destination HMT table
                          # (Usually just one JOIN, but could be many.)
@@ -668,6 +669,8 @@ module ActiveRecord
                            from_clause << if (src_ref = a.source_reflection).macro == :belongs_to
                                             nm = hmt_assoc.source_reflection.inverse_of&.name
                                             link_back << nm
+                                            num_bt_things += 1
+                                            # puts "BT #{a.table_name}"
                                             "ON br_t#{idx}.id = br_t#{idx - 1}.#{a.foreign_key}"
                                           elsif src_ref.options[:as]
                                             "ON br_t#{idx}.#{src_ref.type} = '#{src_ref.active_record.name}'" + # "polymorphable_type"
@@ -686,6 +689,7 @@ module ActiveRecord
                                                 "br_t#{idx - 1}.#{a.foreign_key} = br_t#{idx}.id"
                                             end
                                           else # Standard has_many or has_one
+                                            # puts "HM #{a.table_name}"
                                             # binding.pry unless (
                                             nm = hmt_assoc.source_reflection.inverse_of&.name
                                             # )
@@ -708,7 +712,13 @@ module ActiveRecord
                            # binding.pry if link_back.length > 2
                            "br_t#{idx}.#{hm.foreign_key}"
                          else # A HMT that goes HM -> HM, something like Categories -> Products -> LineItems
-                           # binding.pry if link_back.length > 2
+                           # %%% Currently flaky, so will revisit this soon, probably while implementing the whole link_back architecture
+                           if num_bt_things > 1
+                             # binding.pry
+                             nix << k
+                             next
+                           end
+
                            "br_t#{idx}.#{src_ref.active_record.primary_key}"
                          end
                        else
@@ -2498,9 +2508,9 @@ module Brick
   # rubocop:enable Style/CommentedKeyword
 
   class << self
-    def _add_bt_and_hm(fk, relations, is_polymorphic = false, is_optional = false)
+    def _add_bt_and_hm(fk, relations, polymorphic_class = nil, is_optional = false)
       bt_assoc_name = ::Brick.namify(fk[2], :downcase)
-      unless is_polymorphic
+      unless polymorphic_class
         bt_assoc_name = if bt_assoc_name.underscore.end_with?('_id')
                           bt_assoc_name[-3] == '_' ? bt_assoc_name[0..-4] : bt_assoc_name[0..-3]
                         elsif bt_assoc_name.downcase.end_with?('id') && bt_assoc_name.exclude?('_')
@@ -2555,7 +2565,7 @@ module Brick
           puts "Brick: Additional reference #{fk.inspect} refers to non-existent #{'table'.pluralize(missing.length)} #{missing.join(' and ')}. (Available tables include #{tables.join(', ')}.)"
           return
         end
-        unless (cols = relations[fk[1]][:cols]).key?(fk[2]) || (is_polymorphic && cols.key?("#{fk[2]}_id") && cols.key?("#{fk[2]}_type"))
+        unless (cols = relations[fk[1]][:cols]).key?(fk[2]) || (polymorphic_class && cols.key?("#{fk[2]}_id") && cols.key?("#{fk[2]}_type"))
           columns = cols.map { |k, v| "#{k} (#{v.first.split(' ').first})" }
           puts "Brick: Additional reference #{fk.inspect} refers to non-existent column #{fk[2]}. (Columns present in #{fk[1]} are #{columns.join(', ')}.)"
           return
@@ -2572,9 +2582,10 @@ module Brick
       return unless bts # Rails 5.0 and older can have bts end up being nil
 
       if (assoc_bt = bts[cnstr_name])
-        if is_polymorphic
+        if polymorphic_class
           # Assuming same fk (don't yet support composite keys for polymorphics)
           assoc_bt[:inverse_table] << fk[4]
+          assoc_bt[:polymorphic] << polymorphic_class
         else # Expect we could have a composite key going
           if assoc_bt[:fk].is_a?(String)
             assoc_bt[:fk] = [assoc_bt[:fk], fk[2]] unless fk[2] == assoc_bt[:fk]
@@ -2584,10 +2595,10 @@ module Brick
           assoc_bt[:assoc_name] = "#{assoc_bt[:assoc_name]}_#{fk[2]}"
         end
       else
-        inverse_table = [primary_table] if is_polymorphic
+        inverse_table = [primary_table] if polymorphic_class
         assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[2], assoc_name: bt_assoc_name, inverse_table: inverse_table || primary_table }
         assoc_bt[:optional] = true if is_optional
-        assoc_bt[:polymorphic] = true if is_polymorphic
+        assoc_bt[:polymorphic] = [polymorphic_class] if polymorphic_class
       end
       if is_class
         # For use in finding the proper :source for a HMT association that references an STI subclass
@@ -2613,7 +2624,7 @@ module Brick
                   end
         assoc_hm = hms[hm_cnstr_name] = { is_bt: false, fk: fk[2], assoc_name: fk_namified.pluralize, alternate_name: bt_assoc_name,
                                           inverse_table: inv_tbl, inverse: assoc_bt }
-        assoc_hm[:polymorphic] = true if is_polymorphic
+        assoc_hm[:polymorphic] = true if polymorphic_class
         hm_counts = relation.fetch(:hm_counts) { relation[:hm_counts] = {} }
         this_hm_count = hm_counts[fk[1]] = hm_counts.fetch(fk[1]) { 0 } + 1
       end

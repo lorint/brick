@@ -170,11 +170,8 @@ module Brick::Rails::FormTags
                        if klass
                          type_col = klass.inheritance_column # Usually 'type'
                          filter_parts << "#{type_col}=#{sti_type}" if sti_type && klass.column_names.include?(type_col)
-                         path_params = request.path_parameters.dup
-                         path_params.delete(:controller)
-                         path_params.delete(:action)
+                         path_params = request.path_parameters
                          pk = (klass.primary_key || ActiveRecord::Base.primary_key).to_sym
-                         # Used to also have this but it's a bit too permissive to identify a primary key:  (path_params.length == 1 && path_params.values.first) ||
                          if ((id = (path_params[pk] || path_params[:id] || path_params["#{klass.name.underscore}_id".to_sym])) && (obj = klass.find_by(pk => id))) ||
                             (['show', 'edit', 'update', 'destroy'].include?(action_name) && (obj = klass.first))
                            obj
@@ -183,6 +180,8 @@ module Brick::Rails::FormTags
                            # %%% If there is a polymorphic association that might relate to stuff in the path_params,
                            # try to identify an appropriate ___able_id and ___able_type filter
                            ((klass.column_names - [pk.to_s]) & path_params.keys.map(&:to_s)).each do |path_param|
+                             next if [:controller, :action].include?(path_param)
+
                              filter_parts << "#{path_param}=#{path_params[path_param.to_sym]}"
                            end
                            klass
