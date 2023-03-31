@@ -68,6 +68,12 @@ module ActiveRecord
           self
         end
       end
+
+      def json_column?(col)
+        col.type == :json || ::Brick.config.json_columns[table_name]&.include?(col.name) ||
+        ((attr_types = attribute_types[col.name]).respond_to?(:coder) &&
+         (attr_types.coder.is_a?(Class) ? attr_types.coder : attr_types.coder&.class)&.name&.end_with?('JSON'))
+      end
     end
 
     def self._brick_primary_key(relation = nil)
@@ -1887,7 +1893,7 @@ class Object
                   upd_hash['invitation_accepted_at'] = nil if upd_hash['invitation_accepted_at'].blank?
                 end
               end
-              if (json_cols = model.columns.select { |c| c.type == :json || json_overrides&.include?(c.name) }.map(&:name)).present?
+              if (json_cols = model.columns.select { |c| model.json_column?(c) }.map(&:name)).present?
                 upd_hash ||= upd_params.to_h
                 json_cols.each do |c|
                   begin

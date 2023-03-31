@@ -605,13 +605,28 @@ In config/initializers/brick.rb appropriate entries would look something like:
           ::Rails.configuration.eager_load_namespaces.select { |ns| ns < ::Rails::Application }.each(&:eager_load!)
         end
       else
-        Zeitwerk::Loader.eager_load_all
+        # Same as:  Zeitwerk::Loader.eager_load_all -- plus retry when something skips a beat
+        Zeitwerk::Registry.loaders.each { |loader| load_with_retry(loader) }
       end
       abstract_ar_bases = if do_ar_abstract_bases
                             ActiveRecord::Base.descendants.select { |ar| ar.abstract_class? }.map(&:name)
                           end
       ::Brick.is_eager_loading = false
       abstract_ar_bases
+    end
+
+    # Some classes (like Phlex::Testing::Rails) will successfully auto-load after a retry
+    def load_with_retry(loader, autoloaded = nil)
+      autoloaded ||= loader.send(:autoloaded_dirs).dup
+      begin
+        loader.eager_load
+      rescue Zeitwerk::SetupRequired
+        # This is fine -- we eager load what can be eager loaded
+      rescue Zeitwerk::NameError
+        if autoloaded != (new_auto = loader.send(:autoloaded_dirs))
+          load_with_retry(loader, new_auto.dup) # Try one more time and it could come together
+        end
+      end
     end
 
     def display_classes(prefix, rels, max_length)

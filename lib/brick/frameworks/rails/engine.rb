@@ -1612,7 +1612,7 @@ end
    end %>
 </table>
 <%
-if (description = (relation = Brick.relations[tbl_name = #{model_name}.table_name])&.fetch(:description, nil)) %><%=
+if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %><%=
   description %><br><%
 end
 %><%= link_to \"(See all #\{model_name.pluralize})\", see_all_path %>
@@ -1686,9 +1686,10 @@ end
          elsif val
            \"<span class=\\\"orphan\\\">Orphaned ID: #\{val}</span>\".html_safe
          end %>
-    <% else
-         col_type = if ::Brick.config.json_columns[tbl_name]&.include?(k) ||
-                       ((attr_types = model.attribute_types[k]).respond_to?(:coder) && attr_types.coder&.name&.end_with?('JSON'))
+    <% elsif @_brick_monetized_attributes&.include?(k)
+    %><%= f.text_field(k.to_sym, html_options.merge({ value: Money.new(val.to_i).format })) %><%
+       else
+         col_type = if model.json_column?(col)
                       :json
                     elsif col&.sql_type == 'geography'
                       col.sql_type
