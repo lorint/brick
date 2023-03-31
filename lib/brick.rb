@@ -525,7 +525,7 @@ module Brick
             v.each do |type|
               # Allow polymorphic BT to relate to an STI subclass
               base_type = ::Brick.config.sti_namespace_prefixes["::#{type}"] ||
-                          ::Brick.config.sti_namespace_prefixes.find { |k, _v| type.start_with?(k[2..-1]) }&.last&.[](2..-1)
+                          ::Brick.config.sti_namespace_prefixes.find { |k, _v| k.end_with?('::') && type.start_with?(k[2..-1]) }&.last&.[](2..-1)
               if relations.key?(primary_table = (base_type || type).underscore.pluralize)
                 ::Brick._add_bt_and_hm([nil, table_name, poly, nil, primary_table, "(brick) #{table_name}_#{poly}"], relations,
                                        type, # Polymorphic class

@@ -28,32 +28,32 @@ module Brick::Rails::FormTags
     end
     sequence.reject! { |nm| exclusions.include?(nm) } if exclusions
     out << sequence.each_with_object(+'') do |col_name, s|
-           if (col = cols[col_name]).is_a?(ActiveRecord::ConnectionAdapters::Column)
-             s << '<th'
-             s << " title=\"#{col.comment}\"" if col.respond_to?(:comment) && !col.comment.blank?
-             s << if (bt = bts[col_name])
-                    # Allow sorting for any BT except polymorphics
-                    "#{' x-order="' + bt.first.to_s + '"' unless bt[2]}>BT " +
-                    bt[1].map { |bt_pair| bt_pair.first.bt_link(bt.first) }.join(' ')
-                  else # Normal column
-                    "#{' x-order="' + col_name + '"' if true}>#{col_name}"
-                  end
-           elsif col # HM column
-             options = {}
-             options[col[1].inheritance_column] = col[1].name unless col[1] == col[1].base_class
-             s << "<th#{' x-order="' + col_name + '"' if true}>#{col[2]} "
-             s << (col.first ? "#{col[3]}" : "#{link_to(col[3], send("#{col[1]._brick_index}_path", options))}")
-           elsif cust_cols.key?(col_name) # Custom column
-             s << "<th x-order=\"#{col_name}\">#{col_name}"
-           elsif col_name.is_a?(Symbol) && (hot = bts[col_name]) # has_one :through
-             s << "<th x-order=\"#{hot.first.to_s}\">HOT " +
-                  hot[1].map { |hot_pair| hot_pair.first.bt_link(col_name) }.join(' ')
-             hot[1].first
-           else # Bad column name!
-             s << "<th title=\"<< Unknown column >>\">#{col_name}"
+             if (col = cols[col_name]).is_a?(ActiveRecord::ConnectionAdapters::Column)
+               s << '<th'
+               s << " title=\"#{col.comment}\"" if col.respond_to?(:comment) && !col.comment.blank?
+               s << if (bt = bts[col_name])
+                      # Allow sorting for any BT except polymorphics
+                      "#{' x-order="' + bt.first.to_s + '"' unless bt[2]}>BT " +
+                      bt[1].map { |bt_pair| bt_pair.first.bt_link(bt.first) }.join(' ')
+                    else # Normal column
+                      "#{' x-order="' + col_name + '"' if true}>#{col_name}"
+                    end
+             elsif col # HM column
+               options = {}
+               options[col[1].inheritance_column] = col[1].name unless col[1] == col[1].base_class
+               s << "<th#{' x-order="' + col_name + '"' if true}>#{col[2]} "
+               s << (col.first ? "#{col[3]}" : "#{link_to(col[3], send("#{col[1]._brick_index}_path", options))}")
+             elsif cust_cols.key?(col_name) # Custom column
+               s << "<th x-order=\"#{col_name}\">#{col_name}"
+             elsif col_name.is_a?(Symbol) && (hot = bts[col_name]) # has_one :through
+               s << "<th x-order=\"#{hot.first.to_s}\">HOT " +
+                    hot[1].map { |hot_pair| hot_pair.first.bt_link(col_name) }.join(' ')
+               hot[1].first
+             else # Bad column name!
+               s << "<th title=\"<< Unknown column >>\">#{col_name}"
+             end
+             s << '</th>'
            end
-           s << '</th>'
-         end
     out << "</tr></thead>
   <tbody>"
     # %%% Have once gotten this error with MSSQL referring to http://localhost:3000/warehouse/cold_room_temperatures__archive

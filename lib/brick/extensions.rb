@@ -671,7 +671,7 @@ module ActiveRecord
                                             link_back << nm
                                             num_bt_things += 1
                                             # puts "BT #{a.table_name}"
-                                            "ON br_t#{idx}.id = br_t#{idx - 1}.#{a.foreign_key}"
+                                            "ON br_t#{idx}.#{a.active_record.primary_key} = br_t#{idx - 1}.#{a.foreign_key}"
                                           elsif src_ref.options[:as]
                                             "ON br_t#{idx}.#{src_ref.type} = '#{src_ref.active_record.name}'" + # "polymorphable_type"
                                             " AND br_t#{idx}.#{src_ref.foreign_key} = br_t#{idx - 1}.id"
@@ -682,11 +682,11 @@ module ActiveRecord
                                               bail_out = true
                                               break
                                               # "ON br_t#{idx}.#{a.foreign_type} = '#{src_ref.options[:source_type]}' AND " \
-                                              #   "br_t#{idx}.#{a.foreign_key} = br_t#{idx - 1}.id"
+                                              #   "br_t#{idx}.#{a.foreign_key} = br_t#{idx - 1}.#{a.active_record.primary_key}"
                                             else # Works for HMT through a polymorphic HO
                                               link_back << hmt_assoc.source_reflection.inverse_of&.name # Some polymorphic "_able" thing
                                               "ON br_t#{idx - 1}.#{a.foreign_type} = '#{src_ref.options[:source_type]}' AND " \
-                                                "br_t#{idx - 1}.#{a.foreign_key} = br_t#{idx}.id"
+                                                "br_t#{idx - 1}.#{a.foreign_key} = br_t#{idx}.#{a.active_record.primary_key}"
                                             end
                                           else # Standard has_many or has_one
                                             # puts "HM #{a.table_name}"
@@ -694,7 +694,7 @@ module ActiveRecord
                                             nm = hmt_assoc.source_reflection.inverse_of&.name
                                             # )
                                             link_back << nm # if nm
-                                            "ON br_t#{idx}.#{a.foreign_key} = br_t#{idx - 1}.id"
+                                            "ON br_t#{idx}.#{a.foreign_key} = br_t#{idx - 1}.#{a.active_record.primary_key}"
                                           end
                            link_back.unshift(a.source_reflection.name)
                            [a.table_name, a.foreign_key, a.source_reflection.macro]
@@ -856,8 +856,7 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
       alias _brick_find_sti_class find_sti_class
       def find_sti_class(type_name)
         if ::Brick.sti_models.key?(type_name ||= name)
-          # Used to be:  ::Brick.sti_models[type_name].fetch(:base, nil) || _brick_find_sti_class(type_name)
-          _brick_find_sti_class(type_name)
+          ::Brick.sti_models[type_name].fetch(:base, nil) || _brick_find_sti_class(type_name)
         else
           # This auto-STI is more of a brute-force approach, building modules where needed
           # The more graceful alternative is the overload of ActiveSupport::Dependencies#autoload_module! found below
@@ -865,9 +864,13 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
           module_prefixes = type_name.split('::')
           module_prefixes.unshift('') unless module_prefixes.first.blank?
           module_name = module_prefixes[0..-2].join('::')
-          if (snp = ::Brick.config.sti_namespace_prefixes)&.key?("::#{module_name}::") || snp&.key?("#{module_name}::") ||
+          if (base_name = ::Brick.config.sti_namespace_prefixes&.fetch("#{module_name}::", nil)) ||
              File.exist?(candidate_file = ::Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb'))
-            _brick_find_sti_class(type_name) # Find this STI class normally
+            if base_name
+              base_name == "::#{name}" ? self : base_name.constantize
+            else
+              _brick_find_sti_class(type_name) # Find this STI class normally
+            end
           else
             # Build missing prefix modules if they don't yet exist
             this_module = Object
@@ -988,6 +991,8 @@ Module.class_exec do
                     end
                     Object
                   else
+                    sti_base = (::Brick.config.sti_namespace_prefixes&.fetch("::#{name}::#{requested}", nil) ||
+                                ::Brick.config.sti_namespace_prefixes&.fetch("::#{name}::", nil))&.constantize
                     self
                   end
     # puts "#{self.name} - #{args.first}"
@@ -995,7 +1000,7 @@ Module.class_exec do
     if ((is_defined = self.const_defined?(args.first)) && (possible = self.const_get(args.first)) &&
         # Reset `possible` if it's a controller request that's not a perfect match
         # Was:  (possible = nil)  but changed to #local_variable_set in order to suppress the "= should be ==" warning
-        (possible.name == desired_classname || (is_controller && binding.local_variable_set(:possible, nil)))) ||
+        (possible&.name == desired_classname || (is_controller && binding.local_variable_set(:possible, nil)))) ||
        # Try to require the respective Ruby file
        ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
                     (self != Object && ActiveSupport::Dependencies.search_for_file((desired_classname = requested).underscore))
@@ -1005,9 +1010,11 @@ Module.class_exec do
        # If any class has turned up so far (and we're not in the middle of eager loading)
        # then return what we've found.
        (is_defined && !::Brick.is_eager_loading) # Used to also have:   && possible != self
-      if (!brick_root && (filename || possible.instance_of?(Class))) ||
-         (possible.instance_of?(Module) && possible&.module_parent == self) ||
-         (possible.instance_of?(Class) && possible == self) # Are we simply searching for ourselves?
+      if ((!brick_root && (filename || possible.instance_of?(Class))) ||
+          (possible.instance_of?(Module) && possible&.module_parent == self) ||
+          (possible.instance_of?(Class) && possible == self)) && # Are we simply searching for ourselves?
+         # Skip when what we found as `possible` is not related to the base class of an STI model
+         (!sti_base || possible.is_a?(sti_base))
         return possible
       end
     end
@@ -1139,7 +1146,8 @@ class Object
 
     def build_model(relations, base_module, base_name, class_name, inheritable_name = nil)
       tnp = ::Brick.config.table_name_prefixes&.find { |p| p.last == base_module.name }&.first
-      if (base_model = ::Brick.config.sti_namespace_prefixes&.fetch("::#{base_module.name}::", nil)&.constantize) || # Are we part of an auto-STI namespace? ...
+      if (base_model = (::Brick.config.sti_namespace_prefixes&.fetch("::#{base_module.name}::#{class_name}", nil) || # Are we part of an auto-STI namespace? ...
+                        ::Brick.config.sti_namespace_prefixes&.fetch("::#{base_module.name}::", nil))&.constantize) ||
          base_module != Object # ... or otherwise already in some namespace?
         schema_name = [(singular_schema_name = base_name.underscore),
                        (schema_name = singular_schema_name.pluralize),
@@ -1151,7 +1159,6 @@ class Object
       singular_table_name = ActiveSupport::Inflector.underscore(model_name).gsub('/', '.')
 
       if base_model
-        schema_name = base_name.underscore # For the auto-STI namespace models
         table_name = base_model.table_name
         build_model_worker(base_module, inheritable_name, model_name, singular_table_name, table_name, relations, table_name)
       else
@@ -1181,7 +1188,7 @@ class Object
       full_name = if relation || schema_name.blank?
                     inheritable_name || model_name
                   else # Prefix the schema to the table name + prefix the schema namespace to the class name
-                    schema_module = if schema_name.instance_of?(Module) # from an auto-STI namespace?
+                    schema_module = if schema_name.is_a?(Module) # from an auto-STI namespace?
                                       schema_name
                                     else
                                       matching = "#{schema_name}.#{matching}"
@@ -2682,11 +2689,13 @@ module Brick
                    end
                  end
                end
-      ::Brick.relations.keys.map do |v|
-        tbl_parts = v.split('.')
+      ::Brick.relations.map do |k, v|
+        tbl_parts = k.split('.')
         tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.length > 1 && tbl_parts.first == ::Brick.apartment_default_tenant
         res = tbl_parts.join('.')
-        [v, (model = models[res])&.last&.table_name, migrations&.fetch(res, nil), model&.first]
+        [k, (model = models[res])&.last&.table_name || v[:class_name].constantize.table_name,
+            migrations&.fetch(res, nil),
+            model&.first]
       end
     end
 

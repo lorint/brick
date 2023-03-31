@@ -1687,21 +1687,23 @@ end
            \"<span class=\\\"orphan\\\">Orphaned ID: #\{val}</span>\".html_safe
          end %>
     <% else
-         col_type = if ::Brick.config.json_columns[tbl_name]&.include?(k)
-                     :json
-                   elsif col&.sql_type == 'geography'
-                     col.sql_type
-                   else
-                     col&.type
-                   end
+         col_type = if ::Brick.config.json_columns[tbl_name]&.include?(k) ||
+                       ((attr_types = model.attribute_types[k]).respond_to?(:coder) && attr_types.coder&.name&.end_with?('JSON'))
+                      :json
+                    elsif col&.sql_type == 'geography'
+                      col.sql_type
+                    else
+                      col&.type
+                    end
          case (col_type ||= col&.sql_type)
          when :string, :text
            if is_bcrypt?(val) # || .readonly?
              is_revert = false %>
           <%= hide_bcrypt(val, nil, 1000) %>
         <% elsif col_type == :string
-             if model.respond_to?(:enumerized_attributes) && (opts = model.enumerized_attributes[k]&.options).present? %>
-               <%= f.select(k.to_sym, [[\"(No #\{k} chosen)\", '^^^brick_NULL^^^']] + opts, { value: val || '^^^brick_NULL^^^' }, html_options) %><%
+             if model.respond_to?(:enumerized_attributes) && (attr = model.enumerized_attributes[k])&.options.present?
+               enum_html_options = attr.kind_of?(Enumerize::Multiple) ? html_options.merge({ multiple: true, size: (opts = attr.options)&.length + 1 }) : html_options %>
+               <%= f.select(k.to_sym, [[\"(No #\{k} chosen)\", '^^^brick_NULL^^^']] + opts, { value: val || '^^^brick_NULL^^^' }, enum_html_options) %><%
              else %>
                <%= f.text_field(k.to_sym, html_options) %><%
              end
