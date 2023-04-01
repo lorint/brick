@@ -129,8 +129,12 @@ module Brick::Rails::FormTags
           end
         elsif (col = cols[col_name]).is_a?(ActiveRecord::ConnectionAdapters::Column)
           # binding.pry if col.is_a?(Array)
-          col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
-          out << display_value(col_type || col&.sql_type, val).to_s
+          out << if @_brick_monetized_attributes&.include?(col_name)
+                   val ? Money.new(val.to_i).format : ''
+                 else
+                   col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
+                   display_value(col_type || col&.sql_type, val).to_s
+                 end
         elsif cust_col
           data = cust_col.first.map { |cc_part| obj.send(cc_part.last) }
           cust_txt = klass.brick_descrip(cust_col[-2], data)

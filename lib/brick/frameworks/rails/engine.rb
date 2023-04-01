@@ -1245,6 +1245,7 @@ erDiagram
   }
 <% end
  # callback < %= cb_k % > erdClick
+ @_brick_monetized_attributes = model.respond_to?(:monetized_attributes) ? model.monetized_attributes.values : {}
  %>
 </div>
 "
