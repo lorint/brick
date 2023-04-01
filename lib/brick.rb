@@ -218,7 +218,8 @@ module Brick
               puts "  belongs_to :#{a.name}, polymorphic: true"
             end
           else
-            s.first[a.foreign_key.to_s] = [a.name, a.klass]
+            bt_key = a.foreign_key.is_a?(Array) ? a.foreign_key : a.foreign_key.to_s
+            s.first[bt_key] = [a.name, a.klass]
           end
         else # This gets all forms of has_many and has_one
           if through # has_many :through or has_one :through

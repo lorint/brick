@@ -20,35 +20,45 @@ module Brick::Rails::FormTags
       s << col_name
       cols[col_name] = col
     end
+    composite_bts = bts.select { |k, _v| k.is_a?(Array) }
+    composite_bt_names = {}
+    composite_bt_cols = composite_bts.each_with_object([]) do |bt, s|
+      composite_bt_names[bt.first.join('__')] = bt.last
+      bt.first.each { |bt_col| s << bt_col unless s.include?(bt_col.first) }
+    end
     unless sequence # If no sequence is defined, start with all inclusions
       cust_cols = klass._br_cust_cols
       # HOT columns, kept as symbols
       hots = klass._br_bt_descrip.keys.select { |k| bts.key?(k) }
-      sequence = col_keys + cust_cols.keys + hots + hms_keys.reject { |assoc_name| inclusions&.exclude?(assoc_name) }
+      sequence = (col_keys - composite_bt_cols) +
+                 composite_bt_names.keys + cust_cols.keys + hots +
+                 hms_keys.reject { |assoc_name| inclusions&.exclude?(assoc_name) }
     end
     sequence.reject! { |nm| exclusions.include?(nm) } if exclusions
     out << sequence.each_with_object(+'') do |col_name, s|
              if (col = cols[col_name]).is_a?(ActiveRecord::ConnectionAdapters::Column)
-               s << '<th'
-               s << " title=\"#{col.comment}\"" if col.respond_to?(:comment) && !col.comment.blank?
+               s << '<th '
+               s << "title=\"#{col.comment}\"" if col.respond_to?(:comment) && !col.comment.blank?
                s << if (bt = bts[col_name])
                       # Allow sorting for any BT except polymorphics
-                      "#{' x-order="' + bt.first.to_s + '"' unless bt[2]}>BT " +
+                      "x-order=\"#{bt.first.to_s + '"' unless bt[2]}>BT " +
                       bt[1].map { |bt_pair| bt_pair.first.bt_link(bt.first) }.join(' ')
                     else # Normal column
-                      "#{' x-order="' + col_name + '"' if true}>#{col_name}"
+                      "x-order=\"#{col_name + '"' if true}>#{col_name}"
                     end
              elsif col # HM column
                options = {}
                options[col[1].inheritance_column] = col[1].name unless col[1] == col[1].base_class
-               s << "<th#{' x-order="' + col_name + '"' if true}>#{col[2]} "
+               s << "<th x-order=\"#{col_name + '"' if true}>#{col[2]} "
                s << (col.first ? "#{col[3]}" : "#{link_to(col[3], send("#{col[1]._brick_index}_path", options))}")
              elsif cust_cols.key?(col_name) # Custom column
                s << "<th x-order=\"#{col_name}\">#{col_name}"
              elsif col_name.is_a?(Symbol) && (hot = bts[col_name]) # has_one :through
                s << "<th x-order=\"#{hot.first.to_s}\">HOT " +
                     hot[1].map { |hot_pair| hot_pair.first.bt_link(col_name) }.join(' ')
-               hot[1].first
+             elsif (bt = composite_bt_names[col_name])
+               s << "<th x-order=\"#{bt.first.to_s + '"' unless bt[2]}>BT comp " +
+                    bt[1].map { |bt_pair| bt_pair.first.bt_link(bt.first) }.join(' ')
              else # Bad column name!
                s << "<th title=\"<< Unknown column >>\">#{col_name}"
              end
@@ -70,7 +80,7 @@ module Brick::Rails::FormTags
         out << ' class=\"dimmed\"' unless cols.key?(col_name) || (cust_col = cust_cols[col_name]) ||
                                           (col_name.is_a?(Symbol) && bts.key?(col_name)) # HOT
         out << '>'
-        if (bt = bts[col_name])
+        if (bt = bts[col_name] || composite_bt_names[col_name])
           if bt[2] # Polymorphic?
             if (poly_id = obj.send("#{bt.first}_id"))
               # Was:  obj.send("#{bt.first}_type")
