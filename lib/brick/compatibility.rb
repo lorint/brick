@@ -19,19 +19,17 @@ unless ActiveSupport.respond_to?(:version)
     end
   end
 end
-if Object.const_defined?('ActionPack')
-  unless ActionPack.respond_to?(:version)
-    module ActionPack
-      def self.version
-        ::Gem::Version.new(ActionPack::VERSION::STRING)
-      end
+if Object.const_defined?('ActionPack') && !ActionPack.respond_to?(:version)
+  module ActionPack
+    def self.version
+      ::Gem::Version.new(ActionPack::VERSION::STRING)
     end
   end
-  if Object.const_defined?('ActionView') && !ActionView.respond_to?(:version)
-    module ActionView
-      def self.version
-        ActionPack.version
-      end
+end
+if Object.const_defined?('ActionView') && !ActionView.respond_to?(:version)
+  module ActionView
+    def self.version
+      ActionPack.version
     end
   end
 end

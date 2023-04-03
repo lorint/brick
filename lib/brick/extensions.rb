@@ -231,6 +231,9 @@ module ActiveRecord
                         if this_obj.is_a?(ActiveRecord::Base) && (obj_descrip = this_obj.class.brick_descrip(this_obj))
                           this_obj = obj_descrip
                         end
+                        if this_obj.is_a?(ActiveStorage::Filename) && this_obj.instance_variable_get(:@filename).nil?
+                          this_obj.instance_variable_set(:@filename, '')
+                        end
                         this_obj&.to_s || ''
                       end
               is_brackets_have_content = true unless datum.blank?
@@ -916,6 +919,15 @@ if Object.const_defined?('ActionView')
   require 'brick/frameworks/rails/form_tags'
   module ActionView::Helpers::FormTagHelper
     include ::Brick::Rails::FormTags
+  end
+
+  # FormBuilder#field_id isn't available in Rails < 7.0.  This is a rudimentary version with no `index`.
+  unless ActionView::Helpers::FormBuilder.methods.include?(:field_id)
+    ActionView::Helpers::FormBuilder.class_exec do
+      def field_id(method)
+        [object_name, method.to_s].join('_')
+      end
+    end
   end
 end
 
@@ -1817,7 +1829,13 @@ class Object
           code << "  end\n"
           self.define_method :new do
             _schema, @_is_show_schema_list = ::Brick.set_db_schema(params)
-            instance_variable_set("@#{singular_table_name}".to_sym, model.new)
+            if (new_obj = model.new).respond_to?(:serializable_hash)
+              # Convert any Filename objects with nil into an empty string so that #encode can be called on them
+              new_obj.serializable_hash.each do |k, v|
+                new_obj.send("#{k}=", ActiveStorage::Filename.new('')) if v.is_a?(ActiveStorage::Filename) && !v.instance_variable_get(:@filename)
+              end
+            end
+            instance_variable_set("@#{singular_table_name}".to_sym, new_obj)
           end
 
           params_name_sym = (params_name = "#{singular_table_name}_params").to_sym
@@ -2113,7 +2131,6 @@ end.class_exec do
           load apartment_initializer
           @_apartment_loaded = true
         end
-        apartment_excluded = Apartment.excluded_models
       end
       # Only for Postgres  (Doesn't work in sqlite3 or MySQL)
       # puts ActiveRecord::Base.execute_sql("SELECT current_setting('SEARCH_PATH')").to_a.inspect
@@ -2203,7 +2220,7 @@ end.class_exec do
           # If Apartment gem lists the table as being associated with a non-tenanted model then use whatever it thinks
           # is the default schema, usually 'public'.
           schema_name = if ::Brick.config.schema_behavior[:multitenant]
-                          ::Brick.apartment_default_tenant if apartment_excluded&.include?(r['relation_name'].singularize.camelize)
+                          ::Brick.apartment_default_tenant if ::Brick.is_apartment_excluded_table(r['relation_name'])
                         elsif ![schema, 'public'].include?(r['schema'])
                           r['schema']
                         end
@@ -2353,7 +2370,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       fk_references&.each do |fk|
         fk = fk.values unless fk.is_a?(Array)
         # Multitenancy makes things a little more general overall, except for non-tenanted tables
-        if apartment_excluded&.include?(::Brick.namify(fk[1]).singularize.camelize)
+        if ::Brick.is_apartment_excluded_table(::Brick.namify(fk[1]))
           fk[0] = ::Brick.apartment_default_tenant
         elsif (is_postgres && (fk[0] == 'public' || (multitenancy && fk[0] == schema))) ||
               (::Brick.is_oracle && fk[0] == schema) ||
@@ -2361,7 +2378,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
               (!is_postgres && !::Brick.is_oracle && !is_mssql && ['mysql', 'performance_schema', 'sys'].exclude?(fk[0]))
           fk[0] = nil
         end
-        if apartment_excluded&.include?(fk[4].singularize.camelize)
+        if ::Brick.is_apartment_excluded_table(fk[4])
           fk[3] = ::Brick.apartment_default_tenant
         elsif (is_postgres && (fk[3] == 'public' || (multitenancy && fk[3] == schema))) ||
               (::Brick.is_oracle && fk[3] == schema) ||
@@ -2537,8 +2554,7 @@ module Brick
       # %%% Temporary schema patch
       for_tbl = fk[1]
       fk_namified = ::Brick.namify(fk[1])
-      apartment = Object.const_defined?('Apartment') && Apartment
-      fk[0] = ::Brick.apartment_default_tenant if apartment && apartment.excluded_models.include?(fk_namified.singularize.camelize)
+      fk[0] = ::Brick.apartment_default_tenant if ::Brick.is_apartment_excluded_table(fk_namified)
       fk[1] = "#{fk[0]}.#{fk[1]}" if fk[0] # && fk[0] != ::Brick.default_schema
       bts = (relation = relations.fetch(fk[1], nil))&.fetch(:fks) { relation[:fks] = {} }
 
@@ -2553,7 +2569,7 @@ module Brick
                         is_schema = if ::Brick.config.schema_behavior[:multitenant]
                                       # If Apartment gem lists the primary table as being associated with a non-tenanted model
                                       # then use 'public' schema for the primary table
-                                      if apartment && apartment&.excluded_models.include?(fk[4].singularize.camelize)
+                                      if ::Brick.is_apartment_excluded_table(fk[4])
                                         fk[3] = ::Brick.apartment_default_tenant
                                         true
                                       end
@@ -2630,7 +2646,7 @@ module Brick
         end
         assoc_hm[:alternate_name] = "#{assoc_hm[:alternate_name]}_#{bt_assoc_name}" unless assoc_hm[:alternate_name] == bt_assoc_name
       else
-        inv_tbl = if ::Brick.config.schema_behavior[:multitenant] && apartment && fk[0] == ::Brick.apartment_default_tenant
+        inv_tbl = if ::Brick.config.schema_behavior[:multitenant] && Object.const_defined?('Apartment') && fk[0] == ::Brick.apartment_default_tenant
                     for_tbl
                   else
                     fk[1]
@@ -2799,6 +2815,14 @@ module Brick
 
     def _class_pk(dotted_name, multitenant)
       Object.const_get((multitenant ? [dotted_name.split('.').last] : dotted_name.split('.')).map { |nm| "::#{nm.singularize.camelize}" }.join).primary_key
+    end
+
+    def is_apartment_excluded_table(tbl)
+      if Object.const_defined?('Apartment')
+        tbl_klass = (tnp = ::Brick.config.table_name_prefixes&.find { |k, _v| tbl.start_with?(k) }) ? +"#{tnp.last}::" : +''
+        tbl_klass << tbl[tnp&.first&.length || 0..-1].singularize.camelize
+        Apartment.excluded_models&.include?(tbl_klass)
+      end
     end
   end
 end

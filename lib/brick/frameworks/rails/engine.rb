@@ -1569,10 +1569,10 @@ end
 <title><%=
   base_model = (model = (obj = @#{obj_name})&.class).base_class
   see_all_path = send(\"#\{base_model._brick_index}_path\")
-  if obj.respond_to?(:#{inh_col = @_brick_model.inheritance_column}) &&
-     (model_name = @#{obj_name}.#{inh_col}) != base_model.name
+#{(inh_col = @_brick_model.inheritance_column).present? &&
+"  if obj.respond_to?(:#{inh_col}) && (model_name = @#{obj_name}.#{inh_col}) != base_model.name
     see_all_path << \"?#{inh_col}=#\{model_name}\"
-  end
+  end"}
   page_title = (\"#\{model_name ||= model.name}: #\{obj&.brick_descrip || controller_name}\")
 %></title>
 </head>
@@ -1690,7 +1690,7 @@ end
     <% elsif @_brick_monetized_attributes&.include?(k)
     %><%= f.text_field(k.to_sym, html_options.merge({ value: Money.new(val.to_i).format })) %><%
        else
-         col_type = if model.json_column?(col)
+         col_type = if model.json_column?(col) || val.is_a?(Array)
                       :json
                     elsif col&.sql_type == 'geography'
                       col.sql_type
@@ -1703,8 +1703,8 @@ end
              is_revert = false %>
           <%= hide_bcrypt(val, nil, 1000) %>
         <% elsif col_type == :string
-             if model.respond_to?(:enumerized_attributes) && (attr = model.enumerized_attributes[k])&.options.present?
-               enum_html_options = attr.kind_of?(Enumerize::Multiple) ? html_options.merge({ multiple: true, size: (opts = attr.options)&.length + 1 }) : html_options %>
+             if model.respond_to?(:enumerized_attributes) && (opts = (attr = model.enumerized_attributes[k])&.options).present?
+               enum_html_options = attr.kind_of?(Enumerize::Multiple) ? html_options.merge({ multiple: true, size: opts.length + 1 }) : html_options %>
                <%= f.select(k.to_sym, [[\"(No #\{k} chosen)\", '^^^brick_NULL^^^']] + opts, { value: val || '^^^brick_NULL^^^' }, enum_html_options) %><%
              else %>
                <%= f.text_field(k.to_sym, html_options) %><%
@@ -1799,11 +1799,12 @@ end
                        # with a .where(). And the polymorphic class name it points to is the base class name of
                        # the STI model instead of its subclass.
                        poly_type = #{poly_type.inspect}
-                       if poly_type && @#{obj_name}.respond_to?(:#{@_brick_model.inheritance_column}) &&
+#{                     (inh_col = @_brick_model.inheritance_column).present? &&
+"                      if poly_type && @#{obj_name}.respond_to?(:#{inh_col}) &&
                           (base_type = collection.where_values_hash[poly_type])
-                         collection = collection.rewhere(poly_type => [base_type, @#{obj_name}.#{@_brick_model.inheritance_column}])
-                       end"
-      end
+                         collection = collection.rewhere(poly_type => [base_type, @#{obj_name}.#{inh_col}])
+                       end"}"
+                 end
       s << "<table id=\"#{hm_name}\" class=\"shadow\">
         <tr><th>#{hm[1]}#{' poly' if hm[0].options[:as]} #{hm[3]}</th></tr>
         <% collection = @#{obj_name}.#{hm_name}
