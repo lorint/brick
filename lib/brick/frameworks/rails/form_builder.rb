@@ -5,7 +5,8 @@ module Brick::Rails::FormBuilder
   #   @_text_fields_present - To include trix editor
   #   @_date_fields_present - To include flatpickr date / time editor
   #   @_json_fields_present - To include JSONEditor
-  def brick_field(method, html_options = {}, val = nil, col = nil, bt = nil, bt_class = nil, bt_name = nil, bt_pair = nil)
+  def brick_field(method, html_options = {}, val = nil, col = nil,
+                  bt = nil, bt_class = nil, bt_name = nil, bt_pair = nil)
     model = self.object.class
     col ||= model.columns_hash[method]
     out = +'<table><tr><td>'
@@ -19,15 +20,16 @@ module Brick::Rails::FormBuilder
 
       html_options[:prompt] = "Select #{bt_name}"
       out << self.select(method.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options)
-      out << if (bt_obj = bt_class&.find_by(bt_pair[1] => val))
-               bt_path = template.send(
-                           "#{bt_class.base_class._brick_index(:singular)}_path".to_sym,
-                           bt_obj.send(bt_class.primary_key.to_sym)
-                         )
-               template.link_to('⇛', bt_path, { class: 'show-arrow' })
-             elsif val
-               "<span class=\"orphan\">Orphaned ID: #{val}</span>".html_safe
-             end
+      bt_link = if (bt_obj = bt_class&.find_by(bt_pair[1] => val))
+                  bt_path = template.send(
+                              "#{bt_class.base_class._brick_index(:singular)}_path".to_sym,
+                              bt_obj.send(bt_class.primary_key.to_sym)
+                            )
+                  template.link_to('⇛', bt_path, { class: 'show-arrow' })
+                elsif val
+                  "<span class=\"orphan\">Orphaned ID: #{val}</span>".html_safe
+                end
+      out << bt_link if bt_link
     elsif @_brick_monetized_attributes&.include?(method)
       out << self.text_field(method.to_sym, html_options.merge({ value: Money.new(val.to_i).format }))
     else

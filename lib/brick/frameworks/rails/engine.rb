@@ -71,6 +71,8 @@ module Brick
       def display_binary(val)
         @image_signatures ||= { (+"\xFF\xD8\xFF\xEE").force_encoding('ASCII-8BIT') => 'jpeg',
                                 (+"\xFF\xD8\xFF\xE0\x00\x10\x4A\x46\x49\x46\x00\x01").force_encoding('ASCII-8BIT') => 'jpeg',
+                                (+"\xFF\xD8\xFF\xDB").force_encoding('ASCII-8BIT') => 'jpeg',
+                                (+"\xFF\xD8\xFF\xE1").force_encoding('ASCII-8BIT') => 'jpeg',
                                 (+"\x89PNG\r\n\x1A\n").force_encoding('ASCII-8BIT') => 'png',
                                 '<svg' => 'svg+xml', # %%% Not yet very good detection for SVG
                                 (+'BM').force_encoding('ASCII-8BIT') => 'bmp',
@@ -90,7 +92,8 @@ module Brick
           val = val[object_start...object_start + real_object_size]
         end
 
-        if (signature = @image_signatures.find { |k, _v| val[0...k.length] == k })
+        if (signature = @image_signatures.find { |k, _v| val[0...k.length] == k }) ||
+           (val[0..3] == 'RIFF' && val[8..11] == 'WEBP' && (signature = 'webp'))
           if val.length < 500_000
             "<img src=\"data:image/#{signature.last};base64,#{Base64.encode64(val)}\">"
           else
@@ -1290,7 +1293,7 @@ erDiagram
 </head>
 <body>
 <div id=\"titleBox\"><div id=\"titleSticky\">
-<p style=\"color: green\"><%= notice %></p>#{"
+<p style=\"color: green\"><%= notice if request.respond_to?(:flash) %></p>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><tr>
@@ -1411,7 +1414,8 @@ end
     brick_grid(@#{table_name}, @_brick_bt_descrip, @_brick_sequence, @_brick_incl, @_brick_excl,
                cols, poly_cols, bts, #{hms_keys.inspect}, {#{hms_columns.join(', ')}}) %>
 
-#{"<hr><%= link_to \"New #{obj_name}\", new_#{path_obj_name}_path %>" unless @_brick_model.is_view?}
+#{"<hr><%= link_to(\"New #{new_path_name = "new_#{path_obj_name}_path"
+                           obj_name}\", #{new_path_name}) if respond_to?(:#{new_path_name}) %>" unless @_brick_model.is_view?}
 #{script}
 </body>
 </html>
@@ -1423,7 +1427,7 @@ end
 # Must load all models, and then find what table names are represented
 # Easily could be multiple files involved (STI for instance)
 +"#{css}
-<p style=\"color: green\"><%= notice %></p>#{"
+<p style=\"color: green\"><%= notice if request.respond_to?(:flash) %></p>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <h1>Status</h1>
@@ -1473,7 +1477,7 @@ end
                        when 'orphans'
                          if is_orphans
 +"#{css}
-<p style=\"color: green\"><%= notice %></p>#{"
+<p style=\"color: green\"><%= notice if request.respond_to?(:flash) %></p>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <h1>Orphans<%= \" for #\{}\" if false %></h1>
@@ -1520,7 +1524,7 @@ end
   c23.141-70.188,89.141-120.906,167.063-120.906c97.25,0,176,78.813,176,176C511.828,227.078,404.391,119.641,271.844,119.641z\" />
 </svg>
 
-<p style=\"color: green\"><%= notice %></p>#{"
+<p style=\"color: green\"><%= notice if request.respond_to?(:flash) %></p>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table><td><h1><%= page_title %></h1></td>
@@ -1555,14 +1559,13 @@ end
 %><%= link_to \"(See all #\{model_name.pluralize})\", see_all_path %>
 #{erd_markup}
 <% if obj
-      # path_options = [obj.#{pk}]
-      # path_options << { '_brick_schema':  } if
-      # url = send(:#\{model._brick_index(:singular)}_path, obj.#{pk})
-      options = {}
-      if ::Brick.config.path_prefix
-        path_helper = obj.new_record? ? #{model_name}._brick_index : #{model_name}._brick_index(:singular)
-        options[:url] = send(\"#\{path_helper}_path\".to_sym, obj)
-      end
+     # path_options = [obj.#{pk}]
+     # path_options << { '_brick_schema':  } if
+     options = {}
+     if ::Brick.config.path_prefix
+       path_helper = obj.new_record? ? #{model_name}._brick_index : #{model_name}._brick_index(:singular)
+       options[:url] = send(\"#\{path_helper}_path\".to_sym, obj)
+     end
 %>
   <br><br>
 <%= form_for(obj.becomes(#{model_name}), options) do |f| %>
@@ -1570,11 +1573,11 @@ end
   <% has_fields = false
      @#{obj_name}.attributes.each do |k, val|
        next if !(col = #{model_name}.columns_hash[k]) ||
-               (#{(pk || []).inspect}.include?(k) && !bts.key?(k)) ||
+               (#{(pk.map(&:to_s) || []).inspect}.include?(k) && !bts.key?(k)) ||
                ::Brick.config.metadata_columns.include?(k) %>
     <tr>
     <th class=\"show-field\"<%= \" title=\\\"#\{col.comment}\\\"\".html_safe if col.respond_to?(:comment) && !col.comment.blank? %>>
-    <% has_fields = true
+<%    has_fields = true
       if (bt = bts[k])
         # Add a final member in this array with descriptive options to be used in <select> drop-downs
         bt_name = bt[1].map { |x| x.first.name }.join('/')
@@ -1619,7 +1622,8 @@ end
   <% else %>
     <tr><td colspan=\"2\">(No displayable fields)</td></tr>
   <% end %>
-  </table>
+  </table>#{
+  "<%= ::Brick::Rails.display_binary(obj.blob&.download).html_safe %>" if model_name == 'ActiveStorage::Attachment'}
 <%  end %>
 
 #{unless args.first == 'new'
@@ -1634,16 +1638,16 @@ end
       obj_pk = (pk.is_a?(Array) ? pk : [pk]).each_with_object([]) { |pk_part, s| s << "#{hm_singular_name}.#{pk_part}" }.join(', ')
       poly_fix = if (poly_type = (hm.first.options[:as] && hm.first.type))
                    "
-                       # Let's fix an unexpected \"feature\" of AR -- when going through a polymorphic has_many
-                       # association that points to an STI model then filtering for the __able_type column is done
-                       # with a .where(). And the polymorphic class name it points to is the base class name of
-                       # the STI model instead of its subclass.
-                       poly_type = #{poly_type.inspect}
-#{                     (inh_col = @_brick_model.inheritance_column).present? &&
-"                      if poly_type && @#{obj_name}.respond_to?(:#{inh_col}) &&
-                          (base_type = collection.where_values_hash[poly_type])
-                         collection = collection.rewhere(poly_type => [base_type, @#{obj_name}.#{inh_col}])
-                       end"}"
+                     # Let's fix an unexpected \"feature\" of AR -- when going through a polymorphic has_many
+                     # association that points to an STI model then filtering for the __able_type column is done
+                     # with a .where(). And the polymorphic class name it points to is the base class name of
+                     # the STI model instead of its subclass.
+                     poly_type = #{poly_type.inspect}
+#{                   (inh_col = @_brick_model.inheritance_column).present? &&
+"                    if poly_type && @#{obj_name}.respond_to?(:#{inh_col}) &&
+                        (base_type = collection.where_values_hash[poly_type])
+                       collection = collection.rewhere(poly_type => [base_type, @#{obj_name}.#{inh_col}])
+                     end"}"
                  end
       s << "<table id=\"#{hm_name}\" class=\"shadow\">
         <tr><th>#{hm[1]}#{' poly' if hm[0].options[:as]} #{hm[3]}</th></tr>

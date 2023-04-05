@@ -108,16 +108,16 @@ module ActiveRecord
       dsl
     end
 
-    def self.brick_parse_dsl(build_array = nil, prefix = [], translations = {}, is_polymorphic = false, dsl = nil, emit_dsl = false)
-      unless build_array.is_a?(::Brick::JoinArray)
-        build_array = ::Brick::JoinArray.new.tap { |ary| ary.replace([build_array]) } if build_array.is_a?(::Brick::JoinHash)
-        build_array = ::Brick::JoinArray.new unless build_array.nil? || build_array.is_a?(Array)
+    def self.brick_parse_dsl(join_array = nil, prefix = [], translations = {}, is_polymorphic = false, dsl = nil, emit_dsl = false)
+      unless join_array.is_a?(::Brick::JoinArray)
+        join_array = ::Brick::JoinArray.new.tap { |ary| ary.replace([join_array]) } if join_array.is_a?(::Brick::JoinHash)
+        join_array = ::Brick::JoinArray.new unless join_array.nil? || join_array.is_a?(Array)
       end
       prefix = [prefix] unless prefix.is_a?(Array)
       members = []
       unless dsl || (dsl = ::Brick.config.model_descrips[name] || brick_get_dsl)
         # With no DSL available, still put this prefix into the JoinArray so we can get primary key (ID) info from this table
-        x = prefix.each_with_object(build_array) { |v, s| s[v.to_sym] }
+        x = prefix.each_with_object(join_array) { |v, s| s[v.to_sym] }
         x[prefix.last] = nil unless prefix.empty? # Using []= will "hydrate" any missing part(s) in our whole series
         return members
       end
@@ -141,7 +141,7 @@ module ActiveRecord
             if first_parts
               if (parts = prefix + first_parts + [parts[-1]]).length > 1 && klass
                 unless is_polymorphic
-                  s = build_array
+                  s = join_array
                   parts[0..-3].each { |v| s = s[v.to_sym] }
                   s[parts[-2]] = nil # unless parts[-2].empty? # Using []= will "hydrate" any missing part(s) in our whole series
                 end
@@ -153,7 +153,7 @@ module ActiveRecord
                   prefix << parts.shift until parts.empty?
                 end
                 # Expand this entry which refers to an association name
-                members2, dsl2a = klass.brick_parse_dsl(build_array, prefix + [possible_dsl], translations, is_polymorphic, nil, true)
+                members2, dsl2a = klass.brick_parse_dsl(join_array, prefix + [possible_dsl], translations, is_polymorphic, nil, true)
                 members += members2
                 dsl2 << dsl2a
                 dsl3 << dsl2a
@@ -467,7 +467,7 @@ module ActiveRecord
           is_distinct = true
           distinct!
         end
-        wheres[k] = v.split(',')
+        wheres[k] = v.is_a?(String) ? v.split(',') : v
       end
 
       # %%% Skip the metadata columns
@@ -506,84 +506,85 @@ module ActiveRecord
         end
       end
 
-      if join_array.present?
-        left_outer_joins!(join_array)
-        # Touching AREL AST walks the JoinDependency tree, and in that process uses our
-        # "brick_links" patch to find how every AR chain of association names relates to exact
-        # table correlation names chosen by AREL.  We use a duplicate relation object for this
-        # because an important side-effect of referencing the AST is that the @arel instance
-        # variable gets set, and this is a signal to ActiveRecord that a relation has now
-        # become immutable.  (We aren't quite ready for our "real deal" relation object to be
-        # set in stone ... still need to add .select(), and possibly .where() and .order()
-        # things ... also if there are any HM counts then an OUTER JOIN for each of them out
-        # to a derived table to do that counting.  All of these things need to know proper
-        # table correlation names, which will now become available in brick_links on the
-        # rel_dupe object.)
-        (rel_dupe = dup).arel.ast
+      left_outer_joins!(join_array) if join_array.present?
+      # Touching AREL AST walks the JoinDependency tree, and in that process uses our
+      # "brick_links" patch to find how every AR chain of association names relates to exact
+      # table correlation names chosen by AREL.  We use a duplicate relation object for this
+      # because an important side-effect of referencing the AST is that the @arel instance
+      # variable gets set, and this is a signal to ActiveRecord that a relation has now
+      # become immutable.  (We aren't quite ready for our "real deal" relation object to be
+      # set in stone ... still need to add .select(), and possibly .where() and .order()
+      # things ... also if there are any HM counts then an OUTER JOIN for each of them out
+      # to a derived table to do that counting.  All of these things need to know proper
+      # table correlation names, which will now become available in brick_links on the
+      # rel_dupe object.)
+      (rel_dupe = dup).arel.ast
 
-        core_selects = selects.dup
-        id_for_tables = Hash.new { |h, k| h[k] = [] }
-        field_tbl_names = Hash.new { |h, k| h[k] = {} }
-        used_col_aliases = {} # Used to make sure there is not a name clash
+      core_selects = selects.dup
+      id_for_tables = Hash.new { |h, k| h[k] = [] }
+      field_tbl_names = Hash.new { |h, k| h[k] = {} }
+      used_col_aliases = {} # Used to make sure there is not a name clash
 
-        # CUSTOM COLUMNS
-        # ==============
-        klass._br_cust_cols.each do |k, cc|
-          if rel_dupe.respond_to?(k) # Name already taken?
-            # %%% Use ensure_unique here in this kind of fashion:
-            # cnstr_name = ensure_unique(+"(brick) #{for_tbl}_#{pri_tbl}", bts, hms)
-            # binding.pry
-            next
-          end
-
-          key_klass = nil
-          key_tbl_name = nil
-          dest_pk = nil
-          key_alias = nil
-          cc.first.each do |cc_part|
-            dest_klass = cc_part[0..-2].inject(klass) do |kl, cc_part_term|
-              # %%% Clear column info properly so we can do multiple subsequent requests
-              # binding.pry unless kl.reflect_on_association(cc_part_term)
-              kl.reflect_on_association(cc_part_term)&.klass || klass
-            end
-            tbl_name = rel_dupe.brick_links[cc_part[0..-2].map(&:to_s).join('.')]
-            # Deal with the conflict if there are two parts in the custom column named the same,
-            # "category.name" and "product.name" for instance will end up with aliases of "name"
-            # and "product__name".
-            if (cc_part_idx = cc_part.length - 1).zero?
-              col_alias = "br_cc_#{k}__#{table_name.tr('.', '_')}"
-            else
-              while cc_part_idx > 0 &&
-                    (col_alias = "br_cc_#{k}__#{cc_part[cc_part_idx..-1].map(&:to_s).join('__').tr('.', '_')}") &&
-                    used_col_aliases.key?(col_alias)
-                cc_part_idx -= 1
-              end
-            end
-            used_col_aliases[col_alias] = nil
-            # Set up custom column links by preparing key_klass and key_alias
-            # (If there are multiple different tables referenced in the DSL, we end up creating a link to the last one)
-            if cc[2] && (dest_pk = dest_klass.primary_key)
-              key_klass = dest_klass
-              key_tbl_name = tbl_name
-              cc_part_idx = cc_part.length - 1
-              while cc_part_idx > 0 &&
-                    (key_alias = "br_cc_#{k}__#{(cc_part[cc_part_idx..-2] + [dest_pk]).map(&:to_s).join('__')}") &&
-                    key_alias != col_alias && # We break out if this key alias does exactly match the col_alias
-                    used_col_aliases.key?(key_alias)
-                cc_part_idx -= 1
-              end
-            end
-            selects << "#{tbl_name}.#{cc_part.last} AS #{col_alias}"
-            cc_part << col_alias
-          end
-          # Add a key column unless we've already got it
-          if key_alias && !used_col_aliases.key?(key_alias)
-            selects << "#{key_tbl_name}.#{dest_pk} AS #{key_alias}"
-            used_col_aliases[key_alias] = nil
-          end
-          cc[2] = key_alias ? [key_klass, key_alias] : nil
+      # CUSTOM COLUMNS
+      # ==============
+      klass._br_cust_cols.each do |k, cc|
+        if rel_dupe.respond_to?(k) # Name already taken?
+          # %%% Use ensure_unique here in this kind of fashion:
+          # cnstr_name = ensure_unique(+"(brick) #{for_tbl}_#{pri_tbl}", bts, hms)
+          # binding.pry
+          next
         end
 
+        key_klass = nil
+        key_tbl_name = nil
+        dest_pk = nil
+        key_alias = nil
+        cc.first.each do |cc_part|
+          dest_klass = cc_part[0..-2].inject(klass) do |kl, cc_part_term|
+            # %%% Clear column info properly so we can do multiple subsequent requests
+            # binding.pry unless kl.reflect_on_association(cc_part_term)
+            kl.reflect_on_association(cc_part_term)&.klass || klass
+          end
+          tbl_name = rel_dupe.brick_links[cc_part[0..-2].map(&:to_s).join('.')]
+          # Deal with the conflict if there are two parts in the custom column named the same,
+          # "category.name" and "product.name" for instance will end up with aliases of "name"
+          # and "product__name".
+          if (cc_part_idx = cc_part.length - 1).zero?
+            col_alias = "br_cc_#{k}__#{table_name.tr('.', '_')}_#{cc_part.first}"
+          else
+            while cc_part_idx > 0 &&
+                  (col_alias = "br_cc_#{k}__#{cc_part[cc_part_idx..-1].map(&:to_s).join('__').tr('.', '_')}") &&
+                  used_col_aliases.key?(col_alias)
+              cc_part_idx -= 1
+            end
+          end
+          used_col_aliases[col_alias] = nil
+          # Set up custom column links by preparing key_klass and key_alias
+          # (If there are multiple different tables referenced in the DSL, we end up creating a link to the last one)
+          if cc[2] && (dest_pk = dest_klass.primary_key)
+            key_klass = dest_klass
+            key_tbl_name = tbl_name
+            cc_part_idx = cc_part.length - 1
+            while cc_part_idx > 0 &&
+                  (key_alias = "br_cc_#{k}__#{(cc_part[cc_part_idx..-2] + [dest_pk]).map(&:to_s).join('__')}") &&
+                  key_alias != col_alias && # We break out if this key alias does exactly match the col_alias
+                  used_col_aliases.key?(key_alias)
+              cc_part_idx -= 1
+            end
+          end
+          selects << "#{tbl_name}.#{cc_part.last} AS #{col_alias}"
+          cc_part << col_alias
+        end
+        # Add a key column unless we've already got it
+        if key_alias && !used_col_aliases.key?(key_alias)
+          selects << "#{key_tbl_name}.#{dest_pk} AS #{key_alias}"
+          used_col_aliases[key_alias] = nil
+        end
+        cc[2] = key_alias ? [key_klass, key_alias] : nil
+      end
+
+      # LEFT OUTER JOINs
+      if join_array.present?
         klass._br_bt_descrip.each do |v|
           v.last.each do |k1, v1| # k1 is class, v1 is array of columns to snag
             next unless (tbl_name = rel_dupe.brick_links[v.first.to_s]&.split('.')&.last)
@@ -644,6 +645,7 @@ module ActiveRecord
           _assoc_names[assoc_name] = [table_alias, klass]
         end
       end
+
       # Add derived table JOIN for the has_many counts
       nix = []
       klass._br_hm_counts.each do |k, hm|
@@ -1254,6 +1256,11 @@ class Object
           end
           self.abstract_class = true
           code << "  self.abstract_class = true\n"
+        elsif Object.const_defined?('BCrypt') && relation[:cols].include?('password_digest') &&
+              !instance_methods.include?(:password) && respond_to?(:has_secure_password)
+          puts "Appears that the #{full_name} model is intended to hold user account information.  Applying #has_secure_password."
+          has_secure_password
+          code << "  has_secure_password\n"
         end
         # Accommodate singular or camel-cased table names such as "order_detail" or "OrderDetails"
         code << "  self.table_name = '#{self.table_name = matching}'\n" if inheritable_name || table_name != matching
@@ -2718,12 +2725,17 @@ module Brick
                  end
                end
       ::Brick.relations.map do |k, v|
+        # next if Brick.config.exclude_tables.include?(k)
+
         tbl_parts = k.split('.')
         tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.length > 1 && tbl_parts.first == ::Brick.apartment_default_tenant
         res = tbl_parts.join('.')
-        [k, (model = models[res])&.last&.table_name || v[:class_name].constantize.table_name,
-            migrations&.fetch(res, nil),
-            model&.first]
+        table_name = (model = models[res])&.last&.table_name
+        table_name ||= begin
+                         v[:class_name].constantize.table_name
+                       rescue
+                       end
+        [k, table_name || k, migrations&.fetch(res, nil), model&.first]
       end
     end
 
