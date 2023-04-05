@@ -24,7 +24,7 @@ gem_spec = Gem::Specification.new do |s|
 
   s.required_rubygems_version = '>= 1.3.6'
   # rubocop:disable Gemspec/RequiredRubyVersion
-  s.required_ruby_version = '>= 2.3.5'
+  s.required_ruby_version = '>= 2.3.8'
   # rubocop:enable Gemspec/RequiredRubyVersion
 
   require 'brick/util'
