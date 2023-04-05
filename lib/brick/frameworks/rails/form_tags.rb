@@ -133,7 +133,7 @@ module Brick::Rails::FormTags
                    val ? Money.new(val.to_i).format : ''
                  else
                    col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
-                   display_value(col_type || col&.sql_type, val).to_s
+                   ::Brick::Rails.display_value(col_type || col&.sql_type, val).to_s
                  end
         elsif cust_col
           data = cust_col.first.map { |cc_part| obj.send(cc_part.last) }

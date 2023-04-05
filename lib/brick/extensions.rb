@@ -917,8 +917,14 @@ end
 
 if Object.const_defined?('ActionView')
   require 'brick/frameworks/rails/form_tags'
-  module ActionView::Helpers::FormTagHelper
-    include ::Brick::Rails::FormTags
+  require 'brick/frameworks/rails/form_builder'
+  module ActionView::Helpers
+    module FormTagHelper
+      include ::Brick::Rails::FormTags
+    end
+    FormBuilder.class_exec do
+      include ::Brick::Rails::FormBuilder
+    end
   end
 
   # FormBuilder#field_id isn't available in Rails < 7.0.  This is a rudimentary version with no `index`.

@@ -2,36 +2,103 @@
 
 module Brick
   module Rails
-    def self.display_binary(val)
-      @image_signatures ||= { (+"\xFF\xD8\xFF\xEE").force_encoding('ASCII-8BIT') => 'jpeg',
-                              (+"\xFF\xD8\xFF\xE0\x00\x10\x4A\x46\x49\x46\x00\x01").force_encoding('ASCII-8BIT') => 'jpeg',
-                              (+"\x89PNG\r\n\x1A\n").force_encoding('ASCII-8BIT') => 'png',
-                              '<svg' => 'svg+xml', # %%% Not yet very good detection for SVG
-                              (+'BM').force_encoding('ASCII-8BIT') => 'bmp',
-                              (+'GIF87a').force_encoding('ASCII-8BIT') => 'gif',
-                              (+'GIF89a').force_encoding('ASCII-8BIT') => 'gif' }
+    class << self
+      def display_value(col_type, val)
+        is_mssql_geography = nil
+        # Some binary thing that really looks like a Microsoft-encoded WGS84 point?  (With the first two bytes, E6 10, indicating an EPSG code of 4326)
+        if col_type == :binary && val && val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12]
+          col_type = 'geography'
+          is_mssql_geography = true
+        end
+        case col_type
+        when 'geometry', 'geography'
+          if Object.const_defined?('RGeo')
+            @is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name) if @is_mysql.nil?
+            @is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer' if @is_mssql.nil?
+            val_err = nil
 
-      if val[0..1] == "\x15\x1C" # One of those goofy Microsoft OLE containers?
-        package_header_length = val[2..3].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
-        # This will often be just FF FF FF FF
-        # object_size = val[16..19].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
-        friendly_and_class_names = val[20...package_header_length].split("\0")
-        object_type_name_length = val[package_header_length + 8..package_header_length+11].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
-        friendly_and_class_names << val[package_header_length + 12...package_header_length + 12 + object_type_name_length].strip
-        # friendly_and_class_names will now be something like:  ['Bitmap Image', 'Paint.Picture', 'PBrush']
-        real_object_size = val[package_header_length + 20 + object_type_name_length..package_header_length + 23 + object_type_name_length].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
-        object_start = package_header_length + 24 + object_type_name_length
-        val = val[object_start...object_start + real_object_size]
+            if @is_mysql || (is_mssql_geography ||=
+                              (@is_mssql ||
+                                (val && val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12])
+                              )
+                            )
+              # MySQL's \"Internal Geometry Format\" and MSSQL's Geography are like WKB, but with an initial 4 bytes that indicates the SRID.
+              if (srid = val&.[](0..3)&.unpack('I'))
+                val = val.dup.force_encoding('BINARY')[4..-1].bytes
+
+                # MSSQL spatial bitwise flags, often 0C for a point:
+                # xxxx xxx1 = HasZValues
+                # xxxx xx1x = HasMValues
+                # xxxx x1xx = IsValid
+                # xxxx 1xxx = IsSinglePoint
+                # xxx1 xxxx = IsSingleLineSegment
+                # xx1x xxxx = IsWholeGlobe
+                # Convert Microsoft's unique geography binary to standard WKB
+                # (MSSQL point usually has two doubles, lng / lat, and can also have Z)
+                if is_mssql_geography
+                  if val[0] == 1 && (val[1] & 8 > 0) && # Single point?
+                     (val.length - 2) % 8 == 0 && val.length < 27 # And containing up to three 8-byte values?
+                    val = [0, 0, 0, 0, 1] + val[2..-1].reverse
+                  else
+                    val_err = '(Microsoft internal SQL geography type)'
+                  end
+                end
+              end
+            end
+            unless val_err || val.nil?
+              if (geometry = RGeo::WKRep::WKBParser.new.parse(val.pack('c*'))).is_a?(RGeo::Cartesian::PointImpl) &&
+                 !(geometry.y == 0.0 && geometry.x == 0.0)
+                # Create a POINT link to this style of Google maps URL:  https://www.google.com/maps/place/38.7071296+-121.2810649/@38.7071296,-121.2810649,12z
+                geometry = "<a href=\"https://www.google.com/maps/place/#{geometry.y}+#{geometry.x}/@#{geometry.y},#{geometry.x},12z\" target=\"blank\">#{geometry.to_s}</a>"
+              end
+              val = geometry
+            end
+            val_err || val
+          else
+            '(Add RGeo gem to parse geometry detail)'
+          end
+        when :binary
+          ::Brick::Rails.display_binary(val) if val
+        else
+          if col_type
+            ::Brick::Rails::FormBuilder.hide_bcrypt(val, col_type == :xml)
+          else
+            '?'
+          end
+        end
       end
 
-      if (signature = @image_signatures.find { |k, _v| val[0...k.length] == k })
-        if val.length < 500_000
-          "<img src=\"data:image/#{signature.last};base64,#{Base64.encode64(val)}\">"
-        else
-          "&lt;&nbsp;#{signature.last} image, #{val.length} bytes&nbsp;>"
+      def display_binary(val)
+        @image_signatures ||= { (+"\xFF\xD8\xFF\xEE").force_encoding('ASCII-8BIT') => 'jpeg',
+                                (+"\xFF\xD8\xFF\xE0\x00\x10\x4A\x46\x49\x46\x00\x01").force_encoding('ASCII-8BIT') => 'jpeg',
+                                (+"\x89PNG\r\n\x1A\n").force_encoding('ASCII-8BIT') => 'png',
+                                '<svg' => 'svg+xml', # %%% Not yet very good detection for SVG
+                                (+'BM').force_encoding('ASCII-8BIT') => 'bmp',
+                                (+'GIF87a').force_encoding('ASCII-8BIT') => 'gif',
+                                (+'GIF89a').force_encoding('ASCII-8BIT') => 'gif' }
+
+        if val[0..1] == "\x15\x1C" # One of those goofy Microsoft OLE containers?
+          package_header_length = val[2..3].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+          # This will often be just FF FF FF FF
+          # object_size = val[16..19].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+          friendly_and_class_names = val[20...package_header_length].split("\0")
+          object_type_name_length = val[package_header_length + 8..package_header_length+11].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+          friendly_and_class_names << val[package_header_length + 12...package_header_length + 12 + object_type_name_length].strip
+          # friendly_and_class_names will now be something like:  ['Bitmap Image', 'Paint.Picture', 'PBrush']
+          real_object_size = val[package_header_length + 20 + object_type_name_length..package_header_length + 23 + object_type_name_length].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+          object_start = package_header_length + 24 + object_type_name_length
+          val = val[object_start...object_start + real_object_size]
         end
-      else
-        "&lt;&nbsp;Binary, #{val.length} bytes&nbsp;>"
+
+        if (signature = @image_signatures.find { |k, _v| val[0...k.length] == k })
+          if val.length < 500_000
+            "<img src=\"data:image/#{signature.last};base64,#{Base64.encode64(val)}\">"
+          else
+            "&lt;&nbsp;#{signature.last} image, #{val.length} bytes&nbsp;>"
+          end
+        else
+          "&lt;&nbsp;Binary, #{val.length} bytes&nbsp;>"
+        end
       end
     end
 
@@ -878,138 +945,7 @@ input+svg.revert {
     window.addEventListener(\"popstate\", function () { location.reload(true); });
 </script>
 
-<% is_includes_dates = nil
-   is_includes_json = nil
-   is_includes_text = nil
-def is_bcrypt?(val)
-  val.is_a?(String) && val.length == 60 && val.start_with?('$2a$')
-end
-def hide_bcrypt(val, is_xml = nil, max_len = 200)
-  if is_bcrypt?(val)
-    '(hidden)'
-  else
-    if val.is_a?(String)
-      val = val.dup.force_encoding('UTF-8').strip
-      return CGI.escapeHTML(val) if is_xml
-
-      if val.length > max_len
-        if val[0] == '<' # Seems to be HTML?
-          cur_len = 0
-          cur_idx = 0
-          # Find which HTML tags we might be inside so we can apply ending tags to balance
-          element_name = nil
-          in_closing = nil
-          elements = []
-          val.each_char do |ch|
-            case ch
-            when '<'
-              element_name = +''
-            when '/' # First character of tag is '/'?
-              in_closing = true if element_name == ''
-            when '>'
-              if element_name
-                if in_closing
-                  if (idx = elements.index { |tag| tag.downcase == element_name.downcase })
-                    elements.delete_at(idx)
-                  end
-                elsif (tag_name = element_name.split.first).present?
-                  elements.unshift(tag_name)
-                end
-                element_name = nil
-                in_closing = nil
-              end
-            else
-              element_name << ch if element_name
-            end
-            cur_idx += 1
-            # Unless it's inside wickets then this is real text content, and see if we're at the limit
-            break if element_name.nil? && ((cur_len += 1) > max_len)
-          end
-          val = val[0..cur_idx]
-          # Somehow still in the middle of an opening tag right at the end? (Should never happen)
-          if !in_closing && (tag_name = element_name&.split&.first)&.present?
-            elements.unshift(tag_name)
-            val << '>'
-          end
-          elements.each do |closing_tag|
-            val << \"</#\{closing_tag}>\"
-          end
-        else # Not HTML, just cut it at the length
-          val = val[0...max_len]
-        end
-        val = \"#\{val}...\"
-      end
-      val
-    else
-      val.to_s
-    end
-  end
-end
-def display_value(col_type, val)
-  is_mssql_geography = nil
-  # Some binary thing that really looks like a Microsoft-encoded WGS84 point?  (With the first two bytes, E6 10, indicating an EPSG code of 4326)
-  if col_type == :binary && val && val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12]
-    col_type = 'geography'
-    is_mssql_geography = true
-  end
-  case col_type
-  when 'geometry', 'geography'
-    if Object.const_defined?('RGeo')
-      @is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name) if @is_mysql.nil?
-      @is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer' if @is_mssql.nil?
-      val_err = nil
-
-      if @is_mysql || (is_mssql_geography ||=
-                        (@is_mssql ||
-                          (val && val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12])
-                        )
-                      )
-        # MySQL's \"Internal Geometry Format\" and MSSQL's Geography are like WKB, but with an initial 4 bytes that indicates the SRID.
-        if (srid = val&.[](0..3)&.unpack('I'))
-          val = val.dup.force_encoding('BINARY')[4..-1].bytes
-
-          # MSSQL spatial bitwise flags, often 0C for a point:
-          # xxxx xxx1 = HasZValues
-          # xxxx xx1x = HasMValues
-          # xxxx x1xx = IsValid
-          # xxxx 1xxx = IsSinglePoint
-          # xxx1 xxxx = IsSingleLineSegment
-          # xx1x xxxx = IsWholeGlobe
-          # Convert Microsoft's unique geography binary to standard WKB
-          # (MSSQL point usually has two doubles, lng / lat, and can also have Z)
-          if is_mssql_geography
-            if val[0] == 1 && (val[1] & 8 > 0) && # Single point?
-               (val.length - 2) % 8 == 0 && val.length < 27 # And containing up to three 8-byte values?
-              val = [0, 0, 0, 0, 1] + val[2..-1].reverse
-            else
-              val_err = '(Microsoft internal SQL geography type)'
-            end
-          end
-        end
-      end
-      unless val_err || val.nil?
-        if (geometry = RGeo::WKRep::WKBParser.new.parse(val.pack('c*'))).is_a?(RGeo::Cartesian::PointImpl) &&
-           !(geometry.y == 0.0 && geometry.x == 0.0)
-          # Create a POINT link to this style of Google maps URL:  https://www.google.com/maps/place/38.7071296+-121.2810649/@38.7071296,-121.2810649,12z
-          geometry = \"<a href=\\\"https://www.google.com/maps/place/#\{geometry.y}+#\{geometry.x}/@#\{geometry.y},#\{geometry.x},12z\\\" target=\\\"blank\\\">#\{geometry.to_s}</a>\"
-        end
-        val = geometry
-      end
-      val_err || val
-    else
-      '(Add RGeo gem to parse geometry detail)'
-    end
-  when :binary
-    ::Brick::Rails.display_binary(val) if val
-  else
-    if col_type
-      hide_bcrypt(val, col_type == :xml)
-    else
-      '?'
-    end
-  end
-end
-
+<%
 # Accommodate composite primary keys that include strings with forward-slash characters
 def slashify(*vals)
   vals.map { |val_part| val_part.is_a?(String) ? val_part.gsub('/', '^^sl^^') : val_part }
@@ -1674,103 +1610,7 @@ end
     <% end %>
     </th>
     <td>
-    <table><tr><td>
-    <% dt_pickers = { datetime: 'datetimepicker', timestamp: 'datetimepicker', time: 'timepicker', date: 'datepicker' }
-       html_options = {}
-       html_options[:class] = 'dimmed' unless val
-       is_revert = true
-       if bt
-         html_options[:prompt] = \"Select #\{bt_name\}\" %>
-     <%= f.select k.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options %>
-     <%= if (bt_obj = bt_class&.find_by(bt_pair[1] => val))
-           link_to('⇛', send(\"#\{bt_class.base_class._brick_index(:singular)\}_path\".to_sym, bt_obj.send(bt_class.primary_key.to_sym)), { class: 'show-arrow' })
-         elsif val
-           \"<span class=\\\"orphan\\\">Orphaned ID: #\{val}</span>\".html_safe
-         end %>
-    <% elsif @_brick_monetized_attributes&.include?(k)
-    %><%= f.text_field(k.to_sym, html_options.merge({ value: Money.new(val.to_i).format })) %><%
-       else
-         col_type = if model.json_column?(col) || val.is_a?(Array)
-                      :json
-                    elsif col&.sql_type == 'geography'
-                      col.sql_type
-                    else
-                      col&.type
-                    end
-         case (col_type ||= col&.sql_type)
-         when :string, :text
-           if is_bcrypt?(val) # || .readonly?
-             is_revert = false %>
-          <%= hide_bcrypt(val, nil, 1000) %>
-        <% elsif col_type == :string
-             if model.respond_to?(:enumerized_attributes) && (opts = (attr = model.enumerized_attributes[k])&.options).present?
-               enum_html_options = attr.kind_of?(Enumerize::Multiple) ? html_options.merge({ multiple: true, size: opts.length + 1 }) : html_options %>
-               <%= f.select(k.to_sym, [[\"(No #\{k} chosen)\", '^^^brick_NULL^^^']] + opts, { value: val || '^^^brick_NULL^^^' }, enum_html_options) %><%
-             else %>
-               <%= f.text_field(k.to_sym, html_options) %><%
-             end
-           else
-             is_includes_text = true %>
-          <%= f.hidden_field(k.to_sym, html_options) %>
-          <trix-editor input=\"<%= f.field_id(k) %>\"></trix-editor>
-        <% end %>
-      <% when :boolean %>
-        <%= f.check_box k.to_sym %>
-      <% when :integer, :decimal, :float %>
-        <%= digit_pattern = col_type == :integer ? '\\d*' : '\\d*(?:\\.\\d*|)'
-            # Used to do this for float / decimal:  f.number_field k.to_sym
-            f.text_field k.to_sym, { pattern: digit_pattern, class: 'check-validity' } %>
-      <% when *dt_pickers.keys
-           is_includes_dates = true %>
-        <%= f.text_field k.to_sym, { class: dt_pickers[col_type] } %>
-      <% when :uuid
-           is_revert = false %>
-        <%=
-          # Postgres naturally uses the +uuid_generate_v4()+ function from the uuid-ossp extension
-          # If it's not yet enabled then:  create extension \"uuid-ossp\";
-          # ActiveUUID gem created a new :uuid type
-          val %>
-      <% when :ltree %>
-        <%=
-          # In Postgres labels of data stored in a hierarchical tree-like structure
-          # If it's not yet enabled then:  create extension ltree;
-          val %>
-      <% when :binary %>
-        <%= is_revert = false
-           if val
-             # %%% This same kind of geography check is done two other times above ... would be great to DRY it up.
-             if val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12]
-               display_value('geography', val)
-             else
-               ::Brick::Rails.display_binary(val)
-             end.html_safe
-           end %>
-      <% when :primary_key
-           is_revert = false %>
-      <% when :json
-           is_includes_json = true
-           if val.is_a?(String)
-             val_str = val
-           else
-             eheij = ActiveSupport::JSON::Encoding.escape_html_entities_in_json
-             ActiveSupport::JSON::Encoding.escape_html_entities_in_json = false if eheij
-             val_str = val.to_json
-             ActiveSupport::JSON::Encoding.escape_html_entities_in_json = eheij
-           end %>
-        <%= # Because there are so danged many quotes in JSON, escape them specially by converting to backticks.
-            # (and previous to this, escape backticks with our own goofy code of ^^br_btick__ )
-            json_field = f.hidden_field k.to_sym, { class: 'jsonpicker', value: val_str.gsub('`', '^^br_btick__').tr('\"', '`').html_safe } %>
-        <div id=\"_br_json_<%= f.field_id(k) %>\"></div>
-      <% else %>
-        <%= is_revert = false
-           display_value(col_type, val).html_safe %>
-      <% end
-       end
-       if is_revert
-         %></td>
-         <td><svg class=\"revert\" width=\"1.5em\" viewBox=\"0 0 512 512\"><use xlink:href=\"#revertPath\" /></svg>
-      <% end %>
-      </td></tr></table>
+      <%= f.brick_field(k, html_options = {}, val, col, bt, bt_class, bt_name, bt_pair) %>
     </td>
     </tr>
   <% end
@@ -1845,7 +1685,7 @@ end}
                        end
               unless is_crosstab
                 inline << "
-<% if is_includes_dates %>
+<% if @_date_fields_present %>
 <link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css\">
 <style>
 .flatpickr-calendar {
@@ -1860,18 +1700,18 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 </script>
 <% end %>
 
-<% if false # is_includes_dropdowns %>
+<% if false # @_dropdown_fields_present %>
 <script src=\"https://cdnjs.cloudflare.com/ajax/libs/slim-select/1.27.1/slimselect.min.js\"></script>
 <link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdnjs.cloudflare.com/ajax/libs/slim-select/1.27.1/slimselect.min.css\">
 <% end %>
 
-<% if is_includes_text %>
+<% if @_text_fields_present %>
 <script src=\"https://cdn.jsdelivr.net/npm/trix@2.0/dist/trix.umd.min.js\"></script>
 <link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdn.jsdelivr.net/npm/trix@2.0/dist/trix.min.css\">
 <% end %>
 
 <% # Started with v0.14.4 of vanilla-jsoneditor
-   if is_includes_json %>
+   if @_json_fields_present %>
 <link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdn.jsdelivr.net/npm/vanilla-jsoneditor/themes/jse-theme-default.min.css\">
 <script type=\"module\">
   import { JSONEditor } from \"https://cdn.jsdelivr.net/npm/vanilla-jsoneditor/index.min.js\";
