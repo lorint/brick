@@ -434,7 +434,9 @@ module ActiveRecord
       @brick_links ||= { '' => table_name }
     end
 
-    def brick_select(params, selects = [], order_by = nil, translations = {}, join_array = ::Brick::JoinArray.new)
+    def brick_select(params, selects = [], order_by = nil, translations = {},
+                     join_array = ::Brick::JoinArray.new,
+                     cust_col_override = nil)
       is_add_bts = is_add_hms = true
 
       # Build out cust_cols, bt_descrip and hm_counts now so that they are available on the
@@ -507,6 +509,11 @@ module ActiveRecord
       end
 
       left_outer_joins!(join_array) if join_array.present?
+
+      # If it's a CollectionProxy (which inherits from Relation) then need to dig out the
+      # core Relation object which is found in the association scope.
+      rel_dupe = (is_a?(ActiveRecord::Associations::CollectionProxy) ? scope : self).dup
+
       # Touching AREL AST walks the JoinDependency tree, and in that process uses our
       # "brick_links" patch to find how every AR chain of association names relates to exact
       # table correlation names chosen by AREL.  We use a duplicate relation object for this
@@ -518,7 +525,7 @@ module ActiveRecord
       # to a derived table to do that counting.  All of these things need to know proper
       # table correlation names, which will now become available in brick_links on the
       # rel_dupe object.)
-      (rel_dupe = dup).arel.ast
+      rel_dupe.arel.ast
 
       core_selects = selects.dup
       id_for_tables = Hash.new { |h, k| h[k] = [] }
@@ -527,7 +534,7 @@ module ActiveRecord
 
       # CUSTOM COLUMNS
       # ==============
-      klass._br_cust_cols.each do |k, cc|
+      (cust_col_override || klass._br_cust_cols).each do |k, cc|
         if rel_dupe.respond_to?(k) # Name already taken?
           # %%% Use ensure_unique here in this kind of fashion:
           # cnstr_name = ensure_unique(+"(brick) #{for_tbl}_#{pri_tbl}", bts, hms)
@@ -584,7 +591,7 @@ module ActiveRecord
       end
 
       # LEFT OUTER JOINs
-      if join_array.present?
+      unless cust_col_override
         klass._br_bt_descrip.each do |v|
           v.last.each do |k1, v1| # k1 is class, v1 is array of columns to snag
             next unless (tbl_name = rel_dupe.brick_links[v.first.to_s]&.split('.')&.last)
@@ -783,7 +790,7 @@ module ActiveRecord
 JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}#{count_column
           }) AS c_t_ FROM #{from_clause || hm_table_name} GROUP BY #{group_bys.join(', ')}) #{tbl_alias}"
         self.joins_values |= ["#{join_clause} ON #{on_clause.join(' AND ')}"] # Same as:  joins!(...)
-      end
+      end unless cust_col_override
       while (n = nix.pop)
         klass._br_hm_counts.delete(n)
       end
@@ -851,6 +858,19 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
       # Setting limit_value= is the same as doing:  limit!(1000)  but this way is compatible with AR <= 4.2
       self.limit_value = row_limit.to_i unless row_limit.is_a?(String) && row_limit.empty?
       wheres unless wheres.empty? # Return the specific parameters that we did use
+    end
+
+    # Build out an AR relation that queries for a list of objects, and include all the appropriate JOINs to later apply DSL using #brick_descrip
+    def brick_list
+      pks = klass.primary_key.is_a?(String) ? [klass.primary_key] : klass.primary_key
+      selects = pks.each_with_object([]) { |pk, s| s << pk unless s.include?(pk) }
+      pieces, my_dsl = klass.brick_parse_dsl(join_array = ::Brick::JoinArray.new, [], translations = {}, false, nil, true)
+      brick_select(
+        where_values_hash, selects, nil, translations, join_array,
+        { '_br' => (descrip_cols = [pieces, my_dsl]) }
+      )
+      order_values = klass.primary_key
+      [self.select(selects), descrip_cols]
     end
 
   private

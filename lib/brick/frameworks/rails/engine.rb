@@ -1602,7 +1602,15 @@ end
         if bt.length < 4
           bt << (option_detail = [[\"(No #\{bt_name\} chosen)\", '^^^brick_NULL^^^']])
           # %%% Accommodate composite keys for obj.pk at the end here
-          bt_class&.order(obj_pk = bt_class.primary_key)&.each { |obj| option_detail << [obj.brick_descrip(nil, obj_pk), obj.send(obj_pk)] }
+          collection, descrip_cols = bt_class&.order(obj_pk = bt_class.primary_key).brick_list
+          collection&.each do |obj|
+            option_detail << [
+              obj.brick_descrip(
+                descrip_cols&.first&.map { |col| obj.send(col.last) },
+                obj_pk
+              ), obj.send(obj_pk)
+            ]
+          end
         end %>
         BT <%= bt_class&.bt_link(bt.first) || orig_poly_name %>
     <% else %>
@@ -1647,21 +1655,32 @@ end
                  end
       s << "<table id=\"#{hm_name}\" class=\"shadow\">
         <tr><th>#{hm[1]}#{' poly' if hm[0].options[:as]} #{hm[3]}</th></tr>
-        <% collection = @#{obj_name}.#{hm_name}
-        collection = case collection
-                     when ActiveRecord::Associations::CollectionProxy#{
-                       poly_fix}
-                       collection.order(#{pk.inspect})
-                     when ActiveRecord::Base # Object from a has_one
-                       [collection]
-                     else # We get an array back when AR < 4.2
-                       collection.to_a.compact
-                     end
-        if collection.empty? %>
+        <% if (assoc = @#{obj_name}.class.reflect_on_association(:#{hm_name})).macro == :has_one &&
+              assoc.options&.fetch(:through, nil).nil?
+             # In order to apply DSL properly, evaluate this HO the other way around as if it were as a BT
+             collection = assoc.klass.where(assoc.foreign_key => @#{obj_name}.#{pk})
+             collection = collection.instance_exec(&assoc.scopes.first) if assoc.scopes.present?
+           else
+             collection = @#{obj_name}.#{hm_name}
+           end
+        case collection
+        when ActiveRecord::Relation # has_many (which comes in as a CollectionProxy) or a has_one#{
+          poly_fix}
+          collection2, descrip_cols = collection.brick_list
+        when ActiveRecord::Base # Object from a has_one :through
+          collection2 = [collection]
+        else # We get an array back when AR < 4.2
+          collection2 = collection.to_a.compact
+        end
+        collection2 = collection2.uniq
+        if collection2.empty? %>
           <tr><td>(none)</td></tr>
-        <% else %>
-          <% collection.uniq.each do |#{hm_singular_name}| %>
-            <tr><td><%= link_to(#{hm_singular_name}.brick_descrip, #{hm.first.klass._brick_index(:singular)}_path(slashify(#{obj_pk}))) %></td></tr>
+     <% else
+          collection2.each do |#{hm_singular_name}| %>
+            <tr><td><%= br_descrip = #{hm_singular_name}.brick_descrip(
+                                       descrip_cols&.first&.map { |col| #{hm_singular_name}.send(col.last) }
+                                     )
+                        link_to(br_descrip, #{hm.first.klass._brick_index(:singular)}_path(slashify(#{obj_pk}))) %></td></tr>
           <% end %>
         <% end %>
       </table>"
