@@ -1634,16 +1634,16 @@ end
       obj_pk = (pk.is_a?(Array) ? pk : [pk]).each_with_object([]) { |pk_part, s| s << "#{hm_singular_name}.#{pk_part}" }.join(', ')
       poly_fix = if (poly_type = (hm.first.options[:as] && hm.first.type))
                    "
-                       # Let's fix an unexpected \"feature\" of AR -- when going through a polymorphic has_many
-                       # association that points to an STI model then filtering for the __able_type column is done
-                       # with a .where(). And the polymorphic class name it points to is the base class name of
-                       # the STI model instead of its subclass.
-                       poly_type = #{poly_type.inspect}
-#{                     (inh_col = @_brick_model.inheritance_column).present? &&
-"                      if poly_type && @#{obj_name}.respond_to?(:#{inh_col}) &&
-                          (base_type = collection.where_values_hash[poly_type])
-                         collection = collection.rewhere(poly_type => [base_type, @#{obj_name}.#{inh_col}])
-                       end"}"
+                     # Let's fix an unexpected \"feature\" of AR -- when going through a polymorphic has_many
+                     # association that points to an STI model then filtering for the __able_type column is done
+                     # with a .where(). And the polymorphic class name it points to is the base class name of
+                     # the STI model instead of its subclass.
+                     poly_type = #{poly_type.inspect}
+#{                   (inh_col = @_brick_model.inheritance_column).present? &&
+"                    if poly_type && @#{obj_name}.respond_to?(:#{inh_col}) &&
+                        (base_type = collection.where_values_hash[poly_type])
+                       collection = collection.rewhere(poly_type => [base_type, @#{obj_name}.#{inh_col}])
+                     end"}"
                  end
       s << "<table id=\"#{hm_name}\" class=\"shadow\">
         <tr><th>#{hm[1]}#{' poly' if hm[0].options[:as]} #{hm[3]}</th></tr>
