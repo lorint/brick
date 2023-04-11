@@ -58,7 +58,7 @@ module Brick
             '(Add RGeo gem to parse geometry detail)'
           end
         when :binary
-          ::Brick::Rails.display_binary(val) if val
+          ::Brick::Rails.display_binary(val)
         else
           if col_type
             ::Brick::Rails::FormBuilder.hide_bcrypt(val, col_type == :xml)
@@ -69,6 +69,8 @@ module Brick
       end
 
       def display_binary(val)
+        return unless val
+
         @image_signatures ||= { (+"\xFF\xD8\xFF\xEE").force_encoding('ASCII-8BIT') => 'jpeg',
                                 (+"\xFF\xD8\xFF\xE0\x00\x10\x4A\x46\x49\x46\x00\x01").force_encoding('ASCII-8BIT') => 'jpeg',
                                 (+"\xFF\xD8\xFF\xDB").force_encoding('ASCII-8BIT') => 'jpeg',
@@ -1631,7 +1633,10 @@ end
     <tr><td colspan=\"2\">(No displayable fields)</td></tr>
   <% end %>
   </table>#{
-  "<%= ::Brick::Rails.display_binary(obj.blob&.download).html_safe %>" if model_name == 'ActiveStorage::Attachment'}
+  "<%= binary = begin
+                  ::Brick::Rails.display_binary(obj&.blob&.download)&.html_safe
+                rescue
+                end %>" if model_name == 'ActiveStorage::Attachment'}
 <%  end %>
 
 #{unless args.first == 'new'
@@ -1664,6 +1669,12 @@ end
              # In order to apply DSL properly, evaluate this HO the other way around as if it were as a BT
              collection = assoc.klass.where(assoc.foreign_key => @#{obj_name}.#{pk})
              collection = collection.instance_exec(&assoc.scopes.first) if assoc.scopes.present?
+             if assoc.klass.name == 'ActiveStorage::Attachment'
+               br_descrip = begin
+                              ::Brick::Rails.display_binary(obj.send(assoc.name)&.blob&.download)&.html_safe
+                            rescue
+                            end
+             end
            else
              collection = @#{obj_name}.#{hm_name}
            end
@@ -1681,9 +1692,9 @@ end
           <tr><td>(none)</td></tr>
      <% else
           collection2.each do |#{hm_singular_name}| %>
-            <tr><td><%= br_descrip = #{hm_singular_name}.brick_descrip(
-                                       descrip_cols&.first&.map { |col| #{hm_singular_name}.send(col.last) }
-                                     )
+            <tr><td><%= br_descrip ||= #{hm_singular_name}.brick_descrip(
+                                         descrip_cols&.first&.map { |col| #{hm_singular_name}.send(col.last) }
+                                       )
                         link_to(br_descrip, #{hm.first.klass._brick_index(:singular)}_path(slashify(#{obj_pk}))) %></td></tr>
           <% end %>
         <% end %>

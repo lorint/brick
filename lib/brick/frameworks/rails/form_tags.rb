@@ -115,7 +115,14 @@ module Brick::Rails::FormTags
             if col[2] == 'HO'
               descrips = bt_descrip[col_name.to_sym][hm_klass]
               if (ho_id = (ho_id_col = descrips.last).map { |id_col| obj.send(id_col.to_sym) })&.first
-                ho_txt = hm_klass.brick_descrip(obj, descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, ho_id_col)
+                ho_txt = if hm_klass.name == 'ActiveStorage::Attachment'
+                           begin
+                             ::Brick::Rails.display_binary(obj.send(col[3])&.blob&.download)&.html_safe
+                           rescue
+                           end
+                         else
+                           hm_klass.brick_descrip(obj, descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, ho_id_col)
+                         end
                 out << link_to(ho_txt, send("#{hm_klass.base_class._brick_index(:singular)}_path".to_sym, ho_id))
               end
             else

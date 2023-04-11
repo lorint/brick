@@ -864,6 +864,9 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
     def brick_list
       pks = klass.primary_key.is_a?(String) ? [klass.primary_key] : klass.primary_key
       selects = pks.each_with_object([]) { |pk, s| s << pk unless s.include?(pk) }
+      # ActiveStorage compatibility
+      selects << 'service_name' if klass.name == 'ActiveStorage::Blob' && ActiveStorage::Blob.columns_hash.key?('service_name')
+      selects << 'blob_id' if klass.name == 'ActiveStorage::Attachment' && ActiveStorage::Attachment.columns_hash.key?('blob_id')
       pieces, my_dsl = klass.brick_parse_dsl(join_array = ::Brick::JoinArray.new, [], translations = {}, false, nil, true)
       brick_select(
         where_values_hash, selects, nil, translations, join_array,
