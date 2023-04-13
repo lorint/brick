@@ -125,6 +125,7 @@ if Gem::Specification.all_names.any? { |g| g.start_with?('rails-') }
 end
 module Brick
   ALL_API_ACTIONS = [:index, :show, :create, :update, :destroy]
+  CURRENCY_SYMBOLS = '$£¢₵€₠ƒ¥₿₩₪₹₫₴₱₲₳₸₺₼₽៛₡₢₣₤₥₦₧₨₭₮₯₰₶₷₻₾'
 
   class << self
     def sti_models
@@ -200,9 +201,20 @@ module Brick
     end
 
     def get_bts_and_hms(model)
+      model_cols = model.columns_hash
+      pk_type = if (mpk = model.primary_key).is_a?(Array)
+                  # Composite keys should really use:  model.primary_key.map { |pk_part| model_cols[pk_part].type }
+                  model_cols[mpk.first].type
+                else
+                  mpk && model_cols[mpk].type
+                end
       bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
+        # %%% The time will come when we will support type checking of composite foreign keys!
+        # binding.pry if a.foreign_key.is_a?(Array)
         next unless a.polymorphic? || (!a.belongs_to? && (through = a.options[:through])) ||
-                    (a.klass && ::Brick.config.exclude_tables.exclude?(a.klass.table_name))
+                    (a.klass && ::Brick.config.exclude_tables.exclude?(a.klass.table_name) &&
+                     (!a.belongs_to? || model_cols[a.foreign_key]&.type == pk_type)
+                    )
 
         if a.belongs_to?
           if a.polymorphic?
@@ -238,6 +250,15 @@ module Brick
             if is_invalid_source
               puts "WARNING:  HMT relationship :#{a.name} in model #{model.name} has invalid source :#{a.source_reflection_name}."
               next
+            end
+          else
+            if !a.options.key?(:as) && a.klass.column_names.exclude?(a.foreign_key)
+              options = ", #{a.options.map { |k, v| "#{k.inspect} => #{v.inspect}" }.join(', ')}" if a.options.present?
+              puts "WARNING:  Model #{model.name} has this association:
+            has_many :#{a.name}#{options}
+          which expects column #{a.foreign_key} to exist in table #{a.klass.table_name}.  This column is missing."
+              next
+
             end
           end
           s.last[a.name] = a
@@ -1661,7 +1682,8 @@ module ActiveRecord
               relation.brick_links[link_path] = if child.table.is_a?(Arel::Nodes::TableAlias)
                                                   child.table.right
                                                 else
-                                                  result.first&.left&.table_alias || child.table_name
+                                                  # Was:  result.first&.left&.table_alias || child.table_name
+                                                  child.table.table_alias || child.table_name
                                                 end
             end
             result

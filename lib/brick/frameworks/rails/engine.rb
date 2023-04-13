@@ -225,7 +225,7 @@ function linkSchemas() {
                                       end
 
         # When table names have specific prefixes, automatically place them in their own module with a table_name_prefix.
-        ::Brick.table_name_prefixes = app.config.brick.fetch(:table_name_prefixes, {})
+        ::Brick.config.table_name_prefixes ||= app.config.brick.fetch(:table_name_prefixes, {})
 
         # Columns to treat as being metadata for purposes of identifying associative tables for has_many :through
         ::Brick.metadata_columns = app.config.brick.fetch(:metadata_columns, ['created_at', 'updated_at', 'deleted_at'])
@@ -652,7 +652,9 @@ window.addEventListener(\"popstate\", linkSchemas);
                             else
                               hm_assoc.active_record.name
                             end
-                keys << [hm_assoc.inverse_of.foreign_type, poly_type]
+                # %%% Might only need hm_assoc.type and not the first part :)
+                type_col = hm_assoc.inverse_of&.foreign_type || hm_assoc.type
+                keys << [type_col, poly_type]
               end
               keys.to_h
             end
@@ -1667,7 +1669,7 @@ end
         <% if (assoc = @#{obj_name}.class.reflect_on_association(:#{hm_name})).macro == :has_one &&
               assoc.options&.fetch(:through, nil).nil?
              # In order to apply DSL properly, evaluate this HO the other way around as if it were as a BT
-             collection = assoc.klass.where(assoc.foreign_key => @#{obj_name}.#{pk})
+             collection = assoc.klass.where(assoc.foreign_key => #{pk.is_a?(String) ? "@#{obj_name}.#{pk}" : pk.map { |pk_part| "@#{obj_name}.#{pk_part}" }.inspect})
              collection = collection.instance_exec(&assoc.scopes.first) if assoc.scopes.present?
              if assoc.klass.name == 'ActiveStorage::Attachment'
                br_descrip = begin
