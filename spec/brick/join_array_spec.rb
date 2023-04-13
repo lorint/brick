@@ -5,14 +5,16 @@ require 'brick/join_array'
 
 module Brick
   ::RSpec.describe ::Brick::JoinArray do
+    let(:employee_joins) { JoinArray.new }
+    let(:category_joins) { JoinArray.new }
+
+    exp = Proc.new { expect(employee_joins).to eq([:orders]) }
     it 'should add just a symbol when only one value is requested' do
-      employee_joins = JoinArray.new
       employee_joins[:orders] = nil
       expect(employee_joins).to eq([:orders])
     end
 
     it 'should upgrade a lone symbol into being a hash when an additional nested value is requested' do
-      employee_joins = JoinArray.new
       employee_joins[:orders] = nil
       expect(employee_joins).to eq([:orders])
       employee_joins[:orders] = :order_details
@@ -20,7 +22,6 @@ module Brick
     end
 
     it 'should create a nested set of hashes when assigning multiple layers at once' do
-      employee_joins = JoinArray.new
       employee_joins[:orders][:order_details][:product] = :category
       expect(employee_joins).to eq(
         [{ orders: { order_details: { product: [:category] } } }]
@@ -28,7 +29,6 @@ module Brick
     end
 
     it 'should create the nested set of hashes when setting the final member to nil' do
-      employee_joins = JoinArray.new
       employee_joins[:orders][:order_details][:product][:category] = nil
       expect(employee_joins).to eq(
         [{ orders: { order_details: { product: [:category] } } }]
@@ -36,7 +36,6 @@ module Brick
     end
 
     it 'should create an empty JoinHash pointing to a parent hash when referencing layers' do
-      employee_joins = JoinArray.new
       nested_reference = employee_joins[:orders][:order_details][:product]
       # At first the nested reference is a loose object
       expect(employee_joins).to eq([])
@@ -56,7 +55,6 @@ module Brick
     end
 
     it 'should not create duplicates when nodes are set multiple times' do
-      employee_joins = JoinArray.new
       employee_joins[:orders][:order_details][:product] = :category
       # A couple ways to set it exactly the same
       employee_joins[:orders][:order_details][:product] = :category
@@ -68,7 +66,6 @@ module Brick
     end
 
     it 'should add new members to an array in the leaf node when the last member is set to different values' do
-      category_joins = JoinArray.new
       category_joins[:products][:order_details][:order] = :employee
       category_joins[:products][:order_details][:order] = :customer
       expect(category_joins).to eq(
@@ -77,7 +74,6 @@ module Brick
     end
 
     it 'should "graduate" a middle node into being part of an array when two different branches of JOINs are referenced' do
-      category_joins = JoinArray.new
       # Start with a simple nested set
       category_joins[:products][:order_details][:order] = :employee
       expect(category_joins).to eq(

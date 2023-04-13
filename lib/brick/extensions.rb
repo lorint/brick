@@ -148,7 +148,8 @@ module ActiveRecord
                 translations[parts[0..-2].join('.')] = klass
               end
               if klass&.column_names.exclude?(parts.last) &&
-                 (klass = (orig_class = klass).reflect_on_association(possible_dsl = parts.pop.to_sym)&.klass)
+                 (klass = (orig_class = klass).reflect_on_association(possible_dsl = parts.last&.to_sym)&.klass)
+                parts.pop
                 if prefix.empty? # Custom columns start with an empty prefix
                   prefix << parts.shift until parts.empty?
                 end
@@ -162,6 +163,7 @@ module ActiveRecord
                 if emit_dsl
                   dsl3 << "[#{prefix[1..-1].map { |p| "#{p.to_s}." }.join if prefix.length > 1}#{bracket_name}]"
                 end
+                parts[-1] = column_names.first if parts[-1].nil? # No primary key to be found?  Grab something to display!
                 members << parts
               end
             end
@@ -231,7 +233,8 @@ module ActiveRecord
                         if this_obj.is_a?(ActiveRecord::Base) && (obj_descrip = this_obj.class.brick_descrip(this_obj))
                           this_obj = obj_descrip
                         end
-                        if this_obj.is_a?(ActiveStorage::Filename) && this_obj.instance_variable_get(:@filename).nil?
+                        if Object.const_defined?('ActiveStorage') && this_obj.is_a?(::ActiveStorage::Filename) &&
+                           this_obj.instance_variable_get(:@filename).nil?
                           this_obj.instance_variable_set(:@filename, '')
                         end
                         this_obj&.to_s || ''
@@ -741,11 +744,19 @@ module ActiveRecord
                          end
                        else
                          fk_col = (inv = hm.inverse_of)&.foreign_key || hm.foreign_key
-                         poly_type = inv.foreign_type if hm.options.key?(:as)
+                         # %%% Might only need hm.type and not the first part :)
+                         poly_type = inv&.foreign_type || hm.type if hm.options.key?(:as)
                          pk = hm.klass.primary_key
                          (pk.is_a?(Array) ? pk.first : pk) || '*'
                        end
         next unless count_column # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
+
+        pri_tbl = hm.active_record
+        pri_key = hm.options[:primary_key] || pri_tbl.primary_key
+        unless hm.klass.column_names.include?(pri_key)
+          nix << k
+          next
+        end
 
         tbl_alias = if is_mysql
                       "`b_r_#{hm.name}`"
@@ -754,7 +765,6 @@ module ActiveRecord
                     else
                       "b_r_#{hm.name}"
                     end
-        pri_tbl = hm.active_record
         pri_tbl_name = is_mysql ? "`#{pri_tbl.table_name}`" : "\"#{pri_tbl.table_name.gsub('.', '"."')}\""
         pri_tbl_name = if is_mysql
                          "`#{pri_tbl.table_name}`"
@@ -765,10 +775,10 @@ module ActiveRecord
                        end
         on_clause = []
         hm_selects = if fk_col.is_a?(Array) # Composite key?
-                       fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl_name}.#{pri_tbl.primary_key[idx]}" }
+                       fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl_name}.#{pri_key[idx]}" }
                        fk_col.dup
                      else
-                       on_clause << "#{tbl_alias}.#{fk_col} = #{pri_tbl_name}.#{pri_tbl.primary_key}"
+                       on_clause << "#{tbl_alias}.#{fk_col} = #{pri_tbl_name}.#{pri_key}"
                        [fk_col]
                      end
         if poly_type
@@ -1869,7 +1879,7 @@ class Object
               # Convert any Filename objects with nil into an empty string so that #encode can be called on them
               new_obj.serializable_hash.each do |k, v|
                 new_obj.send("#{k}=", ActiveStorage::Filename.new('')) if v.is_a?(ActiveStorage::Filename) && !v.instance_variable_get(:@filename)
-              end
+              end if Object.const_defined?('ActiveStorage')
             end
             instance_variable_set("@#{singular_table_name}".to_sym, new_obj)
           end
@@ -2441,7 +2451,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         singular = rel_name.last
       end
       name_parts = if (tnp = ::Brick.config.table_name_prefixes
-                                    .find { |k1, _v1| singular.start_with?(k1) && singular.length > k1.length }
+                                    &.find { |k1, _v1| singular.start_with?(k1) && singular.length > k1.length }
                       ).present?
                      v[:auto_prefixed_schema] = tnp.first
                      v[:resource] = rel_name.last[(tnp_length = tnp.first.length)..-1]

@@ -652,7 +652,9 @@ window.addEventListener(\"popstate\", linkSchemas);
                             else
                               hm_assoc.active_record.name
                             end
-                keys << [hm_assoc.inverse_of.foreign_type, poly_type]
+                # %%% Might only need hm_assoc.type and not the first part :)
+                type_col = hm_assoc.inverse_of&.foreign_type || hm_assoc.type
+                keys << [type_col, poly_type]
               end
               keys.to_h
             end

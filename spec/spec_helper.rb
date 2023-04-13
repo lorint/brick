@@ -14,6 +14,7 @@ require 'pry-byebug'
 warn 'No database.yml detected for the test app, please run `rake prepare` first' unless File.exist?(File.expand_path('test_app/config/database.yml', __dir__))
 
 require 'active_record/version'
+require 'active_support/core_ext/string/output_safety'
 
 RSpec.configure do |config|
   config.example_status_persistence_file_path = '.rspec_results'

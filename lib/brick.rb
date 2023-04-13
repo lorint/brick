@@ -1661,7 +1661,8 @@ module ActiveRecord
               relation.brick_links[link_path] = if child.table.is_a?(Arel::Nodes::TableAlias)
                                                   child.table.right
                                                 else
-                                                  result.first&.left&.table_alias || child.table_name
+                                                  # Was:  result.first&.left&.table_alias || child.table_name
+                                                  child.table.table_alias || child.table_name
                                                 end
             end
             result
