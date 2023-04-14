@@ -625,6 +625,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                 if (class_name = (resource_parts = resource_name.split('/')).last&.singularize)
                   resource_parts[-1] = class_name # Make sure the last part, defining the class name, is singular
                   begin
+                    resource_parts.shift if resource_parts.first == ::Brick.config.path_prefix
                     if (model = Object.const_get(resource_parts.map(&:camelize).join('::')))&.is_a?(Class) && (
                          ['index', 'show'].include?(find_args.first) || # Everything has index and show
                          # Only CUD stuff has create / update / destroy

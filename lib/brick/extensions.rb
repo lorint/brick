@@ -1021,16 +1021,17 @@ Module.class_exec do
     is_controller = requested.end_with?('Controller')
     # self.name is nil when a model name is requested in an .erb file
     if self.name && ::Brick.config.path_prefix
-      camelize_prefix = ::Brick.config.path_prefix.camelize
+      split_self_name.shift if (split_self_name = self.name.split('::')).first.blank?
       # Asking for the prefix module?
+      camelize_prefix = ::Brick.config.path_prefix.camelize
       if self == Object && requested == camelize_prefix
         Object.const_set(args.first, (built_module = Module.new))
         puts "module #{camelize_prefix}; end\n"
         return built_module
-      end
-      split_self_name.shift if (split_self_name = self.name.split('::')).first.blank?
-      if split_self_name.first == camelize_prefix
+      elsif module_parent == Object && self.name == camelize_prefix ||
+            module_parent.name == camelize_prefix && module_parent.module_parent == Object
         split_self_name.shift # Remove the identified path prefix from the split name
+        is_brick_prefix = true
         if is_controller
           brick_root = split_self_name.empty? ? self : camelize_prefix.constantize
         end
@@ -1063,26 +1064,30 @@ Module.class_exec do
                     self
                   end
     # puts "#{self.name} - #{args.first}"
-    desired_classname = (self == Object || !name) ? requested : "#{name}::#{requested}"
-    if ((is_defined = self.const_defined?(args.first)) && (possible = self.const_get(args.first)) &&
-        # Reset `possible` if it's a controller request that's not a perfect match
-        # Was:  (possible = nil)  but changed to #local_variable_set in order to suppress the "= should be ==" warning
-        (possible&.name == desired_classname || (is_controller && binding.local_variable_set(:possible, nil)))) ||
-       # Try to require the respective Ruby file
-       ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
-                    (self != Object && ActiveSupport::Dependencies.search_for_file((desired_classname = requested).underscore))
-        ) && (require_dependency(filename) || true) &&
-        ((possible = self.const_get(args.first)) && possible.name == desired_classname)
-       ) ||
-       # If any class has turned up so far (and we're not in the middle of eager loading)
-       # then return what we've found.
-       (is_defined && !::Brick.is_eager_loading) # Used to also have:   && possible != self
-      if ((!brick_root && (filename || possible.instance_of?(Class))) ||
-          (possible.instance_of?(Module) && possible&.module_parent == self) ||
-          (possible.instance_of?(Class) && possible == self)) && # Are we simply searching for ourselves?
-         # Skip when what we found as `possible` is not related to the base class of an STI model
-         (!sti_base || possible.is_a?(sti_base))
-        return possible
+    # Unless it's a Brick prefix looking for a TNP that should create a module ...
+    unless (is_tnp_module = (is_brick_prefix && !is_controller && ::Brick.config.table_name_prefixes.values.include?(requested)))
+      # ... first look around for an existing module or class.
+      desired_classname = (self == Object || !name) ? requested : "#{name}::#{requested}"
+      if ((is_defined = self.const_defined?(args.first)) && (possible = self.const_get(args.first)) &&
+          # Reset `possible` if it's a controller request that's not a perfect match
+          # Was:  (possible = nil)  but changed to #local_variable_set in order to suppress the "= should be ==" warning
+          (possible&.name == desired_classname || (is_controller && binding.local_variable_set(:possible, nil)))) ||
+         # Try to require the respective Ruby file
+         ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
+                      (self != Object && ActiveSupport::Dependencies.search_for_file((desired_classname = requested).underscore))
+          ) && (require_dependency(filename) || true) &&
+          ((possible = self.const_get(args.first)) && possible.name == desired_classname)
+         ) ||
+         # If any class has turned up so far (and we're not in the middle of eager loading)
+         # then return what we've found.
+         (is_defined && !::Brick.is_eager_loading) # Used to also have:   && possible != self
+        if ((!brick_root && (filename || possible.instance_of?(Class))) ||
+            (possible.instance_of?(Module) && possible&.module_parent == self) ||
+            (possible.instance_of?(Class) && possible == self)) && # Are we simply searching for ourselves?
+           # Skip when what we found as `possible` is not related to the base class of an STI model
+           (!sti_base || possible.is_a?(sti_base))
+          return possible
+        end
       end
     end
     class_name = ::Brick.namify(requested)
@@ -1117,7 +1122,7 @@ Module.class_exec do
                                    (plural_class_name = class_name.pluralize)].find { |s| Brick.db_schemas&.include?(s) }&.camelize ||
                                   (::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}::") && class_name) ||
                                   (::Brick.config.table_name_prefixes.values.include?(class_name) && class_name))
-               return self.const_get(schema_name) if self.const_defined?(schema_name)
+               return self.const_get(schema_name) if !is_tnp_module && self.const_defined?(schema_name)
 
                # Build out a module for the schema if it's namespaced
                # schema_name = schema_name.camelize
