@@ -68,7 +68,7 @@ module Brick
         end
       end
 
-      def display_binary(val)
+      def display_binary(val, max_size = 100_000)
         return unless val
 
         @image_signatures ||= { (+"\xFF\xD8\xFF\xEE").force_encoding('ASCII-8BIT') => 'jpeg',
@@ -94,15 +94,12 @@ module Brick
           val = val[object_start...object_start + real_object_size]
         end
 
-        if (signature = @image_signatures.find { |k, _v| val[0...k.length] == k }) ||
-           (val[0..3] == 'RIFF' && val[8..11] == 'WEBP' && (signature = 'webp'))
-          if val.length < 500_000
-            "<img src=\"data:image/#{signature.last};base64,#{Base64.encode64(val)}\">"
-          else
-            "&lt;&nbsp;#{signature.last} image, #{val.length} bytes&nbsp;>"
-          end
+        if ((signature = @image_signatures.find { |k, _v| val[0...k.length] == k }&.last) ||
+            (val[0..3] == 'RIFF' && val[8..11] == 'WEBP' && binding.local_variable_set(:signature, 'webp'))) &&
+           val.length < max_size
+          "<img src=\"data:image/#{signature.last};base64,#{Base64.encode64(val)}\">"
         else
-          "&lt;&nbsp;Binary, #{val.length} bytes&nbsp;>"
+          "&lt;&nbsp;#{signature ? "#{signature} image" : 'Binary'}, #{val.length} bytes&nbsp;>"
         end
       end
     end
@@ -1636,10 +1633,10 @@ end
     <tr><td colspan=\"2\">(No displayable fields)</td></tr>
   <% end %>
   </table>#{
-  "<%= binary = begin
-                  ::Brick::Rails.display_binary(obj&.blob&.download)&.html_safe
-                rescue
-                end %>" if model_name == 'ActiveStorage::Attachment'}
+  "<%= begin
+         ::Brick::Rails.display_binary(obj&.blob&.download, 500_000)&.html_safe
+       rescue
+       end %>" if model_name == 'ActiveStorage::Attachment'}
 <%  end %>
 
 #{unless args.first == 'new'
@@ -1674,7 +1671,7 @@ end
              collection = collection.instance_exec(&assoc.scopes.first) if assoc.scopes.present?
              if assoc.klass.name == 'ActiveStorage::Attachment'
                br_descrip = begin
-                              ::Brick::Rails.display_binary(obj.send(assoc.name)&.blob&.download)&.html_safe
+                              ::Brick::Rails.display_binary(obj.send(assoc.name)&.blob&.download, 500_000)&.html_safe
                             rescue
                             end
              end
