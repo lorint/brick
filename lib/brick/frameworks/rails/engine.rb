@@ -3,7 +3,7 @@
 module Brick
   module Rails
     class << self
-      def display_value(col_type, val)
+      def display_value(col_type, val, lat_lng = nil)
         is_mssql_geography = nil
         # Some binary thing that really looks like a Microsoft-encoded WGS84 point?  (With the first two bytes, E6 10, indicating an EPSG code of 4326)
         if col_type == :binary && val && val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12]
@@ -61,7 +61,12 @@ module Brick
           ::Brick::Rails.display_binary(val)
         else
           if col_type
-            ::Brick::Rails::FormBuilder.hide_bcrypt(val, col_type == :xml)
+            if lat_lng
+              # Create a link to this style of Google maps URL:  https://www.google.com/maps/place/38.7071296+-121.2810649/@38.7071296,-121.2810649,12z
+              "<a href=\"https://www.google.com/maps/place/#{lat_lng.first}+#{lat_lng.last}/@#{lat_lng.first},#{lat_lng.last},12z\" target=\"blank\">#{val}</a>"
+            else
+              ::Brick::Rails::FormBuilder.hide_bcrypt(val, col_type == :xml)
+            end
           else
             '?'
           end

@@ -139,8 +139,19 @@ module Brick::Rails::FormTags
           out << if @_brick_monetized_attributes&.include?(col_name)
                    val ? Money.new(val.to_i).format : ''
                  else
+                   lat_lng = if [:float, :decimal].include?(col.type) &&
+                                (
+                                  ((col_name == 'latitude' && obj.respond_to?('longitude') && (lng = obj.send('longitude')) && lng.is_a?(Numeric) && (lat = val)) ||
+                                   (col_name == 'longitude' && obj.respond_to?('latitude') && (lat = obj.send('latitude')) && lat.is_a?(Numeric) && (lng = val))
+                                  ) ||
+                                  ((col_name == 'lat' && obj.respond_to?('lng') && (lng = obj.send('lng')) && lng.is_a?(Numeric) && (lat = val)) ||
+                                   (col_name == 'lng' && obj.respond_to?('lat') && (lat = obj.send('lat')) && lat.is_a?(Numeric) && (lng = val))
+                                  )
+                                )
+                               [lat, lng]
+                             end
                    col_type = col&.sql_type == 'geography' ? col.sql_type : col&.type
-                   ::Brick::Rails.display_value(col_type || col&.sql_type, val).to_s
+                   ::Brick::Rails.display_value(col_type || col&.sql_type, val, lat_lng).to_s
                  end
         elsif cust_col
           data = cust_col.first.map { |cc_part| obj.send(cc_part.last) }
