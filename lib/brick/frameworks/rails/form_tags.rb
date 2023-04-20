@@ -76,11 +76,14 @@ module Brick::Rails::FormTags
                                       pk.map { |pk_part| obj.send(pk_part.to_sym) }), { class: 'big-arrow' })}</td>\n" if pk.present?
       sequence.each do |col_name|
         val = obj.attributes[col_name]
+        bt = bts[col_name]
         out << '<td'
-        out << ' class=\"dimmed\"' unless cols.key?(col_name) || (cust_col = cust_cols[col_name]) ||
-                                          (col_name.is_a?(Symbol) && bts.key?(col_name)) # HOT
+        (classes ||= []) << 'dimmed' unless cols.key?(col_name) || (cust_col = cust_cols[col_name]) ||
+                                            (col_name.is_a?(Symbol) && bts.key?(col_name)) # HOT
+        (classes ||= []) << 'right' if val.is_a?(Numeric) && !bt
+        out << " class=\"#{classes.join(' ')}\"" if classes&.present?
         out << '>'
-        if (bt = bts[col_name] || composite_bt_names[col_name])
+        if (bt || composite_bt_names[col_name])
           if bt[2] # Polymorphic?
             if (poly_id = obj.send("#{bt.first}_id"))
               # Was:  obj.send("#{bt.first}_type")

@@ -258,7 +258,9 @@ module Brick
           else
             # Custom STI type columns for models built from specific tables
             (v.last.is_a?(Array) ? v.last : [v.last]).each do |table|
-              ::Brick.relations[table][:sti_col] = v.first
+              if (relation = ::Brick.relations.fetch(table, nil))
+                relation[:sti_col] = v.first
+              end
             end
           end
         end

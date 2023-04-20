@@ -61,9 +61,11 @@ module Brick
           ::Brick::Rails.display_binary(val)
         else
           if col_type
-            if lat_lng
+            if lat_lng && !(lat_lng.first.zero? && lat_lng.last.zero?)
               # Create a link to this style of Google maps URL:  https://www.google.com/maps/place/38.7071296+-121.2810649/@38.7071296,-121.2810649,12z
               "<a href=\"https://www.google.com/maps/place/#{lat_lng.first}+#{lat_lng.last}/@#{lat_lng.first},#{lat_lng.last},12z\" target=\"blank\">#{val}</a>"
+            elsif val.is_a?(Numeric)
+              ::ActiveSupport::NumberHelper.number_to_delimited(val, delimiter: ',')
             else
               ::Brick::Rails::FormBuilder.hide_bcrypt(val, col_type == :xml)
             end
@@ -922,6 +924,9 @@ a.big-arrow {
   background-color: #C0C0C0;
   text-align: center;
 }
+.right {
+  text-align: right;
+}
 .orphan {
   color: red;
   white-space: nowrap;
@@ -1647,7 +1652,8 @@ end
 #{unless args.first == 'new'
   # Was:  confirm_are_you_sure = ActionView.version < ::Gem::Version.new('7.0') ? "data: { confirm: 'Delete #\{model_name} -- Are you sure?' }" : "form: { data: { turbo_confirm: 'Delete #\{model_name} -- Are you sure?' } }"
   confirm_are_you_sure = "data: { confirm: 'Delete #\{model_name} -- Are you sure?' }"
-  hms_headers.each_with_object(+'') do |hm, s|
+  ret = +"<%= button_to(\"Delete #\{@#{obj_name}.brick_descrip}\", send(\"#\{#{model_name}._brick_index(:singular)}_path\".to_sym, @#{obj_name}), { method: 'delete', class: 'danger', #{confirm_are_you_sure} }) %>"
+  hms_headers.each_with_object(ret) do |hm, s|
     # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
     next if hm.first.options[:through] && !hm.first.through_reflection
 
@@ -1707,8 +1713,7 @@ end
     else
       s
     end
-  end +
-  "<%= button_to(\"Delete #\{@#{obj_name}.brick_descrip}\", send(\"#\{#{model_name}._brick_index(:singular)}_path\".to_sym, @#{obj_name}), { method: 'delete', class: 'danger', #{confirm_are_you_sure} }) %>"
+  end
 end}
 <% end %>
 #{script}
@@ -1793,7 +1798,8 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 
     mermaidCode = document.createElement(\"SCRIPT\");
     mermaidCode.setAttribute(\"src\", \"https://cdn.jsdelivr.net/npm/mermaid@9.1.7/dist/mermaid.min.js\");
-    mermaidCode.addEventListener(\"load\", function () {
+    mermaidCode.addEventListener(\"load\", mermaidLoaded);
+    function mermaidLoaded() {
       mermaid.initialize({
         startOnLoad: true,
         securityLevel: \"loose\",
@@ -1826,6 +1832,14 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
         window.history.pushState({}, '', changeout(location.href, '_brick_erd', null));
       });
       mermaidErd.appendChild(span);
+    }
+    // If there's an error with the CDN during load, revert to our local copy
+    mermaidCode.addEventListener(\"error\", function (e) {
+      console.warn(\"As we're unable to load Mermaid from\\n  \" + e.srcElement.src + \" ,\\nnow reverting to copy from /assets.\");
+      var mermaidCode2 = document.createElement(\"SCRIPT\");
+      mermaidCode2.setAttribute(\"src\", \"/assets/mermaid.min.js\");
+      mermaidCode2.addEventListener(\"load\", mermaidLoaded);
+      e.srcElement.replaceWith(mermaidCode2);
     });
     document.body.appendChild(mermaidCode);
   }
