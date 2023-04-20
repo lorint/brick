@@ -1115,6 +1115,14 @@ if (headerTop) {
     setHeaderSizes();
   }, true);
 }
+// Cause descriptive text to use the same font as the resource 
+var brickFontFamily = document.getElementById(\"resourceName\").computedStyleMap().get(\"font-family\");
+if (window.brickFontFamily) {
+  [...document.getElementsByClassName(\"__brick\")].forEach(function (x){
+    if (!x.style.fontFamily)
+      x.style.fontFamily = brickFontFamily.toString();
+  });
+}
 </script>"
 
               erd_markup = if @_brick_model
@@ -1359,8 +1367,8 @@ end
 %><%= if (page_num = @#{table_name}._brick_page_num)
            \"<tr><td colspan=\\\"#\{td_count}\\\">Page #\{page_num}</td></tr>\".html_safe
          end %></table>#{template_link}<%
-   if description.present? %><%=
-     description %><br><%
+   if description.present? %><span class=\"__brick\"><%=
+     description %></span><br><%
    end
    # FILTER PARAMETERS
    if @_brick_params&.present? %>
@@ -1371,12 +1379,12 @@ end
        if (destination_fk = Brick.relations[origin.table_name][:fks].values.find { |fk| fk[:fk] == key_parts.last }) &&
           (objs = (destination = origin.reflect_on_association(destination_fk[:assoc_name])&.klass)&.find(id))
          objs = [objs] unless objs.is_a?(Array) %>
-         <h3>for <% objs.each do |obj| %><%=
+         <h3 class=\"__brick\">for <% objs.each do |obj| %><%=
                       link_to \"#{"#\{obj.brick_descrip\} (#\{destination.name\})\""}, send(\"#\{destination._brick_index(:singular)\}_path\".to_sym, id)
                %><% end %></h3><%
        end
      end %>
-  (<%= link_to \"See all #\{model.base_class.name.split('::').last.pluralize}\", #{@_brick_model._brick_index}_path %>)
+  <span class=\"__brick\">(<%= link_to \"See all #\{model.base_class.name.split('::').last.pluralize}\", #{@_brick_model._brick_index}_path %>)</span>
 <% end
    # COLUMN EXCLUSIONS
    if @_brick_excl&.present? %>
@@ -1427,7 +1435,7 @@ end
                cols, poly_cols, bts, #{hms_keys.inspect}, {#{hms_columns.join(', ')}}) %>
 
 #{"<hr><%= link_to(\"New #{new_path_name = "new_#{path_obj_name}_path"
-                           obj_name}\", #{new_path_name}) if respond_to?(:#{new_path_name}) %>" unless @_brick_model.is_view?}
+                           obj_name}\", #{new_path_name}, { class: '__brick' }) if respond_to?(:#{new_path_name}) %>" unless @_brick_model.is_view?}
 #{script}
 </body>
 </html>
@@ -1539,7 +1547,7 @@ end
 <p style=\"color: green\"><%= notice if request.respond_to?(:flash) %></p>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
-<table><td><h1><%= page_title %></h1></td>
+<table id=\"resourceName\"><td><h1><%= page_title %></h1></td>
 <% if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) %>
   <td><%= link_to_brick(
       avo_svg,
@@ -1565,10 +1573,10 @@ end
    end %>
 </table>
 <%
-if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %><%=
-  description %><br><%
+if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %>
+  <span class=\"__brick\"><%= description %></span><br><%
 end
-%><%= link_to \"(See all #\{model_name.pluralize})\", see_all_path %>
+%><%= link_to \"(See all #\{model_name.pluralize})\", see_all_path, { class: '__brick' } %>
 #{erd_markup}
 <% if obj
      # path_options = [obj.#{pk}]
