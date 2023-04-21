@@ -44,8 +44,19 @@
 
 module ActiveRecord
   class Base
+    @_brick_inheriteds = {}
     class << self
       attr_reader :_brick_relation
+
+      def _brick_inheriteds
+        @_brick_inheriteds ||= ::ActiveRecord::Base.instance_variable_get(:@_brick_inheriteds)
+      end
+
+      # Track the file(s) in which each model is defined
+      def inherited(model)
+        (_brick_inheriteds[model] ||= []) << caller.first.split(':')[0..1] unless caller.first.include?('/lib/brick/extensions.rb:')
+        super
+      end
 
       def is_brick?
         instance_variables.include?(:@_brick_built) && instance_variable_get(:@_brick_built)
@@ -2743,31 +2754,15 @@ module Brick
                      end
                    end
       abstract_activerecord_bases = ::Brick.eager_load_classes(true)
-      models = if Dir.exist?(model_path = "#{rails_root}/app/models")
-                 Dir["#{model_path}/**/*.rb"].each_with_object({}) do |path, s|
-                   modules = []
-                   File.read(path).split("\n").each do |line|
-                     # Capture a list of modules leading up to this class
-                     if line.lstrip.start_with?('module ') && (idx = line.index('module'))
-                       modules << line[idx + 6..-1].match(/[\s:]+([\w:]+)/)&.captures&.first
-                     end
-                     # For all non-commented lines, look for any that start with "class " and also "< ApplicationRecord"
-                     if line.lstrip.start_with?('class ') && (idx = line.index('class')) &&
-                        (model_name = line[idx + 5..-1].match(/[\s:]+([\w:]+)/)&.captures&.first)
-                       # Prefix model class name with module names, if any
-                       model_name = modules.map{|m| "#{m}::"}.join + model_name
-                       unless abstract_activerecord_bases.include?(model_name)
-                         klass = begin
-                                   model_name.constantize
-                                 rescue
-                                 end
-                         s[model_name.underscore.tr('/', '.').pluralize] = [
-                           path.start_with?(rails_root) ? path[rails_root.length + 1..-1] : path,
-                           klass
-                         ]
-                       end
-                     end
+      rails_root = ::Rails.root.to_s
+      models = ::Brick.relations.each_with_object({}) do |rel, s|
+                 begin
+                   if (model = rel.last[:class_name]&.constantize) &&
+                      (inh = ActiveRecord::Base._brick_inheriteds[model]&.join(':'))
+                     inh = inh[rails_root.length + 1..-1] if inh.start_with?(rails_root)
+                     s[rel.first] = [inh, model]
                    end
+                 rescue
                  end
                end
       ::Brick.relations.map do |k, v|
@@ -2781,7 +2776,8 @@ module Brick
                          v[:class_name].constantize.table_name
                        rescue
                        end
-        [k, table_name || k, migrations&.fetch(res, nil), model&.first]
+        model = model.first if model.is_a?(Array)
+        [k, table_name || k, migrations&.fetch(res, nil), model]
       end
     end
 
