@@ -62,7 +62,7 @@ module Brick
         dir = +"#{::Rails.root}/app"
         path[0..-2].each do |path_part|
           dir << "/#{path_part}"
-          Dir.mkdir(dir) unless Dir.exists?(dir)
+          Dir.mkdir(dir) unless Dir.exist?(dir)
         end
         File.open("#{dir}/#{path.last}.rb", 'w') { |f| f.write code } unless code.blank?
       end
