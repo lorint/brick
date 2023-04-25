@@ -670,7 +670,6 @@ module ActiveRecord
       # Add derived table JOIN for the has_many counts
       nix = []
       klass._br_hm_counts.each do |k, hm|
-        num_bt_things = 0
         count_column = if hm.options[:through]
                          # Build the chain of JOINs going to the final destination HMT table
                          # (Usually just one JOIN, but could be many.)
@@ -691,7 +690,11 @@ module ActiveRecord
                          # Turn the last member of link_back into a foreign key
                          link_back << hmt_assoc.source_reflection.foreign_key
                          # If it's a HMT based on a HM -> HM, must JOIN the last table into the mix at the end
-                         through_sources.push(hm.source_reflection) unless hm.source_reflection.belongs_to?
+                         this_hm = hm
+                         while !(src_ref = this_hm.source_reflection).belongs_to? && (thr = src_ref.options[:through])
+                           through_sources.push(this_hm = src_ref.active_record.reflect_on_association(thr))
+                         end
+                         through_sources.push(src_ref) unless src_ref.belongs_to?
                          from_clause = +"#{through_sources.first.table_name} br_t0"
                          fk_col = through_sources.shift.foreign_key
 
@@ -700,9 +703,7 @@ module ActiveRecord
                          through_sources.map do |a|
                            from_clause << "\n LEFT OUTER JOIN #{a.table_name} br_t#{idx += 1} "
                            from_clause << if (src_ref = a.source_reflection).macro == :belongs_to
-                                            nm = hmt_assoc.source_reflection.inverse_of&.name
-                                            link_back << nm
-                                            num_bt_things += 1
+                                            link_back << (nm = hmt_assoc.source_reflection.inverse_of&.name)
                                             # puts "BT #{a.table_name}"
                                             "ON br_t#{idx}.#{a.active_record.primary_key} = br_t#{idx - 1}.#{a.foreign_key}"
                                           elsif src_ref.options[:as]
@@ -723,9 +724,8 @@ module ActiveRecord
                                             end
                                           else # Standard has_many or has_one
                                             # puts "HM #{a.table_name}"
-                                            # binding.pry unless (
                                             nm = hmt_assoc.source_reflection.inverse_of&.name
-                                            # )
+                                            # binding.pry unless nm
                                             link_back << nm # if nm
                                             "ON br_t#{idx}.#{a.foreign_key} = br_t#{idx - 1}.#{a.active_record.primary_key}"
                                           end
@@ -742,16 +742,8 @@ module ActiveRecord
                            nix << k
                            next
                          elsif src_ref.macro == :belongs_to # Traditional HMT using an associative table
-                           # binding.pry if link_back.length > 2
                            "br_t#{idx}.#{hm.foreign_key}"
                          else # A HMT that goes HM -> HM, something like Categories -> Products -> LineItems
-                           # %%% Currently flaky, so will revisit this soon, probably while implementing the whole link_back architecture
-                           if num_bt_things > 1
-                             # binding.pry
-                             nix << k
-                             next
-                           end
-
                            "br_t#{idx}.#{src_ref.active_record.primary_key}"
                          end
                        else
