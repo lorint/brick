@@ -388,18 +388,42 @@ module ActiveRecord
                      order_by_txt&.<<("Arel.sql(#{ord_expr})")
                      s << Arel.sql(ord_expr)
                    else # Expecting only Symbol
-                     if _br_hm_counts.key?(ord_part)
-                       ord_part = "\"b_r_#{ord_part}_ct\""
-                     elsif !_br_bt_descrip.key?(ord_part) && !_br_cust_cols.key?(ord_part) && !column_names.include?(ord_part.to_s)
+                     ord_part = ord_part.to_s
+                     if ord_part[0] == '-' # First char '-' means descending order
+                       ord_part.slice!(0)
+                       is_desc = true
+                     end
+                     if ord_part[0] == '~' # Char '~' means order NULLs as highest values instead of lowest
+                       ord_part.slice!(0)
+                       # (Unfortunately SQLServer does not support NULLS FIRST / NULLS LAST, so leave them out.)
+                       is_nulls_switch = case ActiveRecord::Base.connection.adapter_name
+                                         when 'PostgreSQL', 'OracleEnhanced', 'SQLite'
+                                           :pg
+                                         when 'Mysql2', 'Trilogy'
+                                           :mysql
+                                         end
+                     end
+                     if _br_hm_counts.key?(ord_part_sym = ord_part.to_sym)
+                       ord_part = +"\"b_r_#{ord_part}_ct\""
+                     elsif _br_bt_descrip.key?(ord_part_sym)
+                       ord_part = _br_bt_descrip.fetch(ord_part_sym, nil)&.first&.last&.first&.last&.dup
+                     elsif !_br_cust_cols.key?(ord_part_sym) && !column_names.include?(ord_part)
                        # Disallow ordering by a bogus column
                        # %%% Note this bogus entry so that Javascript can remove any bogus _brick_order
                        # parameter from the querystring, pushing it into the browser history.
                        ord_part = nil
                      end
+
                      if ord_part
-                       # Retain any reference to a bt_descrip as being a symbol
-                       # Was:  "#{quoted_table_name}.\"#{ord_part}\""
-                       order_by_txt&.<<(_br_bt_descrip.key?(ord_part) ? ord_part : ord_part.inspect)
+                       ord_part << ' DESC' if is_desc
+                       ord_part << (is_desc ? ' NULLS LAST' : ' NULLS FIRST') if is_nulls_switch == :pg
+                       ord_part.insert(0, '-') if is_nulls_switch == :mysql
+
+                       order_by_txt&.<<("Arel.sql(#{ord_part.inspect})")
+
+                       # # Retain any reference to a bt_descrip as being a symbol
+                       # # Was:  "#{quoted_table_name}.\"#{ord_part}\""
+                       # order_by_txt&.<<(_br_bt_descrip.key?(ord_part) ? ord_part : ord_part.inspect)
                        s << ord_part
                      end
                    end
@@ -837,7 +861,8 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
       # or custom columns as they must be expanded to find the corresponding b_r_model__column
       # or br_cc_column naming for each.
       if order_by.present?
-        final_order_by = *order_by.each_with_object([]) do |v, s|
+        order_by, _ = klass._brick_calculate_ordering(order_by, true) # Don't do the txt part
+        final_order_by = order_by.each_with_object([]) do |v, s|
           if v.is_a?(Symbol)
             # Add the ordered series of columns derived from the BT based on its DSL
             if (bt_cols = klass._br_bt_descrip[v])
@@ -1778,8 +1803,7 @@ class Object
 
             # %%% Allow params to define which columns to use for order_by
             # Overriding the default by providing a querystring param?
-            ordering = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
-            order_by, _ = real_model._brick_calculate_ordering(ordering, true) # Don't do the txt part
+            order_by = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
 
             ar_relation = ActiveRecord.version < Gem::Version.new('4') ? real_model.preload : real_model.all
             params['_brick_is_api'] = true if (is_api = request.format == :js || current_api_root)
