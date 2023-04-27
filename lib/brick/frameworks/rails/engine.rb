@@ -1711,9 +1711,9 @@ end
           <tr><td>(none)</td></tr>
      <% else
           collection2.each do |#{hm_singular_name}| %>
-            <tr><td><%= br_descrip ||= #{hm_singular_name}.brick_descrip(
-                                         descrip_cols&.first&.map { |col| #{hm_singular_name}.send(col.last) }
-                                       )
+            <tr><td><%= br_descrip = #{hm_singular_name}.brick_descrip(
+                                       descrip_cols&.first&.map { |col| #{hm_singular_name}.send(col.last) }
+                                     )
                         link_to(br_descrip, #{hm.first.klass._brick_index(:singular)}_path(slashify(#{obj_pk}))) %></td></tr>
           <% end %>
         <% end %>

@@ -1132,7 +1132,7 @@ Module.class_exec do
                base_module.const_set(schema_name.to_sym, (built_module = Module.new))
 
                [built_module, "module #{schema_name}; end\n"]
-               #  # %%% Perhaps an option to use the first module just as schema, and additional modules as namespace with a table name prefix applied
+               # %%% Perhaps an option to use the first module just as schema, and additional modules as namespace with a table name prefix applied
 
              # AVO Resource
              elsif base_module == Object && Object.const_defined?('Avo') && requested.end_with?('Resource') &&
