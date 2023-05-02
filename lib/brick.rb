@@ -163,6 +163,8 @@ module Brick
 
     # All tables and views (what Postgres calls "relations" including column and foreign key info)
     def relations
+      return {} if ::ActiveRecord::Base.connection_handler.connection_pool_list.blank?
+
       # Key our list of relations for this connection off of the connection pool's object_id
       (@relations ||= {})[ActiveRecord::Base.connection_pool.object_id] ||= Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = {} } }
     end

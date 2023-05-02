@@ -88,7 +88,7 @@ module Brick::Rails::FormBuilder
         end
       when :primary_key
         is_revert = false
-      when :json
+      when :json, :jsonb
         template.instance_variable_set(:@_json_fields_present, true)
         if val.is_a?(String)
           val_str = val

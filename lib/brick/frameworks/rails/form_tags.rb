@@ -36,9 +36,9 @@ module Brick::Rails::FormTags
     end
     sequence.reject! { |nm| exclusions.include?(nm) } if exclusions
     out << sequence.each_with_object(+'') do |col_name, s|
+             s << '<th '
              if (col = cols[col_name]).is_a?(ActiveRecord::ConnectionAdapters::Column)
-               s << '<th '
-               s << "title=\"#{col.comment}\"" if col.respond_to?(:comment) && !col.comment.blank?
+               s << "title=\"#{col.comment}\" " if col.respond_to?(:comment) && !col.comment.blank?
                s << if (bt = bts[col_name])
                       # Allow sorting for any BT except polymorphics
                       "x-order=\"#{bt.first.to_s + '"' unless bt[2]}>BT " +
@@ -49,18 +49,18 @@ module Brick::Rails::FormTags
              elsif col # HM column
                options = {}
                options[col[1].inheritance_column] = col[1].name unless col[1] == col[1].base_class
-               s << "<th x-order=\"#{col_name + '"' if true}>#{col[2]} "
+               s << "x-order=\"#{col_name + '"' if true}>#{col[2]} "
                s << (col.first ? "#{col[3]}" : "#{link_to(col[3], send("#{col[1]._brick_index}_path", options))}")
              elsif cust_cols.key?(col_name) # Custom column
-               s << "<th x-order=\"#{col_name}\">#{col_name}"
+               s << "x-order=\"#{col_name}\">#{col_name}"
              elsif col_name.is_a?(Symbol) && (hot = bts[col_name]) # has_one :through
-               s << "<th x-order=\"#{hot.first.to_s}\">HOT " +
+               s << "x-order=\"#{hot.first.to_s}\">HOT " +
                     hot[1].map { |hot_pair| hot_pair.first.bt_link(col_name) }.join(' ')
              elsif (bt = composite_bt_names[col_name])
-               s << "<th x-order=\"#{bt.first.to_s + '"' unless bt[2]}>BT comp " +
+               s << "x-order=\"#{bt.first.to_s + '"' unless bt[2]}>BT comp " +
                     bt[1].map { |bt_pair| bt_pair.first.bt_link(bt.first) }.join(' ')
              else # Bad column name!
-               s << "<th title=\"<< Unknown column >>\">#{col_name}"
+               s << "title=\"<< Unknown column >>\">#{col_name}"
              end
              s << '</th>'
            end
@@ -128,13 +128,11 @@ module Brick::Rails::FormTags
                          end
                 out << link_to(ho_txt, send("#{hm_klass.base_class._brick_index(:singular)}_path".to_sym, ho_id))
               end
-            else
-              if (ct = obj.send(hms_col[1].to_sym)&.to_i)&.positive?
-                predicates = hms_col[2].each_with_object({}) { |v, s| s[v.first] = v.last.is_a?(String) ? v.last : obj.send(v.last) }
-                predicates.each { |k, v| predicates[k] = obj.class.name if v == '[sti_type]' }
-                out << "#{link_to("#{ct || 'View'} #{hms_col.first}",
-                                  send("#{hm_klass._brick_index}_path".to_sym, predicates))}\n"
-              end
+            elsif obj.respond_to?(ct_col = hms_col[1].to_sym) && (ct = obj.send(ct_col)&.to_i)&.positive?
+              predicates = hms_col[2].each_with_object({}) { |v, s| s[v.first] = v.last.is_a?(String) ? v.last : obj.send(v.last) }
+              predicates.each { |k, v| predicates[k] = obj.class.name if v == '[sti_type]' }
+              out << "#{link_to("#{ct || 'View'} #{hms_col.first}",
+                                send("#{hm_klass._brick_index}_path".to_sym, predicates))}\n"
             end
           end
         elsif (col = cols[col_name]).is_a?(ActiveRecord::ConnectionAdapters::Column)
