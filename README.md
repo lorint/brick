@@ -178,6 +178,8 @@ Employee.includes(orders: :order_details)
 
 More information is available in this [discussion post](https://discuss.rubyonrails.org/t/includes-and-select-for-joined-data/81640).
 
+As well, some aspects of the Zeitwerk autoloader get enhanced so that everything operates more consistently when classes are nested in multiple modules.  Here is a [video demonstrating default snags and how Brick fixes them](https://user-images.githubusercontent.com/5301131/235632564-95f28f7e-854c-417c-b00e-078c4fe8e7f3.mp4).  More background about this specific example can be found in [this Reddit post](https://www.reddit.com/r/rails/comments/134o6nr/why_does_pryzeitwerk_have_issues_loading/).
+
 The Brick notices when some other gems are present and makes use of them -- most notably
 **[composite_primary_keys](https://github.com/composite-primary-keys/composite_primary_keys)** which allows very tricky databases to function.
 (Try out the [Adventureworks](https://github.com/lorint/AdventureWorks-for-Postgres) sample database to see this in action.) Already when tables and columns are not named in accordance

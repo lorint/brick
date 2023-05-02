@@ -989,7 +989,7 @@ end
 if Object.const_defined?('ActionView')
   require 'brick/frameworks/rails/form_tags'
   require 'brick/frameworks/rails/form_builder'
-  module ActionView::Helpers
+  module ::ActionView::Helpers
     module FormTagHelper
       include ::Brick::Rails::FormTags
     end
@@ -999,8 +999,8 @@ if Object.const_defined?('ActionView')
   end
 
   # FormBuilder#field_id isn't available in Rails < 7.0.  This is a rudimentary version with no `index`.
-  unless ActionView::Helpers::FormBuilder.methods.include?(:field_id)
-    ActionView::Helpers::FormBuilder.class_exec do
+  unless ::ActionView::Helpers::FormBuilder.methods.include?(:field_id)
+    ::ActionView::Helpers::FormBuilder.class_exec do
       def field_id(method)
         [object_name, method.to_s].join('_')
       end
@@ -1149,7 +1149,7 @@ Module.class_exec do
                                    ::Brick.is_oracle ? class_name.upcase : class_name,
                                    (plural_class_name = class_name.pluralize)].find { |s| Brick.db_schemas&.include?(s) }&.camelize ||
                                   (::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}::") && class_name) ||
-                                  (::Brick.config.table_name_prefixes.values.include?(class_name) && class_name))
+                                  (::Brick.config.table_name_prefixes&.values&.include?(class_name) && class_name))
                return self.const_get(schema_name) if !is_tnp_module && self.const_defined?(schema_name)
 
                # Build out a module for the schema if it's namespaced
@@ -1942,8 +1942,9 @@ class Object
               end
               render json: { result: ::Brick.unexclude_column(table_name, col) }
             else
-              instance_variable_set("@#{singular_table_name}".to_sym,
-                                    model.send(:create, send(params_name_sym)))
+              @_lookup_context.instance_variable_set("@#{singular_table_name}".to_sym,
+                                                     model.send(:create, send(params_name_sym)))
+              @_lookup_context.instance_variable_set(:@_brick_model, model)
               index
               render :index
             end

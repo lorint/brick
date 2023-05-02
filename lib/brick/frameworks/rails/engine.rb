@@ -1430,6 +1430,12 @@ end
                          end
                        end
 
+    # %%% Why in the Canvas LMS app does ActionView::Helpers get cleared / reloaded, or otherwise lose access to #brick_grid ???
+    # Possible fix if somewhere we can implement the #include with:
+    # (ActiveSupport.const_defined?('Reloader') ? ActiveSupport : ActionDispatch)::Reloader.to_prepare do ... end
+    # or
+    # Rails.application.reloader.to_prepare do ... end
+    self.class.class_exec { include ::Brick::Rails::FormTags } unless respond_to?(:brick_grid)
     # Write out the mega-grid
     brick_grid(@#{table_name}, @_brick_bt_descrip, @_brick_sequence, @_brick_incl, @_brick_excl,
                cols, poly_cols, bts, #{hms_keys.inspect}, {#{hms_columns.join(', ')}}) %>
