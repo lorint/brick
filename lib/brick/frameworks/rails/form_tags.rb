@@ -93,18 +93,20 @@ module Brick::Rails::FormTags
             end
           else # BT or HOT
             bt_class = bt[1].first.first
-            descrips = bt_descrip[bt.first][bt_class]
-            bt_id_col = if descrips.nil?
-                          puts "Caught it in the act for obj / #{col_name}!"
-                        elsif descrips.length == 1
-                          [obj.class.reflect_on_association(bt.first)&.foreign_key]
-                        else
-                          descrips.last
-                        end
-            bt_txt = bt_class.brick_descrip(
-              # 0..62 because Postgres column names are limited to 63 characters
-              obj, descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, bt_id_col
-            )
+            if bt_descrip
+              descrips = bt_descrip[bt.first][bt_class]
+              bt_id_col = if descrips.nil?
+                            puts "Caught it in the act for obj / #{col_name}!"
+                          elsif descrips.length == 1
+                            [obj.class.reflect_on_association(bt.first)&.foreign_key]
+                          else
+                            descrips.last
+                          end
+            end
+            br_descrip_args = [obj]
+            # 0..62 because Postgres column names are limited to 63 characters
+            br_descrip_args += [descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, bt_id_col] if descrips
+            bt_txt = bt_class.brick_descrip(*br_descrip_args)
             bt_txt = ::Brick::Rails.display_binary(bt_txt).html_safe if bt_txt&.encoding&.name == 'ASCII-8BIT'
             bt_txt ||= "<span class=\"orphan\">&lt;&lt; Orphaned ID: #{val} >></span>" if val
             bt_id = bt_id_col&.map { |id_col| obj.respond_to?(id_sym = id_col.to_sym) ? obj.send(id_sym) : id_col }
