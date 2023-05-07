@@ -1042,7 +1042,7 @@ if ActiveSupport::Dependencies.respond_to?(:autoload_module!) # %%% Only works w
   end
 end
 
-Module.class_exec do
+::Brick::ADD_CONST_MISSING = lambda do
   alias _brick_const_missing const_missing
   def const_missing(*args)
     requested = args.first.to_s
@@ -1319,7 +1319,14 @@ class Object
       if (base_model = ::Brick.sti_models[full_model_name]&.fetch(:base, nil) || ::Brick.existing_stis[full_model_name]&.constantize)
         is_sti = true
       else
-        base_model = ::Brick.config.models_inherit_from
+        # Class for auto-generated models to inherit from
+        base_model = (::Brick.config.models_inherit_from ||= (app.config.brick.fetch(:models_inherit_from, nil) ||
+                                                              begin
+                                                                ::ApplicationRecord
+                                                              rescue StandardError => ex
+                                                                ::ActiveRecord::Base
+                                                              end))
+
       end
       hmts = nil
       code = +"class #{full_name} < #{base_model.name}\n"

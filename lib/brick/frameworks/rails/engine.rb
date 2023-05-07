@@ -209,6 +209,7 @@ function linkSchemas() {
       # paths['app/models'] << 'lib/brick/frameworks/active_record/models'
       config.brick = ActiveSupport::OrderedOptions.new
       ActiveSupport.on_load(:before_initialize) do |app|
+        ::Rails.application.reloader.to_prepare { Module.class_exec &::Brick::ADD_CONST_MISSING }
         is_development = (ENV['RAILS_ENV'] || ENV['RACK_ENV'])  == 'development'
         ::Brick.enable_models = app.config.brick.fetch(:enable_models, true)
         ::Brick.enable_controllers = app.config.brick.fetch(:enable_controllers, is_development)
