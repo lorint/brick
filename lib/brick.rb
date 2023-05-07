@@ -254,7 +254,7 @@ module Brick
               next
             end
           else
-            if !a.options.key?(:as) && a.klass.column_names.exclude?(a.foreign_key)
+            if !a.options.key?(:as) && a.klass.column_names.exclude?(a.foreign_key.to_s)
               options = ", #{a.options.map { |k, v| "#{k.inspect} => #{v.inspect}" }.join(', ')}" if a.options.present?
               puts "WARNING:  Model #{model.name} has this association:
             has_many :#{a.name}#{options}
@@ -922,11 +922,19 @@ In config/initializers/brick.rb appropriate entries would look something like:
           end
         end
 
-        if ::Brick.config.add_status && instance_variable_get(:@set).named_routes.names.exclude?(:brick_status)
-          get("/#{controller_prefix}brick_status", to: 'brick_gem#status', as: 'brick_status')
+        if ::Brick.config.add_status && (status_as = "#{controller_prefix.tr('/', '_')}brick_status".to_sym)
+           (
+             !(status_route = instance_variable_get(:@set).named_routes.find { |route| route.first == status_as }&.last) ||
+             !status_route.ast.to_s.include?("/#{controller_prefix}brick_status/")
+           )
+          get("/#{controller_prefix}brick_status", to: 'brick_gem#status', as: status_as.to_s)
         end
 
-        if ::Brick.config.add_orphans && instance_variable_get(:@set).named_routes.names.exclude?(:brick_orphans)
+        if ::Brick.config.add_orphans && (orphans_as = "#{controller_prefix.tr('/', '_')}brick_orphans".to_sym)
+           (
+             !(orphans_route = instance_variable_get(:@set).named_routes.find { |route| route.first == orphans_as }&.last) ||
+             !orphans_route.ast.to_s.include?("/#{controller_prefix}brick_orphans/")
+           )
           get("/#{controller_prefix}brick_orphans", to: 'brick_gem#orphans', as: 'brick_orphans')
         end
 

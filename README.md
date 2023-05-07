@@ -143,6 +143,11 @@ avaiable therein.
 Brick will work with Rails 3.x and onwards, and Rails 4.2.0 and above are officially supported.
 Rails 5.2.6, 7.0, and 7.1 are the versions which have been tested most extensively.
 
+Compatibility with major Rails projects is _very_ strong -- this gem can be dropped directly into a
+[Mastodon](https://github.com/mastodon/mastodon) / [Canvas LMS](https://github.com/instructure/canvas-lms) /
+[railsdevs](https://github.com/joemasilotti/railsdevs.com) / etc project and things will just **WORK**!
+Might want to set up an initializer that points things to their own path by using `::Brick.path_prefix = 'admin'`.
+
 When used with really old versions of Rails, 4.x and older, Brick automatically applies various
 compatibility patches so it will run under much newer versions of Ruby than would normally be
 allowed.  This makes it easier to test the broad range of supported versions of ActiveRecord

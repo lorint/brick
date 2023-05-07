@@ -736,7 +736,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                     end
                   when 'show', 'new', 'update'
                     hm_stuff << if hm_fk_name
-                                  if hm_assoc.klass.column_names.include?(hm_fk_name) ||
+                                  if hm_assoc.klass.column_names.include?(hm_fk_name.to_s) ||
                                      (hm_fk_name.is_a?(String) && hm_fk_name.include?('.')) # HMT?  (Could do a better check for this)
                                     predicates = path_keys(hm_assoc, hm_fk_name, pk).map do |k, v|
                                                    if v == '[sti_type]'
@@ -1716,11 +1716,11 @@ end
         if collection2.empty? %>
           <tr><td>(none)</td></tr>
      <% else
-          collection2.each do |#{hm_singular_name}| %>
-            <tr><td><%= br_descrip = #{hm_singular_name}.brick_descrip(
-                                       descrip_cols&.first&.map { |col| #{hm_singular_name}.send(col.last) }
+          collection2.each do |br_#{hm_singular_name}| %>
+            <tr><td><%= br_descrip = br_#{hm_singular_name}.brick_descrip(
+                                       descrip_cols&.first&.map { |col| br_#{hm_singular_name}.send(col.last) }
                                      )
-                        link_to(br_descrip, #{hm.first.klass._brick_index(:singular)}_path(slashify(#{obj_pk}))) %></td></tr>
+                        link_to(br_descrip, #{hm.first.klass._brick_index(:singular)}_path(slashify(br_#{obj_pk}))) %></td></tr>
           <% end %>
         <% end %>
       </table>"

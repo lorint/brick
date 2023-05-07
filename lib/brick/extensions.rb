@@ -1486,8 +1486,10 @@ class Object
                                assoc[:assoc_name]
                              end
                 options[:optional] = true if assoc.key?(:optional)
-                if assoc.key?(:polymorphic)
-                  options[:polymorphic] = true
+                if assoc.key?(:polymorphic) ||
+                   # If a polymorphic association is missing but could be established then go ahead and put it into place.
+                   relations[assoc[:inverse_table]][:class_name].constantize.reflect_on_all_associations.find { |inv_assoc| !inv_assoc.belongs_to? && inv_assoc.options[:as].to_s == assoc[:assoc_name] }
+                  assoc[:polymorphic] ||= (options[:polymorphic] = true)
                 else
                   need_class_name = singular_table_name.underscore != assoc_name
                   need_fk = "#{assoc_name}_id" != assoc[:fk]
@@ -1548,7 +1550,11 @@ class Object
                                   assoc[:fk].to_sym
                                 end
       end
-      options[:inverse_of] = inverse_assoc_name.tr('.', '_').to_sym if inverse_assoc_name && (need_class_name || need_fk || need_inverse_of)
+      if inverse_assoc_name && (need_class_name || need_fk || need_inverse_of) &&
+         (klass = options[:class_name]&.constantize) && (ian = inverse_assoc_name.tr('.', '_').to_sym) &&
+         (klass.is_brick? || klass.reflect_on_association(ian))
+        options[:inverse_of] = ian
+      end
 
       # Prepare a list of entries for "has_many :through"
       if macro == :has_many
