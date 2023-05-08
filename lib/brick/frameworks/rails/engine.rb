@@ -799,6 +799,10 @@ window.addEventListener(\"popstate\", linkSchemas);
   left: 0;
 }
 
+.flashNotice {
+  color: green;
+}
+
 h1, h3 {
   margin-bottom: 0;
 }
@@ -1314,7 +1318,7 @@ erDiagram
 </head>
 <body>
 <div id=\"titleBox\"><div id=\"titleSticky\">
-<p style=\"color: green\"><%= notice if request.respond_to?(:flash) %></p>#{"
+<p class=\"flashNotice\"><%= notice if request.respond_to?(:flash) %></p>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><tr>
@@ -1454,7 +1458,7 @@ end
 # Must load all models, and then find what table names are represented
 # Easily could be multiple files involved (STI for instance)
 +"#{css}
-<p style=\"color: green\"><%= notice if request.respond_to?(:flash) %></p>#{"
+<p class=\"flashNotice\"><%= notice if request.respond_to?(:flash) %></p>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <h1>Status</h1>
@@ -1504,7 +1508,7 @@ end
                        when 'orphans'
                          if is_orphans
 +"#{css}
-<p style=\"color: green\"><%= notice if request.respond_to?(:flash) %></p>#{"
+<p class=\"flashNotice\"><%= notice if request.respond_to?(:flash) %></p>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <h1>Orphans<%= \" for #\{}\" if false %></h1>
@@ -1551,7 +1555,7 @@ end
   c23.141-70.188,89.141-120.906,167.063-120.906c97.25,0,176,78.813,176,176C511.828,227.078,404.391,119.641,271.844,119.641z\" />
 </svg>
 
-<p style=\"color: green\"><%= notice if request.respond_to?(:flash) %></p>#{"
+<p class=\"flashNotice\"><%= notice if request.respond_to?(:flash) %></p>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><td><h1><%= page_title %></h1></td>
