@@ -47,7 +47,7 @@ module TestApp
 
     config.secret_key_base = '5586d09cd204455d4f35cb967903736aaf3f287153c22ff5a7583d56b8754edb176fcf1ce01fdc1719bc761c7ecfa552b09222d9b15f5e56edd40c346a7dd785'
 
-    # `raise_in_transactional_callbacks` was added in rails 4, then deprecated in rails 5.
+    # `raise_in_transactional_callbacks` was added in rails 4.2, then deprecated in rails 5.
     v = ActiveRecord.version
     config.active_record.raise_in_transactional_callbacks = true if v >= Gem::Version.new('4.2') && v < Gem::Version.new('5.0.0.beta1')
     if v >= Gem::Version.new('5.0.0.beta1') && v < Gem::Version.new('5.1')

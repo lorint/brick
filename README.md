@@ -137,8 +137,8 @@ avaiable therein.
 
 | brick          | branch     | tags   | ruby     | activerecord  |
 | -------------- | ---------- | ------ | -------- | ------------- |
-| unreleased     | master     |        | >= 2.3.5 | >= 4.2, < 7.2 |
-| 1.0            | 1-stable   | v1.x   | >= 2.3.5 | >= 4.2, < 7.2 |
+| unreleased     | master     |        | >= 2.3.5 | >= 4.0, < 7.2 |
+| 1.0            | 1-stable   | v1.x   | >= 2.3.5 | >= 4.0, < 7.2 |
 
 Brick will work with Rails 3.x and onwards, and Rails 4.2.0 and above are officially supported.
 Rails 5.2.6, 7.0, and 7.1 are the versions which have been tested most extensively.
@@ -152,7 +152,7 @@ When used with really old versions of Rails, 4.x and older, Brick automatically 
 compatibility patches so it will run under much newer versions of Ruby than would normally be
 allowed.  This makes it easier to test the broad range of supported versions of ActiveRecord
 without the headaches of having to use older versions of Ruby.  If you're using Ruby 2.7.8 then
-any Rails from 4.2 up to 7.1 will work, all due to these various patches put in place as the gem
+any Rails from 4.0 up to 7.1 will work, all due to these various patches put in place as the gem
 starts up.  If you get string frozen errors with older versions then move back to using Ruby
 2.6.10, and if you get the error "undefined method 'new' for BigDecimal:Class (NoMethodError)"
 then try adding this as the last line in boot.rb:

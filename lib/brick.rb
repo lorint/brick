@@ -56,7 +56,7 @@ if (is_ruby_2_7 = (ruby_version = ::Gem::Version.new(RUBY_VERSION)) >= ::Gem::Ve
   # end
 end
 
-# Add left_outer_join! to Associations::JoinDependency and Relation::QueryMethods
+# Add left_outer_joins! to Associations::JoinDependency and Relation::QueryMethods
 if ActiveRecord.version >= ::Gem::Version.new('4') && ActiveRecord.version < ::Gem::Version.new('5')
   ::Brick::Util._patch_require(
     'active_record/associations/join_dependency.rb', '/activerecord', # /associations
@@ -84,7 +84,7 @@ if ActiveRecord.version >= ::Gem::Version.new('4') && ActiveRecord.version < ::G
      ['build_joins(arel, joins_values.flatten) unless joins_values.empty?',
     "build_joins(arel, joins_values.flatten) unless joins_values.empty?
       build_left_outer_joins(arel, left_outer_joins_values.flatten) unless left_outer_joins_values.empty?"
-    ],
+     ],
      # Change 2 - Line 992
      ["raise 'unknown class: %s' % join.class.name
         end
@@ -99,8 +99,8 @@ if ActiveRecord.version >= ::Gem::Version.new('4') && ActiveRecord.version < ::G
    def build_join_query(manager, buckets, join_type)"
      ],
      # Change 3 - Line 1012
-    ['join_infos = join_dependency.join_constraints stashed_association_joins',
-    'join_infos = join_dependency.join_constraints stashed_association_joins, join_type'
+     ['s = join_dependency.join_constraints stashed_association_joins',
+      's = join_dependency.join_constraints stashed_association_joins, join_type'
      ]
     ],
     :QueryMethods
@@ -1318,7 +1318,8 @@ ActiveSupport.on_load(:active_record) do
   # rubocop:enable Lint/ConstantDefinitionInBlock
 
   arsc = ::ActiveRecord::StatementCache
-  if is_ruby_2_7 && (params = arsc.method(:create).parameters).length == 2 && params.last == [:opt, :block]
+  if is_ruby_2_7 && arsc.respond_to?(:create) &&
+     (params = arsc.method(:create).parameters).length == 2 && params.last == [:opt, :block]
     arsc.class_exec do
       def self.create(connection, callable = nil, &block)
         relation = (callable || block).call ::ActiveRecord::StatementCache::Params.new
@@ -1411,7 +1412,7 @@ ActiveSupport.on_load(:active_record) do
   # def aliased_table_for(table_name, aliased_name, type_caster)
 
   class ActiveRecord::Associations::JoinDependency
-    if JoinBase.instance_method(:initialize).arity == 2 # Older ActiveRecord <= 5.1?
+    if JoinBase.instance_method(:initialize).arity < 3 # Older ActiveRecord <= 5.1?
       def initialize(base, associations, joins, eager_loading: true)
         araat = ::ActiveRecord::Associations::AliasTracker
         if araat.respond_to?(:create_with_joins) # Rails 5.0 and 5.1
@@ -1419,17 +1420,28 @@ ActiveSupport.on_load(:active_record) do
           cwj_options << base.type_caster if araat.method(:create_with_joins).arity > 3 # Rails <= 5.1
           @alias_tracker = araat.create_with_joins(*cwj_options)
           @eager_loading = eager_loading # (Unused in Rails 5.0)
-        else # Rails 4.2
+        elsif araat.respond_to?(:create) # Rails 4.1 and 4.2
           @alias_tracker = araat.create(base.connection, joins)
           @alias_tracker.aliased_table_for(base, base.table_name) # Updates the count for base.table_name to 1
+        else # Rails 4.0
+          is_rails_4 = true
+          @base_klass    = base
+          @table_joins   = joins
+          @join_parts    = [JoinBase.new(base)]
+          @associations  = {}
+          @reflections   = []
+          @alias_tracker = araat.new(base.connection, joins)
+          @alias_tracker.aliased_name_for(base.table_name) # Updates the count for base.table_name to 1
+          tree = build(associations)
         end
-        tree = self.class.make_tree associations
+        tree ||= self.class.make_tree associations
 
         # Provide a way to find the original relation that this tree is being used for
         # (so that we can maintain a list of links for all tables used in JOINs)
         if (relation = associations.instance_variable_get(:@relation))
           tree.instance_variable_set(:@relation, relation)
         end
+        return if is_rails_4 # Rails 4.0 doesn't know about the rest
 
         @join_root = JoinBase.new base, build(tree, base)
         @join_root.children.each { |child| construct_tables! @join_root, child }
@@ -1606,21 +1618,40 @@ module ActiveRecord
         _brick_build_join_query(manager, buckets, *args) # , **kwargs)
       end
 
-    else
-
+    else # elsif private_instance_methods.include?(:select_association_list)
       alias _brick_select_association_list select_association_list
       def select_association_list(associations, stashed_joins = nil)
         result = _brick_select_association_list(associations, stashed_joins)
         result.instance_variable_set(:@relation, self)
         result
       end
+
+    # else # Rails 4.1 ? and older
+    #   alias _brick_build_joins build_joins
+    #   def build_joins(manager, joins)
+    #     result = _brick_build_joins(manager, joins)
+    #     result.instance_variable_set(:@relation, self)
+    #     result
+    #   end
     end
   end
 
   # require 'active_record/associations/join_dependency'
   module Associations
-    # For AR >= 4.2
-    if self.const_defined?('JoinDependency')
+    if self.const_defined?('JoinHelper') # ActiveRecord < 4.1
+      module JoinHelper
+        alias _brick_construct_tables construct_tables
+        def construct_tables
+          result = _brick_construct_tables
+          # Capture the table alias name that was chosen
+          # if (relation = node.instance_variable_get(:@assocs)&.instance_variable_get(:@relation))
+          #   link_path = node.instance_variable_get(:@link_path)
+          #   relation.brick_links[link_path] = result.first.table_alias || result.first.table_name
+          # end
+          result
+        end
+      end
+    else # For AR >= 4.2
       class JoinDependency
         # An intelligent .eager_load() and .includes() that creates t0_r0 style aliases only for the columns
         # used in .select().  To enable this behaviour, include the flag :_brick_eager_load as the first
@@ -1694,7 +1725,7 @@ module ActiveRecord
             associations.map do |name, right|
               reflection = find_reflection base_klass, name
               reflection.check_validity!
-              reflection.check_eager_loadable!
+              reflection.check_eager_loadable! if reflection.respond_to?(:check_eager_loadable!) # Used in AR >= 4.2
 
               if reflection.polymorphic?
                 raise EagerLoadPolymorphicError.new(reflection)

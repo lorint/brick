@@ -209,7 +209,11 @@ function linkSchemas() {
       # paths['app/models'] << 'lib/brick/frameworks/active_record/models'
       config.brick = ActiveSupport::OrderedOptions.new
       ActiveSupport.on_load(:before_initialize) do |app|
-        ::Rails.application.reloader.to_prepare { Module.class_exec &::Brick::ADD_CONST_MISSING }
+        if ::Rails.application.respond_to?(:reloader)
+          ::Rails.application.reloader.to_prepare { Module.class_exec &::Brick::ADD_CONST_MISSING }
+        else # For Rails < 5.0, just load it once at the start
+          Module.class_exec &::Brick::ADD_CONST_MISSING
+        end
         require 'brick/join_array'
         is_development = (ENV['RAILS_ENV'] || ENV['RACK_ENV'])  == 'development'
         ::Brick.enable_models = app.config.brick.fetch(:enable_models, true)
@@ -599,12 +603,14 @@ window.addEventListener(\"popstate\", linkSchemas);
         # ====================================
         if ::Brick.enable_views?
           # Add the params to the lookup_context so that we have context about STI classes when setting @_brick_model
-          ActionView::ViewPaths.class_exec do
-            alias :_brick_lookup_context :lookup_context
-            def lookup_context(*args)
-              ret = _brick_lookup_context(*args)
-              @_lookup_context.instance_variable_set(:@_brick_req_params, params)
-              ret
+          if ActionView.const_defined?('ViewPaths')
+            ActionView::ViewPaths.class_exec do
+              alias :_brick_lookup_context :lookup_context
+              def lookup_context(*args)
+                ret = _brick_lookup_context(*args)
+                @_lookup_context.instance_variable_set(:@_brick_req_params, params)
+                ret
+              end
             end
           end
 
@@ -679,11 +685,11 @@ window.addEventListener(\"popstate\", linkSchemas);
                 rescue StandardError => e
                   # Search through the routes to confirm that something might match (Devise stuff for instance, which has its own view templates),
                   # and bubble the same exception (probably an ActionView::MissingTemplate) if a legitimate option is found.
-                  raise if ::Rails.application.routes.set.find { |x| args[1].include?(x.defaults[:controller]) && args[0] == x.defaults[:action] }
+                  raise if ::Rails.application.routes.set.find { |x| args[1].include?(x.defaults[:controller]) && args[0] == x.defaults[:action] } &&
+                           ActionView.version >= ::Gem::Version.new('5.0')
 
                   find_template_err = e
                 end
-                # Used to also have:  ActionView.version < ::Gem::Version.new('5.0') &&
                 model_name = set_brick_model(args, @_brick_req_params)&.name
               end
 

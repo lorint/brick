@@ -26,6 +26,7 @@ if Object.const_defined?('ActionPack') && !ActionPack.respond_to?(:version)
     end
   end
 end
+require 'action_view' # Needed for Rails <= 4.0
 if Object.const_defined?('ActionView') && !ActionView.respond_to?(:version)
   module ActionView
     def self.version
