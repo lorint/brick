@@ -82,7 +82,7 @@ module ActiveRecord
 
       def json_column?(col)
         col.type == :json || ::Brick.config.json_columns[table_name]&.include?(col.name) ||
-        ((attr_types = attribute_types[col.name]).respond_to?(:coder) &&
+        (respond_to?(:attribute_types) && (attr_types = attribute_types[col.name]).respond_to?(:coder) &&
          (attr_types.coder.is_a?(Class) ? attr_types.coder : attr_types.coder&.class)&.name&.end_with?('JSON'))
       end
     end
@@ -489,6 +489,7 @@ module ActiveRecord
       is_distinct = nil
       wheres = {}
       params.each do |k, v|
+        k = k.to_s # Rails < 4.2 comes in as a symbol
         next if ['_brick_schema', '_brick_order',
                  '_brick_erd', '_brick_exclude', '_brick_unexclude',
                  '_brick_page', '_brick_page_size', '_brick_offset', '_brick_limit',
@@ -557,7 +558,13 @@ module ActiveRecord
         end
       end
 
-      left_outer_joins!(join_array) if join_array.present?
+      if join_array.present?
+        if ActiveRecord.version < Gem::Version.new('4.2')
+          joins!(join_array)
+        else
+          left_outer_joins!(join_array)
+        end
+      end
 
       # If it's a CollectionProxy (which inherits from Relation) then need to dig out the
       # core Relation object which is found in the association scope.
@@ -1659,7 +1666,7 @@ class Object
 
         # Add a hash for the inline style to the content-security-policy if one is present
         self.define_method(:add_csp_hash) do |style_value = nil|
-          if (csp = request.content_security_policy)
+          if request.respond_to?(:content_security_policy) && (csp = request.content_security_policy)
             if (cspd = csp.directives.fetch('style-src'))
               if style_value
                 if (nonce = ::ActionDispatch::ContentSecurityPolicy::Request::NONCE)
