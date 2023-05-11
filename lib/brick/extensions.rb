@@ -235,7 +235,7 @@ module ActiveRecord
                                        caches.fetch(obj_name) { caches[obj_name] = this_obj&.send(part.to_sym) }
                                      rescue
                                        clsnm = part.camelize
-                                       if (possible = this_obj.class.reflect_on_all_associations.select { |a| a.class_name == clsnm || a.klass.base_class.name == clsnm }.first)
+                                       if (possible = this_obj.class.reflect_on_all_associations.select { |a| !a.polymorphic? && (a.class_name == clsnm || a.klass.base_class.name == clsnm) }.first)
                                          caches[obj_name] = this_obj&.send(possible.name)
                                        end
                                      end
@@ -286,7 +286,7 @@ module ActiveRecord
       assoc_html_name = unless (assoc_name = assoc_name.to_s).camelize == name
                           CGI.escapeHTML(assoc_name)
                         end
-      model_path = ::Rails.application.routes.url_helpers.send("#{_brick_index}_path".to_sym)
+      model_path = ::Rails.application.routes.url_helpers.send("#{_brick_index || table_name}_path".to_sym)
       model_path << "?#{self.inheritance_column}=#{self.name}" if self != base_class
       av_class = Class.new.extend(ActionView::Helpers::UrlHelper)
       av_class.extend(ActionView::Helpers::TagHelper) if ActionView.version < ::Gem::Version.new('7')
@@ -296,6 +296,8 @@ module ActiveRecord
 
     # Providing a relation object allows auto-modules built from table name prefixes to work
     def self._brick_index(mode = nil, separator = '_', relation = nil)
+      return if abstract_class
+
       tbl_parts = ((mode == :singular) ? table_name.singularize : table_name).split('.')
       tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.length > 1 && tbl_parts.first == ::Brick.apartment_default_tenant
       if (aps = relation&.fetch(:auto_prefixed_schema, nil)) && tbl_parts.last.start_with?(aps)
@@ -352,7 +354,7 @@ module ActiveRecord
         pieces, my_dsl = brick_parse_dsl(join_array, [], translations, false, cc, true)
         _br_cust_cols[k] = [pieces, my_dsl, fk_col]
       end
-      bts, hms, associatives = ::Brick.get_bts_and_hms(self)
+      bts, hms, associatives = ::Brick.get_bts_and_hms(self, true)
       bts.each do |_k, bt|
         next if bt[2] # Polymorphic?
 
@@ -543,6 +545,10 @@ module ActiveRecord
                        typ = col.sql_type
                        "'<#{typ.end_with?('_TYP') ? typ[0..-5] : typ}>' AS #{col.name}"
                      end
+        end
+      else # Having some select columns chosen, add any missing always_load_fields for this model
+        ::Brick.config.always_load_fields.fetch(klass.name, nil)&.each do |alf|
+          selects << alf unless selects.include?(alf)
         end
       end
 
@@ -781,7 +787,7 @@ module ActiveRecord
 
         pri_tbl = hm.active_record
         pri_key = hm.options[:primary_key] || pri_tbl.primary_key
-        unless hm.active_record.column_names.include?(pri_key)
+        if hm.active_record.abstract_class || hm.active_record.column_names.exclude?(pri_key)
           # %%% When this gets hit then if an attempt is made to display the ERD, it might end up being blank
           nix << k
           next
@@ -907,8 +913,10 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
       # Get foreign keys for anything marked to be auto-preloaded, or a self-referencing JOIN
       klass_cols = klass.column_names
       reflect_on_all_associations.each do |a|
-        selects << a.foreign_key if a.belongs_to? && (preload_values.include?(a.name) ||
-                                    (!a.options[:polymorphic] && a.klass == klass && klass_cols.include?(a.foreign_key)))
+        selects << a.foreign_key if a.belongs_to? &&
+                                    (preload_values.include?(a.name) ||
+                                     (!a.options[:polymorphic] && a.klass == klass && klass_cols.include?(a.foreign_key))
+                                    )
       end
       # ActiveStorage compatibility
       selects << 'service_name' if klass.name == 'ActiveStorage::Blob' && ActiveStorage::Blob.columns_hash.key?('service_name')
@@ -918,8 +926,28 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
         where_values_hash, selects, nil, translations, join_array,
         { '_br' => (descrip_cols = [pieces, my_dsl]) }
       )
-      order_values = klass.primary_key
+      order_values = "#{klass.table_name}.#{klass.primary_key}"
       [self.select(selects), descrip_cols]
+    end
+
+    def brick_uniq
+      begin
+        uniq
+      rescue ActiveModel::MissingAttributeError => e
+        # If this model has an #after_initialize then it might try to reference attributes we haven't brought in
+        if (err_msg = e.message).start_with?('missing attribute: ') &&
+           klass.column_names.include?(col_name = e.message[19..-1])
+          (dup_rel = dup).select_values << col_name
+          ret = dup_rel.brick_uniq
+          puts "*** WARNING: Missing field!
+  Might want to add this in your brick.rb:
+    ::Brick.always_load_fields = { #{klass.name.inspect} => [#{col_name.inspect}]}"
+          ::Brick.config.always_load_fields[klass.name] << col_name
+          ret
+        else
+          []
+        end
+      end
     end
 
   private
@@ -935,6 +963,8 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
 
       alias _brick_find_sti_class find_sti_class
       def find_sti_class(type_name)
+        return if type_name.is_a?(Numeric)
+
         if ::Brick.sti_models.key?(type_name ||= name)
           ::Brick.sti_models[type_name].fetch(:base, nil) || _brick_find_sti_class(type_name)
         else

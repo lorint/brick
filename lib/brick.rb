@@ -202,7 +202,11 @@ module Brick
       end
     end
 
-    def get_bts_and_hms(model)
+    def get_bts_and_hms(model, recalculate = nil)
+      if !recalculate && (ret = model.instance_variable_get(:@_brick_bts_and_hms))
+        return ret
+      end
+
       model_cols = model.columns_hash
       pk_type = if (mpk = model.primary_key).is_a?(Array)
                   # Composite keys should really use:  model.primary_key.map { |pk_part| model_cols[pk_part].type }
@@ -228,8 +232,24 @@ module Brick
               # This will come up when using Devise invitable when invited_by_class_name is not
               # specified because in that circumstance it adds a polymorphic :invited_by association,
               # along with appropriate invited_by_type and invited_by_id columns.
-              puts "Missing any real indication as to which models \"has_many\" this polymorphic BT in model #{a.active_record.name}:"
-              puts "  belongs_to :#{a.name}, polymorphic: true"
+
+              # See if any currently-loaded models have a has_many association over to this polymorphic belongs_to
+              hm_models = ActiveRecord::Base.descendants.select do |m|
+                m.reflect_on_all_associations.any? { |assoc| !assoc.belongs_to? && assoc.options[:as]&.to_sym == a.name }
+              end
+              # No need to include subclassed models if their parent is already in the list
+              hm_models.reject! { |m| hm_models.any? { |parent| parent != m && m < parent } }
+              if hm_models.empty?
+                puts "Missing any real indication as to which models \"has_many\" this polymorphic BT in model #{a.active_record.name}:"
+                puts "  belongs_to :#{a.name}, polymorphic: true"
+              else
+                puts "Having analysed all currently-loaded models to infer the various polymorphic has_many associations for #{model.name}, here are the current results:"
+                puts "::Brick.polymorphics = { \"#{model.table_name}.#{a.name}\" =>
+                         #{hm_models.map(&:name).inspect}
+                       }"
+                puts 'If you add the above to your brick.rb, it will "cement" these options into place, and avoid this lookup process.'
+                s.first[a.foreign_key.to_s] = [a.name, hm_models, true]
+              end
             end
           else
             bt_key = a.foreign_key.is_a?(Array) ? a.foreign_key : a.foreign_key.to_s
@@ -279,7 +299,7 @@ module Brick
         end
       end
       skip_hms.each { |k, _v| hms.delete(k) }
-      [bts, hms]
+      model.instance_variable_set(:@_brick_bts_and_hms, [bts, hms]) # Cache and return this result
     end
 
     def exclude_column(table, col)
@@ -521,6 +541,10 @@ module Brick
 
     def license=(key)
       Brick.config.license = key
+    end
+
+    def always_load_fields=(field_set)
+      Brick.config.always_load_fields = field_set
     end
 
     # Load additional references (virtual foreign keys)
@@ -1534,6 +1558,21 @@ if ActiveRecord.version < ::Gem::Version.new('5.2')
           end
         end
       end
+    end
+  end
+end
+
+# By default the awesome_nested_set gem from CollectiveIdea does not prefix the ORDER BY column with its table name.
+# You can see this snag in action in the popular Spree project -- check out the Taxonomy model.  Here is a fix:
+if Gem::Specification.all_names.find { |g| g.start_with?('awesome_nested_set-') }
+  require 'awesome_nested_set/columns'
+  ::CollectiveIdea::Acts::NestedSet::Columns.class_exec do
+    alias _brick_order_column_name order_column_name
+    def order_column_name
+      unless (ord_col = _brick_order_column_name).start_with?(tbl_prefix = "#{table_name}.")
+        ord_col = tbl_prefix << ord_col
+      end
+      ord_col
     end
   end
 end
