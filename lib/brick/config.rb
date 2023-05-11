@@ -347,6 +347,14 @@ module Brick
       @mutex.synchronize { @not_nullables = columns }
     end
 
+    def always_load_fields
+      @mutex.synchronize { @always_load_fields || {} }
+    end
+
+    def always_load_fields=(field_set)
+      @mutex.synchronize { @always_load_fields = field_set }
+    end
+
     # Add status page showing all resources and what files have been built out for them
     def add_status
       true

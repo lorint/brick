@@ -210,10 +210,10 @@ function linkSchemas() {
       config.brick = ActiveSupport::OrderedOptions.new
       ActiveSupport.on_load(:before_initialize) do |app|
         ::Rails.application.reloader.to_prepare { Module.class_exec &::Brick::ADD_CONST_MISSING }
+        require 'brick/join_array'
         is_development = (ENV['RAILS_ENV'] || ENV['RACK_ENV'])  == 'development'
         ::Brick.enable_models = app.config.brick.fetch(:enable_models, true)
         ::Brick.enable_controllers = app.config.brick.fetch(:enable_controllers, is_development)
-        require 'brick/join_array' if ::Brick.enable_controllers?
         ::Brick.enable_views = app.config.brick.fetch(:enable_views, is_development)
         ::Brick.enable_routes = app.config.brick.fetch(:enable_routes, is_development)
         ::Brick.skip_database_views = app.config.brick.fetch(:skip_database_views, false)
@@ -741,7 +741,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                                      (hm_fk_name.is_a?(String) && hm_fk_name.include?('.')) # HMT?  (Could do a better check for this)
                                     predicates = path_keys(hm_assoc, hm_fk_name, pk).map do |k, v|
                                                    if v == '[sti_type]'
-                                                     "'#{k}': (@#{obj_name}.#{hm_assoc.active_record.inheritance_column}).constantize.base_class.name"
+                                                     "'#{k}': (@#{obj_name}.#{hm_assoc.active_record.inheritance_column})&.constantize&.base_class&.name"
                                                    else
                                                      v.is_a?(String) ? "'#{k}': '#{v}'" : "'#{k}': @#{obj_name}.#{v}"
                                                    end
@@ -1462,7 +1462,7 @@ end
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <h1>Status</h1>
-<table id=\"status\" class=\"shadow\"><thead><tr>
+<table id=\"resourceName\" class=\"shadow\"><thead><tr>
   <th>Resource</th>
   <th>Table</th>
   <th>Migration</th>
@@ -1481,7 +1481,11 @@ end
             kls = Object.const_get(::Brick.relations.fetch(r[0], nil)&.fetch(:class_name, nil))
           rescue
           end
-          kls.is_a?(Class) ? link_to(r[0], send(\"#\{kls._brick_index}_path\".to_sym)) : r[0] %></td>
+          if kls.is_a?(Class) && (path_helper = respond_to?(bi_path = \"#\{kls._brick_index}_path\".to_sym) ? bi_path : nil)
+            link_to(r[0], send(path_helper))
+          else
+            r[0]
+          end %></td>
   <td<%= if r[1]
            ' class=\"orphan\"' unless ::Brick.relations.key?(r[1])
          else
@@ -1541,9 +1545,11 @@ end
   base_model = (model = (obj = @#{obj_name})&.class).base_class
   see_all_path = send(\"#\{base_model._brick_index}_path\")
 #{(inh_col = @_brick_model.inheritance_column).present? &&
-"  if obj.respond_to?(:#{inh_col}) && (model_name = @#{obj_name}.#{inh_col}) != base_model.name
+"  if obj.respond_to?(:#{inh_col}) && (model_name = @#{obj_name}.#{inh_col}) &&
+     !model_name.is_a?(Numeric) && model_name != base_model.name
     see_all_path << \"?#{inh_col}=#\{model_name}\"
-  end"}
+  end
+  model_name = base_model.name if model_name.is_a?(Numeric)"}
   page_title = (\"#\{model_name ||= model.name}: #\{obj&.brick_descrip || controller_name}\")
 %></title>
 </head>
@@ -1636,8 +1642,8 @@ end
         if bt.length < 4
           bt << (option_detail = [[\"(No #\{bt_name\} chosen)\", '^^^brick_NULL^^^']])
           # %%% Accommodate composite keys for obj.pk at the end here
-          collection, descrip_cols = bt_class&.order(obj_pk = bt_class.primary_key)&.brick_list
-          collection&.each do |obj|
+          collection, descrip_cols = bt_class&.order(Arel.sql(\"#\{bt_class.table_name}.#\{obj_pk = bt_class.primary_key}\"))&.brick_list
+          collection&.brick_(:each) do |obj|
             option_detail << [
               obj.brick_descrip(
                 descrip_cols&.first&.map { |col| obj.send(col.last) },
@@ -1717,14 +1723,21 @@ end
         else # We get an array back when AR < 4.2
           collection2 = collection.to_a.compact
         end
-        collection2 = collection2.uniq
+        collection2 = collection2.brick_(:uniq)
         if collection2.empty? %>
           <tr><td>(none)</td></tr>
      <% else
           collection2.each do |br_#{hm_singular_name}| %>
-            <tr><td><%= br_descrip = br_#{hm_singular_name}.brick_descrip(
-                                       descrip_cols&.first&.map { |col| br_#{hm_singular_name}.send(col.last) }
-                                     )
+            <tr><td><%= br_descrip = if br_#{hm_singular_name}.respond_to?(descrip_cols&.first&.first&.last)
+                                       br_#{hm_singular_name}.brick_descrip(
+                                         descrip_cols&.first&.map { |col| br_#{hm_singular_name}.send(col.last) }
+                                       )
+                                     else # If the HM association has a scope, might not have picked up our SELECT detail
+                                       pks = (klass = br_#{hm_singular_name}.class).primary_key
+                                       pks = [pks] unless pks.is_a?(Array)
+                                       pks.map! { |pk| br_#{hm_singular_name}.send(pk).to_s }
+                                       \"#\{klass.name} ##\{pks.join(', ')}\"
+                                     end
                         link_to(br_descrip, #{hm.first.klass._brick_index(:singular)}_path(slashify(br_#{obj_pk}))) %></td></tr>
           <% end %>
         <% end %>
