@@ -433,8 +433,16 @@ module ActiveRecord
       [order_by, order_by_txt]
     end
 
-    def self.brick_select(params = {}, selects = [], *args)
-      (relation = all).brick_select(params, selects, *args)
+    def self.brick_select(*args, params: {}, brick_col_names: false, **kwargs)
+      selects = if args[0].is_a?(Array)
+                  other_args = args[1..-1]
+                  args[0]
+                else
+                  other_args = []
+                  args
+                end
+      (relation = all).brick_select(selects, *other_args,
+                                    params: params, brick_col_names: brick_col_names, **kwargs)
       relation.select(selects)
     end
 
@@ -474,10 +482,29 @@ module ActiveRecord
       @brick_links ||= { '' => table_name }
     end
 
-    def brick_select(params, selects = [], order_by = nil, translations = {},
-                     join_array = ::Brick::JoinArray.new,
-                     cust_col_override = nil)
-      is_add_bts = is_add_hms = true
+    def brick_select(*args, params: {}, order_by: nil, translations: {},
+                     join_array: ::Brick::JoinArray.new,
+                     cust_col_override: nil,
+                     brick_col_names: true)
+      selects = args[0].is_a?(Array) ? args[0] : args
+      if selects.present? && cust_col_override.nil? # See if there's any fancy ones in the select list
+        idx = 0
+        while idx < selects.length
+          v = selects[idx]
+          if v.is_a?(String) && v.index('.')
+            # No prefixes and not polymorphic
+            pieces = self.brick_parse_dsl(join_array, [], translations, false, dsl = "[#{v}]")
+            (cust_col_override ||= {})[v.tr('.', '_').to_sym] = [pieces, dsl, true]
+            selects.delete_at(idx)
+          else
+            idx += 1
+          end
+        end
+      elsif selects.is_a?(Hash) && params.empty? && cust_col_override.nil? # Make sense of things if they've passed in only params
+        params = selects
+        selects = []
+      end
+      is_add_bts = is_add_hms = !cust_col_override
 
       # Build out cust_cols, bt_descrip and hm_counts now so that they are available on the
       # model early in case the user wants to do an ORDER BY based on any of that.
@@ -607,11 +634,12 @@ module ActiveRecord
           # Deal with the conflict if there are two parts in the custom column named the same,
           # "category.name" and "product.name" for instance will end up with aliases of "name"
           # and "product__name".
+          col_prefix = 'br_cc_' if brick_col_names
           if (cc_part_idx = cc_part.length - 1).zero?
-            col_alias = "br_cc_#{k}__#{table_name.tr('.', '_')}_#{cc_part.first}"
+            col_alias = "#{col_prefix}#{k}__#{table_name.tr('.', '_')}_#{cc_part.first}"
           else
             while cc_part_idx > 0 &&
-                  (col_alias = "br_cc_#{k}__#{cc_part[cc_part_idx..-1].map(&:to_s).join('__').tr('.', '_')}") &&
+                  (col_alias = "#{col_prefix}#{k}__#{cc_part[cc_part_idx..-1].map(&:to_s).join('__').tr('.', '_')}") &&
                   used_col_aliases.key?(col_alias)
               cc_part_idx -= 1
             end
@@ -624,7 +652,7 @@ module ActiveRecord
             key_tbl_name = tbl_name
             cc_part_idx = cc_part.length - 1
             while cc_part_idx > 0 &&
-                  (key_alias = "br_cc_#{k}__#{(cc_part[cc_part_idx..-2] + [dest_pk]).map(&:to_s).join('__')}") &&
+                  (key_alias = "#{col_prefix}#{k}__#{(cc_part[cc_part_idx..-2] + [dest_pk]).map(&:to_s).join('__')}") &&
                   key_alias != col_alias && # We break out if this key alias does exactly match the col_alias
                   used_col_aliases.key?(key_alias)
               cc_part_idx -= 1
@@ -930,8 +958,8 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
       selects << 'blob_id' if klass.name == 'ActiveStorage::Attachment' && ActiveStorage::Attachment.columns_hash.key?('blob_id')
       pieces, my_dsl = klass.brick_parse_dsl(join_array = ::Brick::JoinArray.new, [], translations = {}, false, nil, true)
       brick_select(
-        where_values_hash, selects, nil, translations, join_array,
-        { '_br' => (descrip_cols = [pieces, my_dsl]) }
+        selects, where_values_hash, nil, translations: translations, join_array: join_array,
+        cust_col_override: { '_br' => (descrip_cols = [pieces, my_dsl]) }
       )
       order_values = "#{klass.table_name}.#{klass.primary_key}"
       [self.select(selects), descrip_cols]
@@ -1887,9 +1915,9 @@ class Object
 
             ar_relation = ActiveRecord.version < Gem::Version.new('4') ? real_model.preload : real_model.all
             params['_brick_is_api'] = true if (is_api = request.format == :js || current_api_root)
-            @_brick_params = ar_relation.brick_select(params, (selects ||= []), order_by,
-                                                      translations = {},
-                                                      join_array = ::Brick::JoinArray.new)
+            @_brick_params = ar_relation.brick_select((selects ||= []), params: params, order_by: order_by,
+                                                      translations: (translations = {}),
+                                                      join_array: (join_array = ::Brick::JoinArray.new))
 
             if is_api # Asking for JSON?
               # Apply column renaming
