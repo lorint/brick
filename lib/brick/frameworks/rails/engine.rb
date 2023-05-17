@@ -658,11 +658,11 @@ window.addEventListener(\"popstate\", linkSchemas);
                      else
                        [[fk_name, pk.length == 1 ? pk.first : pk.inspect]]
                      end
-              if hm_assoc.options.key?(:as)
-                poly_type = if hm_assoc.active_record.column_names.include?(hm_assoc.active_record.inheritance_column)
+              if hm_assoc.options.key?(:as) && !(hmaar = hm_assoc.active_record).abstract_class?
+                poly_type = if hmaar.column_names.include?(hmaar.inheritance_column)
                               '[sti_type]'
                             else
-                              hm_assoc.active_record.name
+                              hmaar.name
                             end
                 # %%% Might only need hm_assoc.type and not the first part :)
                 type_col = hm_assoc.inverse_of&.foreign_type || hm_assoc.type
