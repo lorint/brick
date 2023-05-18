@@ -31,7 +31,7 @@ gem_spec = Gem::Specification.new do |s|
 
   # While only Rails 4.2 and above are officially supported, there are some useful patches
   # that will work in older versions of Rails.
-  s.add_dependency 'activerecord', ['>= 3.0']
+  s.add_dependency 'activerecord', ['>= 3.1.1']
   s.add_dependency 'fancy_gets'
 
   s.add_development_dependency 'appraisal', '~> 2.2'

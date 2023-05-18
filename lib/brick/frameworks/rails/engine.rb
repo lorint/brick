@@ -64,7 +64,7 @@ module Brick
             if lat_lng && !(lat_lng.first.zero? && lat_lng.last.zero?)
               # Create a link to this style of Google maps URL:  https://www.google.com/maps/place/38.7071296+-121.2810649/@38.7071296,-121.2810649,12z
               "<a href=\"https://www.google.com/maps/place/#{lat_lng.first}+#{lat_lng.last}/@#{lat_lng.first},#{lat_lng.last},12z\" target=\"blank\">#{val}</a>"
-            elsif val.is_a?(Numeric)
+            elsif val.is_a?(Numeric) && ::ActiveSupport.const_defined?(:NumberHelper)
               ::ActiveSupport::NumberHelper.number_to_delimited(val, delimiter: ',')
             else
               ::Brick::Rails::FormBuilder.hide_bcrypt(val, col_type == :xml)
@@ -685,8 +685,8 @@ window.addEventListener(\"popstate\", linkSchemas);
                 rescue StandardError => e
                   # Search through the routes to confirm that something might match (Devise stuff for instance, which has its own view templates),
                   # and bubble the same exception (probably an ActionView::MissingTemplate) if a legitimate option is found.
-                  raise if ::Rails.application.routes.set.find { |x| args[1].include?(x.defaults[:controller]) && args[0] == x.defaults[:action] } &&
-                           ActionView.version >= ::Gem::Version.new('5.0')
+                  raise if ActionView.version >= ::Gem::Version.new('5.0') &&
+                           ::Rails.application.routes.set.find { |x| args[1].include?(x.defaults[:controller]) && args[0] == x.defaults[:action] }
 
                   find_template_err = e
                 end

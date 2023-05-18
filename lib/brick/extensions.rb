@@ -458,17 +458,19 @@ module ActiveRecord
 
   module AttributeMethods
     module ClassMethods
-      alias _brick_dangerous_attribute_method? dangerous_attribute_method?
-      # Bypass the error "ActiveRecord::DangerousAttributeError" if this object comes from a view.
-      # (Allows for column names such as 'attribute', 'delete', and 'update' to still work.)
-      def dangerous_attribute_method?(name)
-        if (is_dangerous = _brick_dangerous_attribute_method?(name)) && is_view?
-          if column_names.include?(name.to_s)
-            puts "WARNING:  Column \"#{name}\" in view #{table_name} conflicts with a reserved ActiveRecord method name."
+      if respond_to?(:dangerous_attribute_method?)
+        alias _brick_dangerous_attribute_method? dangerous_attribute_method?
+        # Bypass the error "ActiveRecord::DangerousAttributeError" if this object comes from a view.
+        # (Allows for column names such as 'attribute', 'delete', and 'update' to still work.)
+        def dangerous_attribute_method?(name)
+          if (is_dangerous = _brick_dangerous_attribute_method?(name)) && is_view?
+            if column_names.include?(name.to_s)
+              puts "WARNING:  Column \"#{name}\" in view #{table_name} conflicts with a reserved ActiveRecord method name."
+            end
+            return false
           end
-          return false
+          is_dangerous
         end
-        is_dangerous
       end
     end
   end
@@ -587,7 +589,7 @@ module ActiveRecord
 
       if join_array.present?
         if ActiveRecord.version < Gem::Version.new('4.2')
-          joins!(join_array)
+          self.joins_values += join_array # Same as:  joins!(join_array)
         else
           left_outer_joins!(join_array)
         end
@@ -1019,52 +1021,54 @@ Might want to add this in your brick.rb:
     module ClassMethods
     private
 
-      alias _brick_find_sti_class find_sti_class
-      def find_sti_class(type_name)
-        return if type_name.is_a?(Numeric)
+      if respond_to?(:find_sti_class)
+        alias _brick_find_sti_class find_sti_class
+        def find_sti_class(type_name)
+          return if type_name.is_a?(Numeric)
 
-        if ::Brick.sti_models.key?(type_name ||= name)
-          ::Brick.sti_models[type_name].fetch(:base, nil) || _brick_find_sti_class(type_name)
-        else
-          # This auto-STI is more of a brute-force approach, building modules where needed
-          # The more graceful alternative is the overload of ActiveSupport::Dependencies#autoload_module! found below
-          ::Brick.sti_models[type_name] = { base: self } unless type_name.blank?
-          module_prefixes = type_name.split('::')
-          module_prefixes.unshift('') unless module_prefixes.first.blank?
-          module_name = module_prefixes[0..-2].join('::')
-          if (base_name = ::Brick.config.sti_namespace_prefixes&.fetch("#{module_name}::", nil)) ||
-             File.exist?(candidate_file = ::Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb'))
-            if base_name
-              base_name == "::#{name}" ? self : base_name.constantize
-            else
-              _brick_find_sti_class(type_name) # Find this STI class normally
-            end
+          if ::Brick.sti_models.key?(type_name ||= name)
+            ::Brick.sti_models[type_name].fetch(:base, nil) || _brick_find_sti_class(type_name)
           else
-            # Build missing prefix modules if they don't yet exist
-            this_module = Object
-            module_prefixes[1..-2].each do |module_name|
-              this_module = if this_module.const_defined?(module_name)
-                              this_module.const_get(module_name)
-                            else
-                              this_module.const_set(module_name.to_sym, Module.new)
-                            end
-            end
-            begin
-              if this_module.const_defined?(class_name = module_prefixes.last.to_sym)
-                this_module.const_get(class_name)
+            # This auto-STI is more of a brute-force approach, building modules where needed
+            # The more graceful alternative is the overload of ActiveSupport::Dependencies#autoload_module! found below
+            ::Brick.sti_models[type_name] = { base: self } unless type_name.blank?
+            module_prefixes = type_name.split('::')
+            module_prefixes.unshift('') unless module_prefixes.first.blank?
+            module_name = module_prefixes[0..-2].join('::')
+            if (base_name = ::Brick.config.sti_namespace_prefixes&.fetch("#{module_name}::", nil)) ||
+              File.exist?(candidate_file = ::Rails.root.join('app/models' + module_prefixes.map(&:underscore).join('/') + '.rb'))
+              if base_name
+                base_name == "::#{name}" ? self : base_name.constantize
               else
-                # Build STI subclass and place it into the namespace module
-                this_module.const_set(class_name, klass = Class.new(self))
-                klass
+                _brick_find_sti_class(type_name) # Find this STI class normally
               end
-            rescue NameError => err
-              if column_names.include?(inheritance_column)
-                puts "Table #{table_name} has column #{inheritance_column} which ActiveRecord expects to use as its special inheritance column."
-                puts "Unfortunately the value \"#{type_name}\" does not seem to refer to a valid type name, greatly confusing matters.  If that column is intended to be used for data and not STI, consider putting this line into your Brick initializer so that only for this table that column will not clash with ActiveRecord:"
-                puts "  Brick.sti_type_column = { 'rails_#{inheritance_column}' => ['#{table_name}'] }"
-                self
-              else
-                raise
+            else
+              # Build missing prefix modules if they don't yet exist
+              this_module = Object
+              module_prefixes[1..-2].each do |module_name|
+                this_module = if this_module.const_defined?(module_name)
+                                this_module.const_get(module_name)
+                              else
+                                this_module.const_set(module_name.to_sym, Module.new)
+                              end
+              end
+              begin
+                if this_module.const_defined?(class_name = module_prefixes.last.to_sym)
+                  this_module.const_get(class_name)
+                else
+                  # Build STI subclass and place it into the namespace module
+                  this_module.const_set(class_name, klass = Class.new(self))
+                  klass
+                end
+              rescue NameError => err
+                if column_names.include?(inheritance_column)
+                  puts "Table #{table_name} has column #{inheritance_column} which ActiveRecord expects to use as its special inheritance column."
+                  puts "Unfortunately the value \"#{type_name}\" does not seem to refer to a valid type name, greatly confusing matters.  If that column is intended to be used for data and not STI, consider putting this line into your Brick initializer so that only for this table that column will not clash with ActiveRecord:"
+                  puts "  Brick.sti_type_column = { 'rails_#{inheritance_column}' => ['#{table_name}'] }"
+                  self
+                else
+                  raise
+                end
               end
             end
           end

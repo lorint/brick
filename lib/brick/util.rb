@@ -32,9 +32,6 @@ module Brick
            !alp.include?(custom_require_dir)
           alp.unshift(custom_require_dir)
         end
-        # require 'pry-byebug'
-        # binding.pry
-        # z = 10
       elsif is_bundler
         puts "Bundler hack"
         require 'pry-byebug'
@@ -52,12 +49,11 @@ module Brick
           # then required in place of the original.
 
           Kernel.module_exec do
-            # class << self
             alias_method :orig_require, :require
-            # end
             # To be most faithful to Ruby's normal behaviour, this should look like a public singleton
             define_method(:require) do |name|
-              puts name if name.to_s.include?('cucu')
+              # %%% Can get a message such as "ActionDispatch::Routing is not missing constant RouteSet! (NameError)"
+              # binding.pry if name.start_with?('action_dispatch/routing/route_') # || name == 'active_support/values/time_zone'
               if (require_override = ::Brick::Util.instance_variable_get(:@_require_overrides)[name])
                 extension, folder_matcher, replacements, autoload_symbol = require_override
                 patched_filename = "/patched_#{name.tr('/', '_')}#{extension}"

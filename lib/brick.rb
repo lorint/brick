@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'brick/compatibility'
+ruby_version = ::Gem::Version.new(RUBY_VERSION)
 
 # Allow ActiveRecord 4.2.7 and older to work with newer Ruby (>= 2.4) by avoiding a "stack level too deep"
 # error when ActiveSupport tries to smarten up Numeric by messing with Fixnum and Bignum at the end of:
@@ -24,37 +25,6 @@ if BigDecimal.respond_to?(:yaml_tag) && !BigDecimal.respond_to?(:yaml_as)
 end
 
 require 'brick/util'
-
-# Allow ActiveRecord < 3.2 to work with Ruby 2.7 and later
-if (is_ruby_2_7 = (ruby_version = ::Gem::Version.new(RUBY_VERSION)) >= ::Gem::Version.new('2.7'))
-  if ActiveRecord.version < ::Gem::Version.new('3.2')
-    # Remove circular reference for "now"
-    ::Brick::Util._patch_require(
-      'active_support/values/time_zone.rb', '/activesupport',
-      ['  def parse(str, now=now)',
-      '  def parse(str, now=now())']
-    )
-    # Remove circular reference for "reflection" for ActiveRecord 3.1
-    if ActiveRecord.version >= ::Gem::Version.new('3.1')
-      ::Brick::Util._patch_require(
-        'active_record/associations/has_many_association.rb', '/activerecord',
-        ['reflection = reflection)',
-        'reflection = reflection())'],
-        :HasManyAssociation # Make sure the path for this guy is available to be autoloaded
-      )
-    end
-  end
-
-  # # Create unfrozen route path in Rails 3.2
-  # if ActiveRecord.version < ::Gem::Version.new('4')
-  #   ::Brick::Util._patch_require(
-  #     'action_dispatch/routing/route_set.rb', '/actiondispatch',
-  #     ["script_name.chomp('/')).to_s",
-  #      "script_name.chomp('/')).to_s.dup"],
-  #     :RouteSet # Make sure the path for this guy is available to be autoloaded
-  #   )
-  # end
-end
 
 # Add left_outer_joins! to Associations::JoinDependency and Relation::QueryMethods
 if ActiveRecord.version >= ::Gem::Version.new('4') && ActiveRecord.version < ::Gem::Version.new('5')
@@ -163,7 +133,8 @@ module Brick
 
     # All tables and views (what Postgres calls "relations" including column and foreign key info)
     def relations
-      return {} if ::ActiveRecord::Base.connection_handler.connection_pool_list.blank?
+      return {} if (ch = ::ActiveRecord::Base.connection_handler).respond_to?(:connection_pool_list) &&
+                   ch.connection_pool_list.blank?
 
       # Key our list of relations for this connection off of the connection pool's object_id
       (@relations ||= {})[ActiveRecord::Base.connection_pool.object_id] ||= Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = {} } }
@@ -946,20 +917,22 @@ In config/initializers/brick.rb appropriate entries would look something like:
           end
         end
 
-        if ::Brick.config.add_status && (status_as = "#{controller_prefix.tr('/', '_')}brick_status".to_sym)
-           (
-             !(status_route = instance_variable_get(:@set).named_routes.find { |route| route.first == status_as }&.last) ||
-             !status_route.ast.to_s.include?("/#{controller_prefix}brick_status/")
-           )
-          get("/#{controller_prefix}brick_status", to: 'brick_gem#status', as: status_as.to_s)
-        end
+        if (named_routes = instance_variable_get(:@set).named_routes).respond_to?(:find)
+          if ::Brick.config.add_status && (status_as = "#{controller_prefix.tr('/', '_')}brick_status".to_sym)
+            (
+              !(status_route = instance_variable_get(:@set).named_routes.find { |route| route.first == status_as }&.last) ||
+              !status_route.ast.to_s.include?("/#{controller_prefix}brick_status/")
+            )
+            get("/#{controller_prefix}brick_status", to: 'brick_gem#status', as: status_as.to_s)
+          end
 
-        if ::Brick.config.add_orphans && (orphans_as = "#{controller_prefix.tr('/', '_')}brick_orphans".to_sym)
-           (
-             !(orphans_route = instance_variable_get(:@set).named_routes.find { |route| route.first == orphans_as }&.last) ||
-             !orphans_route.ast.to_s.include?("/#{controller_prefix}brick_orphans/")
-           )
-          get("/#{controller_prefix}brick_orphans", to: 'brick_gem#orphans', as: 'brick_orphans')
+          if ::Brick.config.add_orphans && (orphans_as = "#{controller_prefix.tr('/', '_')}brick_orphans".to_sym)
+            (
+              !(orphans_route = instance_variable_get(:@set).named_routes.find { |route| route.first == orphans_as }&.last) ||
+              !orphans_route.ast.to_s.include?("/#{controller_prefix}brick_orphans/")
+            )
+            get("/#{controller_prefix}brick_orphans", to: 'brick_gem#orphans', as: 'brick_orphans')
+          end
         end
 
         if instance_variable_get(:@set).named_routes.names.exclude?(:brick_crosstab)
@@ -1030,7 +1003,11 @@ require 'brick/version_number'
 if (is_postgres = (Object.const_defined?('PG::VERSION') || Gem::Specification.find_all_by_name('pg').present?)) &&
    ActiveRecord.version < ::Gem::Version.new('4.2.6')
   ::Brick::Util._patch_require(
-    'active_record/connection_adapters/postgresql_adapter.rb', '/activerecord', ["'panic'", "'error'"]
+    'active_record/connection_adapters/postgresql_adapter.rb', '/activerecord', [
+      ["'panic'", "'error'"],
+      # ActiveRecord < 3.2.13 uses the pg_attrdef.adsrc column, but it's missing in Postgres 12 and later, so we need to use pg_get_expr(d.adbin, d.adrelid).
+      [', d.adsrc,', ', pg_get_expr(d.adbin, d.adrelid),']
+    ]
   )
 end
 
@@ -1317,8 +1294,8 @@ ActiveSupport.on_load(:active_record) do
   end
   # rubocop:enable Lint/ConstantDefinitionInBlock
 
-  arsc = ::ActiveRecord::StatementCache
-  if is_ruby_2_7 && arsc.respond_to?(:create) &&
+  if ruby_version >= ::Gem::Version.new('2.7') && ::ActiveRecord.const_defined?(:StatementCache) &&
+     (arsc = ::ActiveRecord::StatementCache).respond_to?(:create) &&
      (params = arsc.method(:create).parameters).length == 2 && params.last == [:opt, :block]
     arsc.class_exec do
       def self.create(connection, callable = nil, &block)
@@ -1423,14 +1400,18 @@ ActiveSupport.on_load(:active_record) do
         elsif araat.respond_to?(:create) # Rails 4.1 and 4.2
           @alias_tracker = araat.create(base.connection, joins)
           @alias_tracker.aliased_table_for(base, base.table_name) # Updates the count for base.table_name to 1
-        else # Rails 4.0
+        else # Rails <= 4.0
           is_rails_4 = true
           @base_klass    = base
           @table_joins   = joins
           @join_parts    = [JoinBase.new(base)]
           @associations  = {}
           @reflections   = []
-          @alias_tracker = araat.new(base.connection, joins)
+          @alias_tracker = if araat.instance_method(:initialize).parameters.length == 2 # Rails > 3.2.8
+                             araat.new(base.connection, joins)
+                           else
+                             araat.new(joins)
+                           end
           @alias_tracker.aliased_name_for(base.table_name) # Updates the count for base.table_name to 1
           tree = build(associations)
         end
@@ -1441,7 +1422,7 @@ ActiveSupport.on_load(:active_record) do
         if (relation = associations.instance_variable_get(:@relation))
           tree.instance_variable_set(:@relation, relation)
         end
-        return if is_rails_4 # Rails 4.0 doesn't know about the rest
+        return if is_rails_4 # Rails <= 4.0 doesn't know about the rest
 
         @join_root = JoinBase.new base, build(tree, base)
         @join_root.children.each { |child| construct_tables! @join_root, child }
@@ -1618,7 +1599,7 @@ module ActiveRecord
         _brick_build_join_query(manager, buckets, *args) # , **kwargs)
       end
 
-    else # elsif private_instance_methods.include?(:select_association_list)
+    elsif private_instance_methods.include?(:select_association_list)
       alias _brick_select_association_list select_association_list
       def select_association_list(associations, stashed_joins = nil)
         result = _brick_select_association_list(associations, stashed_joins)

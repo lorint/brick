@@ -137,7 +137,8 @@ module Brick
         fringe.each do |tbl|
           next unless (relation = ::Brick.relations.fetch(tbl, nil))&.fetch(:cols, nil)&.present?
 
-          pkey_cols = (rpk = relation[:pkey].values.flatten) & (arpk = [ApplicationRecord.primary_key].flatten.sort)
+          ar_base = Object.const_defined?(:ApplicationRecord) ? ApplicationRecord : Class.new(ActiveRecord::Base)
+          pkey_cols = (rpk = relation[:pkey].values.flatten) & (arpk = [ar_base.primary_key].flatten.sort)
           # In case things aren't as standard
           if pkey_cols.empty?
             pkey_cols = if rpk.empty? && relation[:cols][arpk.first]&.first == key_type
