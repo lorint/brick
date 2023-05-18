@@ -1723,7 +1723,10 @@ end
         case collection
         when ActiveRecord::Relation # has_many (which comes in as a CollectionProxy) or a has_one#{
           poly_fix}
-          collection2, descrip_cols = collection.brick_list
+          collection2, descrip_cols = begin
+                                        collection.brick_list
+                                      rescue
+                                      end
         when ActiveRecord::Base # Object from a has_one :through
           collection2 = [collection]
         else # We get an array back when AR < 4.2
