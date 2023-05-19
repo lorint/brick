@@ -41,7 +41,7 @@ module Brick::Rails::FormBuilder
                    col&.type
                  end
       case (col_type ||= col&.sql_type)
-      when :string, :text
+      when :string, :text, :citext
         if ::Brick::Rails::FormBuilder.is_bcrypt?(val) # || .readonly?
           is_revert = false
           out << ::Brick::Rails::FormBuilder.hide_bcrypt(val, nil, 1000)

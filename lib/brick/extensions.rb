@@ -2659,7 +2659,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       pg_catalog.col_description(
         ('\"' || t.table_schema || '\".\"' || t.table_name || '\"')::regclass::oid, c.ordinal_position
       ) AS column_description," if is_postgres}
-      c.column_name, c.data_type,
+      c.column_name, #{is_postgres ? "CASE c.data_type WHEN 'USER-DEFINED' THEN pg_t.typname ELSE c.data_type END AS data_type" : 'c.data_type'},
       COALESCE(c.character_maximum_length, c.numeric_precision) AS max_length,
       kcu.constraint_type AS const, kcu.constraint_name AS \"key\",
       c.is_nullable
@@ -2680,7 +2680,11 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         kcu.CONSTRAINT_SCHEMA = c.table_schema
         AND kcu.TABLE_NAME = c.table_name
         AND kcu.column_name = c.column_name#{"
-    --    AND kcu.position_in_unique_constraint IS NULL" unless is_mssql}
+    --    AND kcu.position_in_unique_constraint IS NULL" unless is_mssql}#{"
+      INNER JOIN pg_catalog.pg_namespace pg_n ON pg_n.nspname = t.table_schema
+      INNER JOIN pg_catalog.pg_class pg_c ON pg_n.oid = pg_c.relnamespace AND pg_c.relname = c.table_name
+      INNER JOIN pg_catalog.pg_attribute pg_a ON pg_c.oid = pg_a.attrelid AND pg_a.attname = c.column_name
+      INNER JOIN pg_catalog.pg_type pg_t ON pg_t.oid = pg_a.atttypid" if is_postgres}
     WHERE t.table_schema #{is_postgres || is_mssql ?
         "NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'heroku_ext',
                  'INFORMATION_SCHEMA', 'sys')"
