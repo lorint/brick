@@ -695,6 +695,44 @@ In config/initializers/brick.rb appropriate entries would look something like:
       end
       [klass, sti_type, found]
     end
+
+    def apply_double_underscore_patch
+      unless @double_underscore_applied
+        # Same as normal #camelize and #underscore, just that double-underscores turn into a single underscore
+        ActiveSupport::Inflector.class_eval do
+          def camelize(term, uppercase_first_letter = true)
+            strings = term.to_s.split('__').map do |string|
+              # String#camelize takes a symbol (:upper or :lower), so here we also support :lower to keep the methods consistent.
+              if !uppercase_first_letter || uppercase_first_letter == :lower
+                string = string.sub(inflections.acronyms_camelize_regex) { |match| match.downcase! || match }
+              else
+                string = string.sub(/^[a-z\d]*/) { |match| inflections.acronyms[match] || match.capitalize! || match }
+              end
+              string.gsub!(/(?:_|(\/))([a-z\d]*)/i) do
+                word = $2
+                substituted = inflections.acronyms[word] || word.capitalize! || word
+                $1 ? "::#{substituted}" : substituted
+              end
+              string
+            end
+            strings.join('_')
+          end
+
+          def underscore(camel_cased_word)
+            return camel_cased_word.to_s unless /[A-Z-]|::/.match?(camel_cased_word)
+            regex = inflections.respond_to?(:acronyms_underscore_regex) ? inflections.acronyms_underscore_regex : inflections.acronym_regex
+            camel_cased_word.to_s.gsub('::', '/').split('_').map do |word|
+              word.gsub!(regex) { "#{$1 && '_' }#{$2.downcase}" }
+              word.gsub!(/([A-Z]+)(?=[A-Z][a-z])|([a-z\d])(?=[A-Z])/) { ($1 || $2) << '_' }
+              word.tr!('-', '_')
+              word.downcase!
+              word
+            end.join('__')
+          end
+        end
+        @double_underscore_applied = true
+      end
+    end
   end
 
   module RouteSet

@@ -512,9 +512,6 @@ module ActiveRecord
       # model early in case the user wants to do an ORDER BY based on any of that.
       model._brick_calculate_bts_hms(translations, join_array) if is_add_bts || is_add_hms
 
-      is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-      is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name)
-      is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer'
       is_distinct = nil
       wheres = {}
       params.each do |k, v|
@@ -836,47 +833,27 @@ module ActiveRecord
           next
         end
 
-        tbl_alias = if is_mysql
-                      "`b_r_#{hm.name}`"
-                    elsif is_postgres
-                      "\"b_r_#{hm.name}\""
-                    else
-                      "b_r_#{hm.name}"
-                    end
-        pri_tbl_name = is_mysql ? "`#{pri_tbl.table_name}`" : "\"#{pri_tbl.table_name.gsub('.', '"."')}\""
-        pri_tbl_name = if is_mysql
-                         "`#{pri_tbl.table_name}`"
-                       elsif is_postgres || is_mssql
-                         "\"#{pri_tbl.table_name.gsub('.', '"."')}\""
-                       else
-                         pri_tbl.table_name
-                       end
+        tbl_alias = "b_r_#{hm.name}"
         on_clause = []
         hm_selects = if fk_col.is_a?(Array) # Composite key?
-                       fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl_name}.#{pri_key[idx]}" }
+                       fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl.table_name}.#{pri_key[idx]}" }
                        fk_col.dup
                      else
-                       on_clause << "#{tbl_alias}.#{fk_col} = #{pri_tbl_name}.#{pri_key}"
+                       on_clause << "#{_br_quoted_name("#{tbl_alias}.#{fk_col}")} = #{_br_quoted_name("#{pri_tbl.table_name}.#{pri_key}")}"
                        [fk_col]
                      end
         if poly_type
           hm_selects << poly_type
-          on_clause << "#{tbl_alias}.#{poly_type} = '#{name}'"
+          on_clause << "#{_br_quoted_name("#{tbl_alias}.#{poly_type}")} = '#{name}'"
         end
         unless from_clause
           tbl_nm = hm.macro == :has_and_belongs_to_many ? hm.join_table : hm.table_name
-          hm_table_name = if is_mysql
-                            "`#{tbl_nm}`"
-                          elsif is_postgres || is_mssql
-                            "\"#{(tbl_nm).gsub('.', '"."')}\""
-                          else
-                            tbl_nm
-                          end
+          hm_table_name = _br_quoted_name(tbl_nm)
         end
         group_bys = ::Brick.is_oracle || is_mssql ? hm_selects : (1..hm_selects.length).to_a
         join_clause = "LEFT OUTER
-JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}#{count_column
-          }) AS c_t_ FROM #{from_clause || hm_table_name} GROUP BY #{group_bys.join(', ')}) #{tbl_alias}"
+JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#{s}") }.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}#{_br_quoted_name(count_column)
+          }) AS c_t_ FROM #{from_clause || hm_table_name} GROUP BY #{group_bys.join(', ')}) #{_br_quoted_name(tbl_alias)}"
         self.joins_values |= ["#{join_clause} ON #{on_clause.join(' AND ')}"] # Same as:  joins!(...)
       end unless cust_col_override
       while (n = nix.pop)
@@ -924,6 +901,7 @@ JOIN (SELECT #{hm_selects.map { |s| "#{'br_t0.' if from_clause}#{s}" }.join(', '
               s << v
             end
           else # String stuff (which defines a custom ORDER BY) just comes straight through
+            v = v.split('.').map { |x| "\"#{x}\"" }.join('.')
             s << v
             # Avoid "PG::InvalidColumnReference: ERROR: for SELECT DISTINCT, ORDER BY expressions must appear in select list" in Postgres
             selects << v if is_distinct
@@ -1014,6 +992,26 @@ Might want to add this in your brick.rb:
 
     def shift_or_first(ary)
       ary.length > 1 ? ary.shift : ary.first
+    end
+
+    def _br_quoted_name(name)
+      if is_mysql
+        "`#{name}`"
+      elsif is_postgres || is_mssql
+        "\"#{(name).gsub('.', '"."')}\""
+      else
+        name
+      end
+    end
+
+    def is_postgres
+      @is_postgres ||= ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+    end
+    def is_mysql
+      @is_mysql ||= ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name)
+    end
+    def is_mssql
+      @is_mssql ||= ActiveRecord::Base.connection.adapter_name == 'SQLServer'
     end
   end
 
@@ -2452,7 +2450,7 @@ end.class_exec do
                         end
           relation_name = schema_name ? "#{schema_name}.#{r['relation_name']}" : r['relation_name']
           # Both uppers and lowers as well as underscores?
-          apply_double_underscore_patch if relation_name =~ /[A-Z]/ && relation_name =~ /[a-z]/ && relation_name.index('_')
+          ::Brick.apply_double_underscore_patch if relation_name =~ /[A-Z]/ && relation_name =~ /[a-z]/ && relation_name.index('_')
           relation = relations[relation_name]
           relation[:isView] = true if r['table_type'] == 'VIEW'
           relation[:description] = r['table_description'] if r['table_description']
@@ -2501,7 +2499,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
             relation_name.downcase!
           # Both uppers and lowers as well as underscores?
           elsif relation_name =~ /[A-Z]/ && relation_name =~ /[a-z]/ && relation_name.index('_')
-            apply_double_underscore_patch
+            ::Brick.apply_double_underscore_patch
           end
           # Expect the default schema for SQL Server to be 'dbo'.
           if (::Brick.is_oracle && r[0] != schema) || (is_mssql && r[0] != 'dbo')
@@ -2706,43 +2704,6 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
     ar_imtn = ActiveRecord.version >= ::Gem::Version.new('5.0') ? ActiveRecord::Base.internal_metadata_table_name : 'ar_internal_metadata'
     [ar_smtn, ar_imtn]
   end
-
-  def apply_double_underscore_patch
-    unless @double_underscore_applied
-      # Same as normal #camelize and #underscore, just that double-underscores turn into a single underscore
-      ActiveSupport::Inflector.class_eval do
-        def camelize(term, uppercase_first_letter = true)
-          strings = term.to_s.split('__').map do |string|
-            # String#camelize takes a symbol (:upper or :lower), so here we also support :lower to keep the methods consistent.
-            if !uppercase_first_letter || uppercase_first_letter == :lower
-              string = string.sub(inflections.acronyms_camelize_regex) { |match| match.downcase! || match }
-            else
-              string = string.sub(/^[a-z\d]*/) { |match| inflections.acronyms[match] || match.capitalize! || match }
-            end
-            string.gsub!(/(?:_|(\/))([a-z\d]*)/i) do
-              word = $2
-              substituted = inflections.acronyms[word] || word.capitalize! || word
-              $1 ? "::#{substituted}" : substituted
-            end
-            string
-          end
-          strings.join('_')
-        end
-
-        def underscore(camel_cased_word)
-          return camel_cased_word.to_s unless /[A-Z-]|::/.match?(camel_cased_word)
-          camel_cased_word.to_s.gsub("::", "/").split('_').map do |word|
-            word.gsub!(inflections.acronyms_underscore_regex) { "#{$1 && '_' }#{$2.downcase}" }
-            word.gsub!(/([A-Z]+)(?=[A-Z][a-z])|([a-z\d])(?=[A-Z])/) { ($1 || $2) << "_" }
-            word.tr!("-", "_")
-            word.downcase!
-            word
-          end.join('__')
-        end
-      end
-      @double_underscore_applied = true
-    end
-  end
 end
 
 # ==========================================
@@ -2769,7 +2730,7 @@ module Brick
 
   class << self
     def _add_bt_and_hm(fk, relations, polymorphic_class = nil, is_optional = false)
-      bt_assoc_name = ::Brick.namify(fk[2], :downcase)
+      bt_assoc_name = ::Brick.namify(fk[2].dup, :downcase)
       unless polymorphic_class
         bt_assoc_name = if bt_assoc_name.underscore.end_with?('_id')
                           bt_assoc_name[-3] == '_' ? bt_assoc_name[0..-4] : bt_assoc_name[0..-3]
