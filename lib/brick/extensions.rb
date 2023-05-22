@@ -2526,6 +2526,15 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         end
       end
 
+      # PostGIS adds three views which would confuse Rails if models were to be built for them.
+      if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+        if relations.key?('geography_columns') && relations.key?('geometry_columns') && relations.key?('spatial_ref_sys')
+          (::Brick.config.exclude_tables ||= []) << 'geography_columns'
+          ::Brick.config.exclude_tables << 'geometry_columns'
+          ::Brick.config.exclude_tables << 'spatial_ref_sys'
+        end
+      end
+
       # # Add unique OIDs
       # if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       #   ActiveRecord::Base.execute_sql(
