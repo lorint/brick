@@ -46,12 +46,12 @@ module Brick
               end
             end
             unless val_err || val.nil?
-              if (geometry = RGeo::WKRep::WKBParser.new.parse(val.pack('c*'))).is_a?(RGeo::Cartesian::PointImpl) &&
-                 !(geometry.y == 0.0 && geometry.x == 0.0)
-                # Create a POINT link to this style of Google maps URL:  https://www.google.com/maps/place/38.7071296+-121.2810649/@38.7071296,-121.2810649,12z
-                geometry = "<a href=\"https://www.google.com/maps/place/#{geometry.y}+#{geometry.x}/@#{geometry.y},#{geometry.x},12z\" target=\"blank\">#{geometry.to_s}</a>"
-              end
-              val = geometry
+              val = if ((geometry = RGeo::WKRep::WKBParser.new.parse(val.pack('c*'))).is_a?(RGeo::Cartesian::PointImpl) ||
+                        geometry.is_a?(RGeo::Geos::CAPIPointImpl)) &&
+                       !(geometry.y == 0.0 && geometry.x == 0.0)
+                      # Create a POINT link to this style of Google maps URL:  https://www.google.com/maps/place/38.7071296+-121.2810649/@38.7071296,-121.2810649,12z
+                      "<a href=\"https://www.google.com/maps/place/#{geometry.y}+#{geometry.x}/@#{geometry.y},#{geometry.x},12z\" target=\"blank\">#{geometry.to_s}</a>"
+                    end
             end
             val_err || val
           else
@@ -996,7 +996,7 @@ callbacks = {} %>
                 css << "<% bts = { #{
                   bt_items = bts.each_with_object([]) do |v, s|
                     foreign_models = if v.last[2] # Polymorphic?
-                                       poly_cols << @_brick_model.reflect_on_association(v[1].first).foreign_type
+                                       poly_cols << @_brick_model.brick_foreign_type(v[1].first)
                                        v.last[1].each_with_object([]) { |x, s| s << "[#{x.name}, #{x.primary_key.inspect}]" }.join(', ')
                                      else
                                        "[#{v.last[1].name}, #{v.last[1].primary_key.inspect}]"
@@ -1165,7 +1165,7 @@ erDiagram
         }\\\"\".html_safe %>
 <%=  sidelinks(shown_classes, bt_class).html_safe %>
 <% end
-   last_through = nil
+   last_hm = nil
    @_brick_hm_counts&.each do |hm|
      # Skip showing self-referencing HM links since they would have already been drawn while evaluating the BT side
      next if (hm_class = hm.last&.klass) == #{@_brick_model.name}
@@ -1174,18 +1174,18 @@ erDiagram
      if (through = hm.last.options[:through]&.to_s) # has_many :through  (HMT)
        through_name = (through_assoc = hm.last.source_reflection).active_record.name.split('::').last
        callbacks[through_name] = through_assoc.active_record
-       if last_through == through # Same HM, so no need to build it again, and for clarity just put in a blank line
+       if last_hm == through # Same HM, so no need to build it again, and for clarity just put in a blank line
 %><%=    \"\n\"
 %><%   else
 %>  <%= \"#\{model_short_name} ||--o{ #\{through_name}\".html_safe %> : \"\"
 <%=      sidelinks(shown_classes, through_assoc.active_record).html_safe %>
-<%       last_through = through
+<%       last_hm = through
        end
 %>    <%= \"#\{through_name} }o--|| #\{hm_name}\".html_safe %> : \"\"
     <%= \"#\{model_short_name} }o..o{ #\{hm_name} : \\\"#\{hm.first}\\\"\".html_safe %><%
      else # has_many
 %>  <%= \"#\{model_short_name} ||--o{ #\{hm_name} : \\\"#\{
-            hm.first.to_s unless hm.first.to_s.downcase == hm_class.name.underscore.pluralize.tr('/', '_')
+            hm.first.to_s unless (last_hm = hm.first.to_s).downcase == hm_class.name.underscore.pluralize.tr('/', '_')
           }\\\"\".html_safe %><%
      end %>
 <%=  sidelinks(shown_classes, hm_class).html_safe %>
@@ -1443,11 +1443,11 @@ end
                              entry.to_s.start_with?('@_') ||
                              ['@cache_hit', '@marked_for_same_origin_verification', '@view_renderer', '@view_flow', '@output_buffer', '@virtual_path'].include?(entry.to_s)
                            end).present?
-                         msg = \"Can't find resource \\\"#{table_name}\\\".\"
-                          # Can't be sure otherwise of what is up, so check DidYouMean and offer a suggestion.
+                         msg = +\"Can't find resource \\\"#{table_name}\\\".\"
+                         # Can't be sure otherwise of what is up, so check DidYouMean and offer a suggestion.
                          if (dym = DidYouMean::SpellChecker.new(dictionary: dym_list).correct('@#{table_name}')).present?
                            msg << \"\nIf you meant \\\"#\{found_dym = dym.first[1..-1]}\\\" then to avoid this message add this entry into inflections.rb:\n\"
-                           msg << \"  inflect.singular('#\{found_dym}', '#{obj_name}')\"
+                           msg << \"  inflect.irregular '#{obj_name}', '#\{found_dym}'\"
                            puts
                            puts \"WARNING:  #\{msg}\"
                            puts
@@ -1630,6 +1630,12 @@ end
 <%= form_for(obj.becomes(#{model_name}), options) do |f| %>
   <table class=\"shadow\">
   <% has_fields = false
+     # If it's a new record, set any default polymorphic types
+     bts.each do |_k, v|
+       if v[2]
+         @#{obj_name}.send(\"#\{model.brick_foreign_type(v.first)}=\", v[1].first&.first&.name)
+       end
+     end if @#{obj_name}.new_record?
      @#{obj_name}.attributes.each do |k, val|
        next if !(col = #{model_name}.columns_hash[k]) ||
                (#{(pk.map(&:to_s) || []).inspect}.include?(k) && !bts.key?(k)) ||
@@ -1642,7 +1648,7 @@ end
         bt_name = bt[1].map { |x| x.first.name }.join('/')
         # %%% Only do this if the user has permissions to edit this bt field
         if bt[2] # Polymorphic?
-          poly_class_name = orig_poly_name = @#{obj_name}.send(\"#\{bt.first\}_type\")
+          poly_class_name = orig_poly_name = @#{obj_name}.send(model.brick_foreign_type(bt.first))
           bt_pair = nil
           loop do
             bt_pair = bt[1].find { |pair| pair.first.name == poly_class_name }
@@ -1657,9 +1663,8 @@ end
           # descrips = @_brick_bt_descrip[bt.first][bt_class]
           poly_id = @#{obj_name}.send(\"#\{bt.first\}_id\")
           # bt_class.order(obj_pk = bt_class.primary_key).each { |obj| option_detail << [obj.brick_descrip(nil, obj_pk), obj.send(obj_pk)] }
-        else # No polymorphism, so just get the first one
-          bt_pair = bt[1].first
         end
+        bt_pair ||= bt[1].first # If there's no polymorphism (or polymorphism status is unknown), just get the first one
         bt_class = bt_pair&.first
         if bt.length < 4
           bt << (option_detail = [[\"(No #\{bt_name\} chosen)\", '^^^brick_NULL^^^']])
@@ -1706,7 +1711,7 @@ end
 
     if (pk = hm.first.klass.primary_key)
       hm_singular_name = (hm_name = hm.first.name.to_s).singularize.underscore
-      obj_pk = (pk.is_a?(Array) ? pk : [pk]).each_with_object([]) { |pk_part, s| s << "#{hm_singular_name}.#{pk_part}" }.join(', ')
+      obj_br_pk = (pk.is_a?(Array) ? pk : [pk]).each_with_object([]) { |pk_part, s| s << "br_#{hm_singular_name}.#{pk_part}" }.join(', ')
       poly_fix = if (poly_type = (hm.first.options[:as] && hm.first.type))
                    "
                      # Let's fix an unexpected \"feature\" of AR -- when going through a polymorphic has_many
@@ -1736,34 +1741,39 @@ end
            else
              collection = @#{obj_name}.#{hm_name}
            end
+        err_msg = nil
         case collection
         when ActiveRecord::Relation # has_many (which comes in as a CollectionProxy) or a has_one#{
           poly_fix}
           collection2, descrip_cols = begin
                                         collection.brick_list
-                                      rescue
+                                      rescue => e
+                                        err_msg = '(error)'
+                                        puts \"ERROR when referencing #\{collection.klass.name}:  #\{e.message}\"
                                       end
         when ActiveRecord::Base # Object from a has_one :through
           collection2 = [collection]
         else # We get an array back when AR < 4.2
           collection2 = collection.to_a.compact
         end
-        collection2 = collection2.brick_(:uniq)
-        if collection2.empty? %>
-          <tr><td>(none)</td></tr>
+        if (collection2 = collection2&.brick_(:uniq)).blank? %>
+          <tr><td<%= ' class=\"orphan\"'.html_safe if err_msg %>><%= err_msg || '(none)' %></td></tr>
      <% else
           collection2.each do |br_#{hm_singular_name}| %>
-            <tr><td><%= br_descrip = if br_#{hm_singular_name}.respond_to?(descrip_cols&.first&.first&.last)
+            <tr><td><%= br_descrip = if (dc = descrip_cols&.first&.first&.last) && br_#{hm_singular_name}.respond_to?(dc)
                                        br_#{hm_singular_name}.brick_descrip(
                                          descrip_cols&.first&.map { |col| br_#{hm_singular_name}.send(col.last) }
                                        )
                                      else # If the HM association has a scope, might not have picked up our SELECT detail
                                        pks = (klass = br_#{hm_singular_name}.class).primary_key
-                                       pks = [pks] unless pks.is_a?(Array)
-                                       pks.map! { |pk| br_#{hm_singular_name}.send(pk).to_s }
+                                       pks = if pks.is_a?(Array)
+                                               pks.map { |pk| br_#{hm_singular_name}.send(pk).to_s }
+                                             else
+                                               [br_#{hm_singular_name}.send(pks).to_s]
+                                             end
                                        \"#\{klass.name} ##\{pks.join(', ')}\"
                                      end
-                        link_to(br_descrip, #{hm.first.klass._brick_index(:singular)}_path(slashify(br_#{obj_pk}))) %></td></tr>
+                        link_to(br_descrip, #{hm.first.klass._brick_index(:singular)}_path(slashify(#{obj_br_pk}))) %></td></tr>
           <% end %>
         <% end %>
       </table>"
@@ -1846,7 +1856,11 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
   var imgErd = document.getElementById(\"imgErd\");
   var mermaidErd = document.getElementById(\"mermaidErd\");
   var mermaidCode;
-  var cbs = {<%= callbacks.map { |k, v| \"#\{k}: \\\"#\{send(\"#\{v._brick_index}_path\".to_sym)}\\\"\" }.join(', ').html_safe %>};
+  var cbs = {<%= callbacks.map do |k, v|
+                   path = send(\"#\{v._brick_index}_path\".to_sym)
+                   path << \"?#\{v.base_class.inheritance_column}=#\{v.name}\" unless v == v.base_class
+                   \"#\{k}: \\\"#\{path}\\\"\"
+                 end.join(', ').html_safe %>};
   if (imgErd) imgErd.addEventListener(\"click\", showErd);
   function showErd() {
     imgErd.style.display = \"none\";

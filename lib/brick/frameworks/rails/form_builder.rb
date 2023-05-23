@@ -104,7 +104,7 @@ module Brick::Rails::FormBuilder
         out << "<div id=\"_br_json_#{self.field_id(method)}\"></div>"
       else
         is_revert = false
-        out << ::Brick::Rails.display_value(col_type, val).html_safe
+        out << (::Brick::Rails.display_value(col_type, val)&.html_safe || '')
       end
     end
     if is_revert
