@@ -86,8 +86,7 @@ module Brick::Rails::FormTags
         if (bt || composite_bt_names[col_name])
           if bt[2] # Polymorphic?
             if (poly_id = obj.send("#{bt.first}_id"))
-              # Was:  obj.send("#{bt.first}_type")
-              bt_class = obj.send(obj.class.reflect_on_association(bt.first).foreign_type)
+              bt_class = obj.send(klass.brick_foreign_type(bt.first))
               base_class_underscored = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class._brick_index(:singular)
               out << link_to("#{bt_class} ##{poly_id}", send("#{base_class_underscored}_path".to_sym, poly_id))
             end
@@ -98,7 +97,7 @@ module Brick::Rails::FormTags
               bt_id_col = if descrips.nil?
                             puts "Caught it in the act for obj / #{col_name}!"
                           elsif descrips.length == 1
-                            [obj.class.reflect_on_association(bt.first)&.foreign_key]
+                            [klass.reflect_on_association(bt.first)&.foreign_key]
                           else
                             descrips.last
                           end
@@ -132,7 +131,7 @@ module Brick::Rails::FormTags
               end
             elsif obj.respond_to?(ct_col = hms_col[1].to_sym) && (ct = obj.send(ct_col)&.to_i)&.positive?
               predicates = hms_col[2].each_with_object({}) { |v, s| s[v.first] = v.last.is_a?(String) ? v.last : obj.send(v.last) }
-              predicates.each { |k, v| predicates[k] = obj.class.name if v == '[sti_type]' }
+              predicates.each { |k, v| predicates[k] = klass.name if v == '[sti_type]' }
               out << "#{link_to("#{ct || 'View'} #{hms_col.first}",
                                 send("#{hm_klass._brick_index}_path".to_sym, predicates))}\n"
             end
