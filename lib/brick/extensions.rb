@@ -85,6 +85,10 @@ module ActiveRecord
         (respond_to?(:attribute_types) && (attr_types = attribute_types[col.name]).respond_to?(:coder) &&
          (attr_types.coder.is_a?(Class) ? attr_types.coder : attr_types.coder&.class)&.name&.end_with?('JSON'))
       end
+
+      def brick_foreign_type(assoc)
+        reflect_on_association(assoc).foreign_type || "#{assoc}_type"
+      end
     end
 
     def self._brick_primary_key(relation = nil)
@@ -895,15 +899,15 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
             # Add the ordered series of columns derived from the BT based on its DSL
             if (bt_cols = klass._br_bt_descrip[v])
               bt_cols.values.each do |v1|
-                v1.each { |v2| s << "\"#{v2.last}\"" if v2.length > 1 }
+                v1.each { |v2| s << _br_quoted_name(v2.last) if v2.length > 1 }
               end
             elsif (cc_cols = klass._br_cust_cols[v])
-              cc_cols.first.each { |v1| s << "\"#{v1.last}\"" if v1.length > 1 }
+              cc_cols.first.each { |v1| s << _br_quoted_name(v1.last) if v1.length > 1 }
             else
               s << v
             end
           else # String stuff (which defines a custom ORDER BY) just comes straight through
-            v = v.split('.').map { |x| "\"#{x}\"" }.join('.')
+            v = v.split('.').map { |x| _br_quoted_name(x) }.join('.')
             s << v
             # Avoid "PG::InvalidColumnReference: ERROR: for SELECT DISTINCT, ORDER BY expressions must appear in select list" in Postgres
             selects << v if is_distinct
@@ -959,7 +963,7 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
       begin
         send(method, *args, **kwargs, &block) # method will be something like :uniq or :each
       rescue ActiveModel::MissingAttributeError => e
-        if (err_msg = e.message).start_with?('missing attribute: ') &&
+        if e.message.start_with?('missing attribute: ') &&
            klass.column_names.include?(col_name = e.message[19..-1])
           (dup_rel = dup).select_values << col_name
           ret = dup_rel.brick_(method, *args, brick_orig_relation: (brick_orig_relation ||= self), **kwargs, &block)
@@ -997,8 +1001,10 @@ Might want to add this in your brick.rb:
     end
 
     def _br_quoted_name(name)
-      if is_mysql
-        "`#{name}`"
+      if name == '*'
+        name
+      elsif is_mysql
+        "`#{name.gsub('.', '`.`')}`"
       elsif is_postgres || is_mssql
         "\"#{(name).gsub('.', '"."')}\""
       else
@@ -1258,7 +1264,7 @@ end
                # %%% Perhaps an option to use the first module just as schema, and additional modules as namespace with a table name prefix applied
 
              # AVO Resource
-             elsif base_module == Object && Object.const_defined?('Avo') && requested.end_with?('Resource') &&
+             elsif base_module == Object && Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) && requested.end_with?('Resource') &&
                    # Expect that anything called MotorResource or SpinaResource could be from those administrative gems
                    requested.length > 8 && ['MotorResource', 'SpinaResource'].exclude?(requested)
                if (model = Object.const_get(requested[0..-9])) && model < ActiveRecord::Base
@@ -1310,7 +1316,7 @@ end
       built_class, code = result
       puts "\n#{code}\n"
       built_class
-    elsif ::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}") && !schema_name
+    elsif !schema_name && ::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}")
 #         module_prefixes = type_name.split('::')
 #         path = base_module.name.split('::')[0..-2] + []
 #         module_prefixes.unshift('') unless module_prefixes.first.blank?
@@ -1384,7 +1390,12 @@ class Object
         relation = relations["#{schema_name}.#{matching}"]
       end
       full_name = if relation || schema_name.blank?
-                    inheritable_name || model_name
+                    if singular_table_name != table_name.singularize && # %%% Try this with http://localhost:3000/brick/spree/property_translations
+                       (schema_module = ::Brick.config.table_name_prefixes.find { |k, v| table_name.start_with?(k) }&.last&.constantize)
+                      "#{schema_module&.name}::#{inheritable_name || model_name}"
+                    else
+                      inheritable_name || model_name
+                    end
                   else # Prefix the schema to the table name + prefix the schema namespace to the class name
                     schema_module = if schema_name.is_a?(Module) # from an auto-STI namespace?
                                       schema_name
@@ -1493,7 +1504,7 @@ class Object
         unless is_sti
           fks = relation[:fks] || {}
           # Do the bulk of the has_many / belongs_to processing, and store details about HMT so they can be done at the very last
-          hmts = fks.each_with_object(Hash.new { |h, k| h[k] = [] }) do |fk, hmts|
+          fks.each_with_object(Hash.new { |h, k| h[k] = [] }) do |fk, hmts|
             # The key in each hash entry (fk.first) is the constraint name
             inverse_assoc_name = (assoc = fk.last)[:inverse]&.fetch(:assoc_name, nil)
             if (invs = assoc[:inverse_table]).is_a?(Array)
@@ -1588,7 +1599,8 @@ class Object
                 if assoc.key?(:polymorphic) ||
                    # If a polymorphic association is missing but could be established then go ahead and put it into place.
                    relations[assoc[:inverse_table]][:class_name].constantize.reflect_on_all_associations.find { |inv_assoc| !inv_assoc.belongs_to? && inv_assoc.options[:as].to_s == assoc[:assoc_name] }
-                  assoc[:polymorphic] ||= (options[:polymorphic] = true)
+                  assoc[:polymorphic] ||= true
+                  options[:polymorphic] = true
                 else
                   need_class_name = singular_table_name.underscore != assoc_name
                   need_fk = "#{assoc_name}_id" != assoc[:fk]
@@ -1685,6 +1697,20 @@ class Object
         # Basic Avo functionality is available via its own generic controller.
         # (More information on https://docs.avohq.io/2.0/controllers.html)
         controller_base = Avo::ResourcesController
+      end
+      if !model&.table_exists? && (tn = model&.table_name)
+        msg = +"Can't find table \"#{tn}\" for model #{model.name}."
+        puts
+        # Potential bad inflection?
+        if (dym = DidYouMean::SpellChecker.new(dictionary: ::Brick.relations.keys).correct(tn)).present?
+          msg << "\nIf you meant \"#{found_dym = dym.first}\" then to avoid this message add this entry into inflections.rb:\n"
+          msg << "  inflect.irregular '#{model.name}', '#{found_dym.camelize}'"
+          model.table_name = found_dym
+          puts "WARNING:  #{msg}"
+        else
+          puts "ERROR:  #{msg}"
+        end
+        puts
       end
       table_name = model&.table_name || ActiveSupport::Inflector.underscore(plural_class_name)
       singular_table_name = ActiveSupport::Inflector.singularize(ActiveSupport::Inflector.underscore(plural_class_name))
@@ -2316,6 +2342,7 @@ end.class_exec do
 
     orig_schema = nil
     if (relations = ::Brick.relations).empty?
+      ::Brick.remove_instance_variable(:@_additional_references_loaded) if ::Brick.instance_variable_defined?(:@_additional_references_loaded)
       # Very first thing, load inflections since we'll be using .pluralize and .singularize on table and model names
       if File.exist?(inflections = ::Rails.root.join('config/initializers/inflections.rb'))
         load inflections
@@ -2661,6 +2688,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
 
   def retrieve_schema_and_tables(sql = nil, is_postgres = nil, is_mssql = nil, schema = nil)
     is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer' if is_mssql.nil?
+    params = ar_tables
     sql ||= "SELECT t.table_schema AS \"schema\", t.table_name AS relation_name, t.table_type,#{"
       pg_catalog.obj_description(
         ('\"' || t.table_schema || '\".\"' || t.table_name || '\"')::regclass::oid, 'pg_class'
@@ -2698,12 +2726,16 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         "NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'heroku_ext',
                  'INFORMATION_SCHEMA', 'sys')"
         :
-        "= '#{ActiveRecord::Base.connection.current_database&.tr("'", "''")}'"}#{"
-      AND t.table_schema = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }
+        "= '#{ActiveRecord::Base.connection.current_database&.tr("'", "''")}'"}#{
+    if is_postgres && schema
+      params = params.unshift(schema) # Used to use this SQL:  current_setting('SEARCH_PATH')
+      "
+      AND t.table_schema = COALESCE(?, 'public')"
+    end}
   --          AND t.table_type IN ('VIEW') -- 'BASE TABLE', 'FOREIGN TABLE'
       AND t.table_name NOT IN ('pg_stat_statements', ?, ?)
     ORDER BY 1, t.table_type DESC, 2, c.ordinal_position"
-    ActiveRecord::Base.execute_sql(sql, *ar_tables)
+    ActiveRecord::Base.execute_sql(sql, *params)
   end
 
   def ar_tables

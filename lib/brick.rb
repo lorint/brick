@@ -188,6 +188,10 @@ module Brick
       bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
         # %%% The time will come when we will support type checking of composite foreign keys!
         # binding.pry if a.foreign_key.is_a?(Array)
+        if a.belongs_to? && !a.polymorphic? && ::Brick.config.polymorphics.fetch(full_assoc_name = "#{model.table_name}.#{a.name}", nil)
+          puts "Based on inclusion in ::Brick.polymorphics, marking association #{full_assoc_name} as being polymorphic."
+          a.options[:polymorphic] = true
+        end
         next unless a.polymorphic? || (!a.belongs_to? && (through = a.options[:through])) ||
                     (a.klass && ::Brick.config.exclude_tables.exclude?(a.klass.table_name) &&
                      (!a.belongs_to? || model_cols[a.foreign_key]&.type == pk_type)
@@ -1388,13 +1392,13 @@ ActiveSupport.on_load(:active_record) do
     end
   end
 
-  if ActiveRecord.version < ::Gem::Version.new('6.1') &&
+  if ActiveRecord.version < ::Gem::Version.new('6.1.4') &&
      Psych.method(:load).parameters.any? { |param| param.first == :key && param.last == :aliases }
     Psych.class_exec do
       class << self
         alias _original_load load
         def load(yaml, *args, **kwargs)
-          if caller.first.end_with?("`database_configuration'") && kwargs[:aliases].nil?
+          if kwargs[:aliases].nil? && caller[0..4].any? { |line| line.end_with?("`database_configuration'") }
             kwargs[:aliases] = true
           end
           _original_load(yaml, *args, **kwargs)
@@ -1600,7 +1604,7 @@ if Gem::Specification.all_names.find { |g| g.start_with?('awesome_nested_set-') 
   ::CollectiveIdea::Acts::NestedSet::Columns.class_exec do
     alias _brick_order_column_name order_column_name
     def order_column_name
-      unless (ord_col = _brick_order_column_name).start_with?(tbl_prefix = "#{table_name}.")
+      unless (ord_col = _brick_order_column_name).start_with?(tbl_prefix = +"#{table_name}.")
         ord_col = tbl_prefix << ord_col
       end
       ord_col
