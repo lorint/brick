@@ -1165,7 +1165,7 @@ erDiagram
         }\\\"\".html_safe %>
 <%=  sidelinks(shown_classes, bt_class).html_safe %>
 <% end
-   last_through = nil
+   last_hm = nil
    @_brick_hm_counts&.each do |hm|
      # Skip showing self-referencing HM links since they would have already been drawn while evaluating the BT side
      next if (hm_class = hm.last&.klass) == #{@_brick_model.name}
@@ -1174,18 +1174,18 @@ erDiagram
      if (through = hm.last.options[:through]&.to_s) # has_many :through  (HMT)
        through_name = (through_assoc = hm.last.source_reflection).active_record.name.split('::').last
        callbacks[through_name] = through_assoc.active_record
-       if last_through == through # Same HM, so no need to build it again, and for clarity just put in a blank line
+       if last_hm == through # Same HM, so no need to build it again, and for clarity just put in a blank line
 %><%=    \"\n\"
 %><%   else
 %>  <%= \"#\{model_short_name} ||--o{ #\{through_name}\".html_safe %> : \"\"
 <%=      sidelinks(shown_classes, through_assoc.active_record).html_safe %>
-<%       last_through = through
+<%       last_hm = through
        end
 %>    <%= \"#\{through_name} }o--|| #\{hm_name}\".html_safe %> : \"\"
     <%= \"#\{model_short_name} }o..o{ #\{hm_name} : \\\"#\{hm.first}\\\"\".html_safe %><%
      else # has_many
 %>  <%= \"#\{model_short_name} ||--o{ #\{hm_name} : \\\"#\{
-            hm.first.to_s unless hm.first.to_s.downcase == hm_class.name.underscore.pluralize.tr('/', '_')
+            hm.first.to_s unless (last_hm = hm.first.to_s).downcase == hm_class.name.underscore.pluralize.tr('/', '_')
           }\\\"\".html_safe %><%
      end %>
 <%=  sidelinks(shown_classes, hm_class).html_safe %>
@@ -1846,7 +1846,11 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
   var imgErd = document.getElementById(\"imgErd\");
   var mermaidErd = document.getElementById(\"mermaidErd\");
   var mermaidCode;
-  var cbs = {<%= callbacks.map { |k, v| \"#\{k}: \\\"#\{send(\"#\{v._brick_index}_path\".to_sym)}\\\"\" }.join(', ').html_safe %>};
+  var cbs = {<%= callbacks.map do |k, v|
+                   path = send(\"#\{v._brick_index}_path\".to_sym)
+                   path << \"?#\{v.base_class.inheritance_column}=#\{v.name}\" unless v == v.base_class
+                   \"#\{k}: \\\"#\{path}\\\"\"
+                 end.join(', ').html_safe %>};
   if (imgErd) imgErd.addEventListener(\"click\", showErd);
   function showErd() {
     imgErd.style.display = \"none\";

@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.144        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.146        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -263,7 +263,7 @@ starting up:
 ```
 Lorins-Macbook:example_oracle lorin$ bin/rails s
 => Booting Puma
-=> Rails 7.0.4.3 application starting in development
+=> Rails 7.0.5 application starting in development
 => Run `rails server --help` for more startup options
 
 Classes that can be built from tables:  Path:

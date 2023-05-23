@@ -2661,6 +2661,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
 
   def retrieve_schema_and_tables(sql = nil, is_postgres = nil, is_mssql = nil, schema = nil)
     is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer' if is_mssql.nil?
+    params = ar_tables
     sql ||= "SELECT t.table_schema AS \"schema\", t.table_name AS relation_name, t.table_type,#{"
       pg_catalog.obj_description(
         ('\"' || t.table_schema || '\".\"' || t.table_name || '\"')::regclass::oid, 'pg_class'
@@ -2698,12 +2699,16 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         "NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'heroku_ext',
                  'INFORMATION_SCHEMA', 'sys')"
         :
-        "= '#{ActiveRecord::Base.connection.current_database&.tr("'", "''")}'"}#{"
-      AND t.table_schema = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }
+        "= '#{ActiveRecord::Base.connection.current_database&.tr("'", "''")}'"}#{
+    if is_postgres && schema
+      params = params.unshift(schema) # Used to use this SQL:  current_setting('SEARCH_PATH')
+      "
+      AND t.table_schema = COALESCE(?, 'public')"
+    end}
   --          AND t.table_type IN ('VIEW') -- 'BASE TABLE', 'FOREIGN TABLE'
       AND t.table_name NOT IN ('pg_stat_statements', ?, ?)
     ORDER BY 1, t.table_type DESC, 2, c.ordinal_position"
-    ActiveRecord::Base.execute_sql(sql, *ar_tables)
+    ActiveRecord::Base.execute_sql(sql, *params)
   end
 
   def ar_tables
