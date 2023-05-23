@@ -1258,57 +1258,73 @@ erDiagram
     // Have a click on the sheets link to bring up the sign-in window.  (Must happen from some kind of user click.)
     sheetsLink.addEventListener(\"click\", async function (evt) {
       evt.preventDefault();
-      await gapi.load(\"client\", function () {
-        gapi.client.init({ // Load the discovery doc to initialize the API
-          clientId: \"487319557829-fgj4u660igrpptdji7ev0r5hb6kh05dh.apps.googleusercontent.com\",
-          scope: \"https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file\",
-          discoveryDocs: [\"https://sheets.googleapis.com/$discovery/rest?version=v4\"]
-        }).then(function () {
-          gapi.auth2.getAuthInstance().isSignedIn.listen(updateSignInStatus);
-          updateSignInStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
-        });
+      var client = google.accounts.oauth2.initTokenClient({
+        client_id: \"487319557829-fgj4u660igrpptdji7ev0r5hb6kh05dh.apps.googleusercontent.com\",
+        scope: \"https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file\",
+        callback: updateSignInStatus
       });
+      client.requestAccessToken();
     });
   }
 
-  async function updateSignInStatus(isSignedIn) {
-    if (isSignedIn) {
-      await gapi.client.sheets.spreadsheets.create({
-        properties: {
-          title: #{table_name.inspect},
-        },
-        sheets: [
-          // sheet1, sheet2, sheet3
-        ]
-      }).then(function (response) {
-        sheetUrl = response.result.spreadsheetUrl;
-        spreadsheetId = response.result.spreadsheetId;
-        sheetsLink.setAttribute(\"href\", sheetUrl); // response.result.spreadsheetUrl
-        console.log(\"x1\", sheetUrl);
+  async function updateSignInStatus(token) {
+    await new Promise(function (resolve) {
+      gapi.load(\"client\", function () {
+        resolve(); // gapi client code now loaded
+      });
+    }).then(async function (x) {
+      gapi.client.setToken(token);
+      var discoveryDoc = await (await fetch(\"https://sheets.googleapis.com/$discovery/rest?version=v4\")).json();
+      await gapi.client.load(discoveryDoc, function () {
+        resolve(); // Spreadsheets code now loaded
+      });
+    });
 
-        // Get JSON data
-        fetch(changeout(<%= #{@_brick_model._brick_index}_path(format: :js).inspect.html_safe %>, \"_brick_schema\", brickSchema)).then(function (response) {
-          response.json().then(function (data) {
-            gapi.client.sheets.spreadsheets.values.append({
-              spreadsheetId: spreadsheetId,
-              range: \"Sheet1\",
-              valueInputOption: \"RAW\",
-              insertDataOption: \"INSERT_ROWS\"
-            }, {
-              range: \"Sheet1\",
-              majorDimension: \"ROWS\",
-              values: data,
-            }).then(function (response2) {
-  //            console.log(\"beefcake\", response2);
-            });
+    await gapi.client.sheets.spreadsheets.create({
+      properties: {
+        title: #{table_name.inspect},
+      },
+      sheets: [
+        // sheet1, sheet2, sheet3
+      ]
+    }).then(function (response) {
+      sheetUrl = response.result.spreadsheetUrl;
+      spreadsheetId = response.result.spreadsheetId;
+      // sheetsLink.setAttribute(\"href\", sheetUrl);
+
+      // Get JSON data
+      var jsPath = <%= #{@_brick_model._brick_index}_path(format: :js).inspect.html_safe %>;
+      if (brickSchema) jsPath = changeout(jsPath, \"_brick_schema\", brickSchema);
+      fetch(jsPath).then(function (response) {
+        response.json().then(function (resp) {
+          // Expect the first row to have field names
+          var colHeaders = Object.keys(resp.data[0]);;
+          var ary = [colHeaders];
+          // Add all the rows
+          var row;
+          resp.data.forEach(function (row) {
+            ary.push(Object.keys(colHeaders).reduce(function(x, y) {
+              x.push(row[colHeaders[y]]); return x
+            }, []));
+          });
+          // Send to spreadsheet
+          gapi.client.sheets.spreadsheets.values.append({
+            spreadsheetId: spreadsheetId,
+            range: 'Sheet1',
+            valueInputOption: 'RAW',
+            insertDataOption: 'INSERT_ROWS',
+            values: ary
+          }).then(function (response2) {
+            // console.log('Spreadsheet created', response2);
           });
         });
       });
       window.open(sheetUrl, '_blank');
-    }
+    });
   }
 </script>
-<script async defer src=\"https://apis.google.com/js/api.js\" onload=\"gapiLoaded()\"></script>
+<script src=\"https://apis.google.com/js/api.js\"></script>
+<script async defer src=\"https://accounts.google.com/gsi/client\" onload=\"gapiLoaded()\"></script>
 "
                          end # DutyFree data export and import
 # %%% Instead of our current "for Janet Leverling (Employee)" kind of link we previously had this code that did a "where x = 123" thing:

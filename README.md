@@ -31,7 +31,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.143        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.144        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -195,6 +195,8 @@ The Brick notices when some other gems are present and makes use of them -- most
 with Rails' conventions, The Brick does quite a bit to accommodate.  But to get
 multiple-column primary and foreign keys to work, then **composite_primary_keys** is
 required.  Just bundle it in and The Brick will leverage this gem.
+
+Brick adds **CSV** and **Google Sheets** export links when it sees that the **[duty_free](https://github.com/lorint/duty_free)** gem is present.
 
 Brick auto-detects six other "admin panel" type gems in order to automatically build models and resources for them.
 Most popular amongst these is old-school **[activeadmin](https://github.com/activeadmin/activeadmin)**,

@@ -316,8 +316,10 @@ module ActiveRecord
     def self.brick_import_template
       template = constants.include?(:IMPORT_TEMPLATE) ? self::IMPORT_TEMPLATE : suggest_template(0, false, true)
       # Add the primary key to the template as being unique (unless it's already there)
-      template[:uniques] = [pk = primary_key.to_sym]
-      template[:all].unshift(pk) unless template[:all].include?(pk)
+      if primary_key
+        template[:uniques] = [pk = primary_key.to_sym]
+        template[:all].unshift(pk) unless template[:all].include?(pk)
+      end
       template
     end
 
