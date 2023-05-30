@@ -1434,7 +1434,7 @@ class Object
       hmts = nil
       code = +"class #{full_name} < #{base_model.name}\n"
       built_model = Class.new(base_model) do |new_model_class|
-        (schema_module || Object).const_set((inheritable_name || model_name).to_sym, new_model_class)
+        (schema_module || Object).const_set((chosen_name = (inheritable_name || model_name)).to_sym, new_model_class)
         if inheritable_name
           new_model_class.define_singleton_method :inherited do |subclass|
             super(subclass)
@@ -1526,6 +1526,13 @@ class Object
           #     self.send(:validates, col.to_sym, { not_null: true })
           #   end
           # end
+        end
+
+        # Enable Turbo Stream if possible -- equivalent of:  broadcasts_to ->(comment) { :comments }
+        if Object.const_defined?(:ApplicationCable) && Object.const_defined?(:Turbo) && Turbo.const_defined?(:Broadcastable) && respond_to?(:broadcasts_to)
+          relation[:broadcasts] = true
+          self.broadcasts_to ->(model) { (model&.class&.name || chosen_name).underscore.pluralize.to_sym }
+          code << "  broadcasts_to ->(#{chosen_name}) { #{chosen_name}&.class&.name&.underscore&.pluralize&.to_sym }\n"
         end
       end # class definition
       # Having this separate -- will this now work out better?
@@ -1718,9 +1725,13 @@ class Object
       is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name)
 
-      code = +"class #{namespace}::#{class_name} < #{controller_base&.name || 'ApplicationController'}\n"
-      built_controller = Class.new(controller_base || ActionController::Base) do |new_controller_class|
-        (namespace || Object).const_set(class_name.to_sym, new_controller_class)
+      namespace = nil if namespace == ::Object
+      controller_base ||= ::Brick.config.controllers_inherit_from if ::Brick.config.controllers_inherit_from
+      controller_base = controller_base.constantize if controller_base.is_a?(String)
+      controller_base ||= ActionController::Base
+      code = +"class #{namespace&.name}::#{class_name} < #{controller_base&.name}\n"
+      built_controller = Class.new(controller_base) do |new_controller_class|
+        (namespace || ::Object).const_set(class_name.to_sym, new_controller_class)
 
         # Add a hash for the inline style to the content-security-policy if one is present
         self.define_method(:add_csp_hash) do |style_value = nil|
@@ -2040,7 +2051,15 @@ class Object
           end
         end
 
-        unless is_openapi || is_avo
+        unless is_openapi || is_avo # Normal controller (non-API)
+          if controller_base == ActionController::Base && ::Brick.relations[model.table_name].fetch(:broadcasts, nil)
+            puts "WARNING:  If you intend to use the #{model.name} model with Turbo Stream broadcasts,
+          you will want to have its controller inherit from ApplicationController instead of
+          ActionController::Base (which as you can see below is what it currently does).  To enact
+          this for every auto-generated controller, you can uncomment this line in brick.rb:
+            ::Brick.controllers_inherit_from = 'ApplicationController'"
+          end
+
           # Skip showing Bullet gem optimisation messages
           if Object.const_defined?('Bullet') && Bullet.respond_to?(:enable?)
             around_action :skip_bullet
