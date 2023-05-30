@@ -299,6 +299,14 @@ module Brick
       @mutex.synchronize { @models_inherit_from = value }
     end
 
+    def controllers_inherit_from
+      @mutex.synchronize { @controllers_inherit_from }
+    end
+
+    def controllers_inherit_from=(value)
+      @mutex.synchronize { @controllers_inherit_from = value }
+    end
+
     def table_name_prefixes
       @mutex.synchronize { @table_name_prefixes }
     end

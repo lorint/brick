@@ -176,6 +176,12 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # # Class that auto-generated models should inherit from
   # Brick.models_inherit_from = ApplicationRecord
 
+  # # Class that auto-generated controllers should inherit from
+  # # (Would generally want to un-comment this line if you want to enforce any authentication which is
+  # # established in your ApplicationController, or for auto-created controllers to support
+  # # Turbo Stream broadcasts.)
+  # ::Brick.controllers_inherit_from = 'ApplicationController'
+
   # # When table names have specific prefixes automatically place them in their own module with a table_name_prefix.
   # Brick.table_name_prefixes = { 'nav_' => 'Navigation' }
 
