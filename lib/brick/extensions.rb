@@ -2260,6 +2260,9 @@ class Object
           current_permits << { "#{assoc.name.to_s.singularize}_ids".to_sym => [] }
           s << "#{assoc.name.to_s.singularize}_ids: []"
         elsif assoc.active_record.instance_methods.include?(:"#{assoc.name}_attributes=")
+          # Support nested attributes which use the friendly_id gem
+          self._brick_nested_friendly_id if Object.const_defined?('FriendlyId') &&
+                                            assoc.klass.instance_variable_get(:@friendly_id_config)
           new_attrib_text = self._brick_find_permits(assoc.klass, (new_permits = assoc.klass.columns_hash.keys.map(&:to_sym)))
           new_permits << :_destroy
           current_permits << { "#{assoc.name}_attributes".to_sym => new_permits }
@@ -2267,6 +2270,80 @@ class Object
         end
       end
       current_permits
+    end
+
+    def _brick_nested_friendly_id
+      unless @_brick_nested_friendly_id
+        ::ActiveRecord::Base.class_exec do
+          if private_instance_methods.include?(:assign_nested_attributes_for_collection_association)
+            alias _brick_anafca assign_nested_attributes_for_collection_association
+            def assign_nested_attributes_for_collection_association(association_name, attributes_collection)
+              association = association(association_name)
+              slug_column = association.klass.instance_variable_get(:@friendly_id_config)&.slug_column
+              return _brick_anafca unless slug_column
+
+              # Here is the FriendlyId version of #assign_nested_attributes_for_collection_association
+              options = nested_attributes_options[association_name]
+              attributes_collection = attributes_collection.to_h if attributes_collection.respond_to?(:permitted?)
+
+              unless attributes_collection.is_a?(Hash) || attributes_collection.is_a?(Array)
+                raise ArgumentError, "Hash or Array expected for attribute `#{association_name}`, got #{attributes_collection.class.name} (#{attributes_collection.inspect})"
+              end
+
+              check_record_limit!(options[:limit], attributes_collection)
+
+              if attributes_collection.is_a? Hash
+                keys = attributes_collection.keys
+                attributes_collection = if keys.include?("id") || keys.include?(:id)
+                                          [attributes_collection]
+                                        else
+                                          attributes_collection.values
+                                        end
+              end
+              existing_records = if association.loaded?
+                                   association.target
+                                 else
+                                   attribute_ids = attributes_collection.filter_map { |a| a["id"] || a[:id] }
+                                   if attribute_ids.empty?
+                                     []
+                                   else # Implement the same logic as "friendly" scope
+                                     association.scope.where(association.klass.primary_key => attribute_ids)
+                                                      .or(association.scope.where(slug_column => attribute_ids))
+                                   end
+                                 end
+              attributes_collection.each do |attributes|
+                attributes = attributes.to_h if attributes.respond_to?(:permitted?)
+                attributes = attributes.with_indifferent_access
+                if attributes["id"].blank? && attributes[slug_column].blank?
+                  unless reject_new_record?(association_name, attributes)
+                    association.reader.build(attributes.except(*::ActiveRecord::Base::UNASSIGNABLE_KEYS))
+                  end
+                elsif (attr_id_str = attributes["id"].to_s) && 
+                      (existing_record = existing_records.detect { |record| record.id.to_s == attr_id_str ||
+                                                                            record.send(slug_column).to_s == attr_id_str })
+                  unless call_reject_if(association_name, attributes)
+                    # Make sure we are operating on the actual object which is in the association's
+                    # proxy_target array (either by finding it, or adding it if not found)
+                    # Take into account that the proxy_target may have changed due to callbacks
+                    target_record = association.target.detect { |record| record.id.to_s == attr_id_str ||
+                                                                          record.send(slug_column).to_s == attr_id_str }
+                    if target_record
+                      existing_record = target_record
+                    else
+                      association.add_to_target(existing_record, skip_callbacks: true)
+                    end
+
+                    assign_to_or_mark_for_destruction(existing_record, attributes, options[:allow_destroy])
+                  end
+                else
+                  raise_nested_attributes_record_not_found!(association_name, attributes["id"])
+                end
+              end
+            end # anafca
+          end
+        end if ::ActiveRecord::QueryMethods.instance_methods.include?(:or)
+        @_brick_nested_friendly_id = true
+      end
     end
 
     def _brick_get_hm_assoc_name(relation, hm_assoc, source = nil)
