@@ -2238,12 +2238,7 @@ class Object
 
           if is_need_params
             code << "  def #{params_name}\n"
-            permits = model.columns_hash.keys.map(&:to_sym)
-            permits_txt = permits.map(&:inspect) +
-                          model.reflect_on_all_associations.select { |assoc| assoc.macro == :has_many && assoc.options[:through] }.map do |assoc|
-                            permits << { "#{assoc.name.to_s.singularize}_ids".to_sym => [] }
-                            "#{assoc.name.to_s.singularize}_ids: []"
-                          end
+            permits_txt = self._brick_find_permits(model, (permits = model.columns_hash.keys.map(&:to_sym)))
             code << "    params.require(:#{require_name = model.name.underscore.tr('/', '_')
                              }).permit(#{permits_txt.join(', ')})\n"
             code << "  end\n"
@@ -2257,6 +2252,21 @@ class Object
         code << "end # #{class_name}\n"
       end # class definition
       [built_controller, code]
+    end
+
+    def _brick_find_permits(model, current_permits)
+      model.reflect_on_all_associations.select { |assoc| assoc.macro == :has_many }.each_with_object([]) do |assoc, s|
+        if assoc.options[:through]
+          current_permits << { "#{assoc.name.to_s.singularize}_ids".to_sym => [] }
+          s << "#{assoc.name.to_s.singularize}_ids: []"
+        elsif assoc.active_record.instance_methods.include?(:"#{assoc.name}_attributes=")
+          new_attrib_text = self._brick_find_permits(assoc.klass, (new_permits = assoc.klass.columns_hash.keys.map(&:to_sym)))
+          new_permits << :_destroy
+          current_permits << { "#{assoc.name}_attributes".to_sym => new_permits }
+          s << "#{assoc.name}_attributes: #{new_attrib_text}"
+        end
+      end
+      current_permits
     end
 
     def _brick_get_hm_assoc_name(relation, hm_assoc, source = nil)
