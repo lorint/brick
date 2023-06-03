@@ -1528,12 +1528,12 @@ class Object
           # end
         end
 
-        # Enable Turbo Stream if possible -- equivalent of:  broadcasts_to ->(comment) { :comments }
-        if Object.const_defined?(:ApplicationCable) && Object.const_defined?(:Turbo) && Turbo.const_defined?(:Broadcastable) && respond_to?(:broadcasts_to)
-          relation[:broadcasts] = true
-          self.broadcasts_to ->(model) { (model&.class&.name || chosen_name).underscore.pluralize.to_sym }
-          code << "  broadcasts_to ->(#{chosen_name}) { #{chosen_name}&.class&.name&.underscore&.pluralize&.to_sym }\n"
-        end
+        # # %%% Enable Turbo Stream if possible -- equivalent of:  broadcasts_to ->(comment) { :comments }
+        # if Object.const_defined?(:ApplicationCable) && Object.const_defined?(:Turbo) && Turbo.const_defined?(:Broadcastable) && respond_to?(:broadcasts_to)
+        #   relation[:broadcasts] = true
+        #   self.broadcasts_to ->(model) { (model&.class&.name || chosen_name).underscore.pluralize.to_sym }
+        #   code << "  broadcasts_to ->(#{chosen_name}) { #{chosen_name}&.class&.name&.underscore&.pluralize&.to_sym }\n"
+        # end
       end # class definition
       # Having this separate -- will this now work out better?
         built_model.class_exec do
@@ -2243,7 +2243,7 @@ class Object
             code << "  def #{params_name}\n"
             permits_txt = self._brick_find_permits(model, (permits = model.columns_hash.keys.map(&:to_sym)))
             code << "    params.require(:#{require_name = model.name.underscore.tr('/', '_')
-                             }).permit(#{permits_txt.join(', ')})\n"
+                             }).permit(#{permits_txt.map(&:inspect).join(', ')})\n"
             code << "  end\n"
             self.define_method(params_name) do
               params.require(require_name.to_sym).permit(permits)

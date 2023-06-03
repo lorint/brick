@@ -21,8 +21,11 @@ each row targets multiple destination tables -- to auto-creating API endpoints -
 one file at a time -- to experimenting with various data layouts, seeing how functional a given
 database design will be -- and more.
 
-Probably want to pop some corn and have **VOLUME UP** (on the player's slider below) for this
-video walkthrough:
+A good general overview of how to start from scratch can be seen in **[this Youtube video by Deanin](https://www.youtube.com/watch?v=Vq6oGO727Qg)**.
+Big thanks out to you, man!
+
+Also available is this older video walkthrough that I had done.  Probably want to pop some corn and have
+**VOLUME UP** (on the player's slider below) for this:
 
 https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9f99-412a03cb2cb1.mp4
 
@@ -31,7 +34,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.150        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.151        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
