@@ -742,6 +742,28 @@ In config/initializers/brick.rb appropriate entries would look something like:
         @double_underscore_applied = true
       end
     end
+
+    def _find_csv_separator(stream, likely_separator)
+      line = nil
+      last_char = nil
+      in_quotes = false
+      ret = +''
+      while true
+        (line = stream.readline).each_char do |ch|
+          likely_separator[ch] += 2 if !in_quotes && last_char == '"' && ch != "\n"
+          if ch == '"'
+            in_quotes = !in_quotes
+            likely_separator[last_char] += 2 if in_quotes && last_char != "\n"
+          end
+          last_char = ch
+        end
+        ret << line
+        break if !in_quotes || stream.eof?
+      end
+      likely_separator[line[0]] += 1
+      likely_separator[line[-2]] += 1
+      ret
+    end
   end
 
   module RouteSet

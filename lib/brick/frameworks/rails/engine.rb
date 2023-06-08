@@ -1241,7 +1241,9 @@ erDiagram
       btnImport.style.display = droppedTSV.length > 0 ? \"block\" : \"none\";
     });
     btnImport.addEventListener(\"click\", function () {
-      fetch(changeout(<%= #{path_obj_name}_path(-1, format: :csv).inspect.html_safe %>, \"_brick_schema\", brickSchema), {
+      var patchPath = <%= #{path_obj_name}_path(-1, format: :csv).inspect.html_safe %>;
+      if (brickSchema) patchPath = changeout(patchPath, \"_brick_schema\", brickSchema);
+      fetch(patchPath, {
         method: \"PATCH\",
         headers: { \"Content-Type\": \"text/tab-separated-values\" },
         body: droppedTSV

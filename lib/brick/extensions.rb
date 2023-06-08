@@ -2155,13 +2155,16 @@ class Object
               ::Brick.set_db_schema(params)
               if request.format == :csv # Importing CSV?
                 require 'csv'
+
                 # See if internally it's likely a TSV file (tab-separated)
-                tab_counts = []
-                5.times { tab_counts << request.body.readline.count("\t") unless request.body.eof? }
+                likely_separator = Hash.new { |h, k| h[k] = 0 }
+                request.body.readline # Expect first row to have column headers
+                5.times { ::Brick._find_csv_separator(request.body, likely_separator) unless request.body.eof? }
                 request.body.rewind
-                separator = "\t" if tab_counts.length > 0 && tab_counts.uniq.length == 1 && tab_counts.first > 0
-                result = model.df_import(CSV.parse(request.body, { col_sep: separator || :auto }), model.brick_import_template)
-                # render inline: exported_csv, content_type: request.format
+                separator = "\t" if likely_separator["\t"] > likely_separator[',']
+
+                result = model.df_import(CSV.parse(request.body, **{ col_sep: separator || :auto }), model.brick_import_template)
+                render inline: result.to_json, content_type: request.format
                 return
               # elsif request.format == :js # Asking for JSON?
               #   render inline: model.df_export(true).to_json, content_type: request.format
