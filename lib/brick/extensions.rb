@@ -2254,19 +2254,22 @@ class Object
       [built_controller, code]
     end
 
-    def _brick_find_permits(model, current_permits)
-      model.reflect_on_all_associations.select { |assoc| assoc.macro == :has_many }.each_with_object([]) do |assoc, s|
-        if assoc.options[:through]
-          current_permits << { "#{assoc.name.to_s.singularize}_ids".to_sym => [] }
-          s << "#{assoc.name.to_s.singularize}_ids: []"
-        elsif assoc.active_record.instance_methods.include?(:"#{assoc.name}_attributes=")
-          # Support nested attributes which use the friendly_id gem
-          self._brick_nested_friendly_id if Object.const_defined?('FriendlyId') &&
-                                            assoc.klass.instance_variable_get(:@friendly_id_config)
-          new_attrib_text = self._brick_find_permits(assoc.klass, (new_permits = assoc.klass.columns_hash.keys.map(&:to_sym)))
-          new_permits << :_destroy
-          current_permits << { "#{assoc.name}_attributes".to_sym => new_permits }
-          s << "#{assoc.name}_attributes: #{new_attrib_text}"
+    def _brick_find_permits(model, current_permits, done_permits = [])
+      unless done_permits.include?(self)
+        done_permits << self
+        model.reflect_on_all_associations.select { |assoc| assoc.macro == :has_many }.each_with_object([]) do |assoc, s|
+          if assoc.options[:through]
+            current_permits << { "#{assoc.name.to_s.singularize}_ids".to_sym => [] }
+            s << "#{assoc.name.to_s.singularize}_ids: []"
+          elsif assoc.active_record.instance_methods.include?(:"#{assoc.name}_attributes=")
+            # Support nested attributes which use the friendly_id gem
+            self._brick_nested_friendly_id if Object.const_defined?('FriendlyId') &&
+                                              assoc.klass.instance_variable_get(:@friendly_id_config)
+            new_attrib_text = self._brick_find_permits(assoc.klass, (new_permits = assoc.klass.columns_hash.keys.map(&:to_sym)), done_permits)
+            new_permits << :_destroy
+            current_permits << { "#{assoc.name}_attributes".to_sym => new_permits }
+            s << "#{assoc.name}_attributes: #{new_attrib_text}"
+          end
         end
       end
       current_permits
