@@ -127,7 +127,7 @@ avaiable therein.
   - [3.c. Single Table Inheritance (STI)](#3c-single-table-inheritance-sti)
   - [3.d. Tweaking For Performance](#3d-tweaking-for-performance)
   - [3.e. Using Callbacks](#3e-using-callbacks)
-- [4. Similar Gems](#10-similar-gems)
+- [4. Similar Gems](#4-similar-gems)
 - [Issues](#issues)
 - [Contributing](#contributing)
 - [Intellectual Property](#intellectual-property)
@@ -490,7 +490,7 @@ First a table picker comes up where you choose which table(s) you wish to build 
 After successful file generation, the `schema_migrations` table is updated to have appropriate numerical `version` entries, one for each file which was generated.  This is so that after generating, you don't end up seeing the "Migrations are pending" error later.
 
 ## Issues
----
+
 If you see an error such as this (note the square brackets around the multiple listed keys specialofferid and productid represented):
 
     PG::UndefinedColumn: ERROR:  column salesorderdetail.["specialofferid", "productid"] does not exist
@@ -511,6 +511,19 @@ the scope of The Brick, an attempt to provide useful extensibility will be made 
 can be integrated in order to work in tandem with The Brick.
 
 Please use GitHub's [issue tracker](https://github.com/lorint/brick/issues) to reach out to us.
+
+## Similar Gems
+
+(Are there any???)  A few aspects of **The Brick** resemble Django's [inspectdb](http://docs.djangoproject.com/en/dev/ref/django-admin/#inspectdb)
+and Laravel's [RevengeDb](https://github.com/daavelar/reveng-database), and in the Ruby world some
+ages ago a cool guy named Dr Nic created a piece of wizardry he called "[magic_models](https://github.com/voraz/dr-nic-magic-models/tree/master)"
+which would auto-create models in RAM, along with validators.  On the Admin Panel side of the house,
+perhaps [Motor Admin](https://www.getmotoradmin.com/) automates enough things that it comes closest
+to being similar to **The Brick**.  But really nothing I'm aware of matches up to everything here,
+especially considering all the logic around optimising JOINs to make them fast, or auto-creation of
+APIs, or partial ERD diagrams to help navigate, or the support for all flavours of `has_many`
+associations.  If you do find anything out there, Rails or not, that resembles any of this, please
+let me know because I want to join forces with whoever would create such a thing.
 
 ## Contributing
 

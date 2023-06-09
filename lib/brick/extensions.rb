@@ -344,6 +344,28 @@ module ActiveRecord
       def _br_cust_cols
         @_br_cust_cols ||= {}
       end
+
+      def _brick_find_permits(model_or_assoc, current_permits, done_permits = [])
+        unless done_permits.include?(model_or_assoc)
+          done_permits << model_or_assoc
+          self.reflect_on_all_associations.select { |assoc| !assoc.belongs_to? }.each_with_object([]) do |assoc, s|
+            if assoc.options[:through]
+              current_permits << { "#{assoc.name.to_s.singularize}_ids".to_sym => [] }
+              s << "#{assoc.name.to_s.singularize}_ids: []"
+            end
+            if self.instance_methods.include?(:"#{assoc.name}_attributes=")
+              # Support nested attributes which use the friendly_id gem
+              assoc.klass._brick_nested_friendly_id if Object.const_defined?('FriendlyId') &&
+                                                       assoc.klass.instance_variable_get(:@friendly_id_config)
+              new_attrib_text = assoc.klass._brick_find_permits(assoc, (new_permits = assoc.klass.columns_hash.keys.map(&:to_sym)), done_permits)
+              new_permits << :_destroy
+              current_permits << { "#{assoc.name}_attributes".to_sym => new_permits }
+              s << "#{assoc.name}_attributes: #{new_attrib_text}"
+            end
+          end
+        end
+        current_permits
+      end
     end
 
     # Search for custom column, BT, HM, and HMT DSL stuff
@@ -2194,6 +2216,9 @@ class Object
                   end
                 end
               end
+              if (upd_hash ||= upd_params).fetch(model.inheritance_column, nil).strip == ''
+                upd_hash[model.inheritance_column] = nil
+              end
               obj.send(:update, upd_hash || upd_params)
             end
 
@@ -2241,7 +2266,7 @@ class Object
 
           if is_need_params
             code << "  def #{params_name}\n"
-            permits_txt = self._brick_find_permits(model, (permits = model.columns_hash.keys.map(&:to_sym)))
+            permits_txt = model._brick_find_permits(model, permits = model.columns_hash.keys.map(&:to_sym))
             code << "    params.require(:#{require_name = model.name.underscore.tr('/', '_')
                              }).permit(#{permits_txt.map(&:inspect).join(', ')})\n"
             code << "  end\n"
@@ -2255,27 +2280,6 @@ class Object
         code << "end # #{class_name}\n"
       end # class definition
       [built_controller, code]
-    end
-
-    def _brick_find_permits(model, current_permits, done_permits = [])
-      unless done_permits.include?(self)
-        done_permits << self
-        model.reflect_on_all_associations.select { |assoc| assoc.macro == :has_many }.each_with_object([]) do |assoc, s|
-          if assoc.options[:through]
-            current_permits << { "#{assoc.name.to_s.singularize}_ids".to_sym => [] }
-            s << "#{assoc.name.to_s.singularize}_ids: []"
-          elsif assoc.active_record.instance_methods.include?(:"#{assoc.name}_attributes=")
-            # Support nested attributes which use the friendly_id gem
-            self._brick_nested_friendly_id if Object.const_defined?('FriendlyId') &&
-                                              assoc.klass.instance_variable_get(:@friendly_id_config)
-            new_attrib_text = self._brick_find_permits(assoc.klass, (new_permits = assoc.klass.columns_hash.keys.map(&:to_sym)), done_permits)
-            new_permits << :_destroy
-            current_permits << { "#{assoc.name}_attributes".to_sym => new_permits }
-            s << "#{assoc.name}_attributes: #{new_attrib_text}"
-          end
-        end
-      end
-      current_permits
     end
 
     def _brick_nested_friendly_id
