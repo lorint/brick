@@ -256,6 +256,10 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # # instead of \"user_profile\", then apply that as a third parameter like this:
   # Brick.has_ones = [['User', 'user_profile', 'profile']]
 
+  # # Automatically establish #accepts_nested_attributes_for logic on has_many and has_one associations.
+  # # This video to demonstrates how this works:  https://github.com/lorint/brick/assets/5301131/82ac4f6d-bc23-4a55-adab-bc754bcb0f26
+  # Brick.nested_attributes = { 'User' => ['profile', 'posts'] }
+
   # # We normally don't show the timestamp columns \"created_at\", \"updated_at\", and \"deleted_at\", and also do
   # # not consider them when finding associative tables to support an N:M association.  (That is, ones that can be a
   # # part of a has_many :through association.)  If you want to use different exclusion columns than our defaults

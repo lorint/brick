@@ -257,6 +257,9 @@ function linkSchemas() {
         # Has one relationships
         ::Brick.has_ones = app.config.brick.fetch(:has_ones, nil)
 
+        # accepts_nested_attributes_for relationships
+        ::Brick.nested_attributes = app.config.brick.fetch(:nested_attributes, nil)
+
         # Polymorphic associations
         ::Brick.polymorphics = app.config.brick.fetch(:polymorphics, nil)
       end

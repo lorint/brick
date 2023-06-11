@@ -204,6 +204,15 @@ module Brick
       @mutex.synchronize { @has_ones = hos }
     end
 
+    # Associations upon which to add #accepts_nested_attributes_for logic
+    def nested_attributes
+      @mutex.synchronize { @nested_attributes }
+    end
+
+    def nested_attributes=(anaf)
+      @mutex.synchronize { @nested_attributes = anaf }
+    end
+
     # Polymorphic associations
     def polymorphics
       @mutex.synchronize { @polymorphics }

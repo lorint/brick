@@ -477,6 +477,12 @@ module Brick
       end
     end
 
+    # Associations upon which to add #accepts_nested_attributes_for logic
+    # @api public
+    def nested_attributes=(anaf)
+      Brick.config.nested_attributes = anaf
+    end
+
     # Polymorphic associations
     def polymorphics=(polys)
       polys = polys.each_with_object({}) { |poly, s| s[poly] = nil } if polys.is_a?(Array)

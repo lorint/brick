@@ -1661,18 +1661,23 @@ class Object
                 else
                   need_fk = "#{ActiveSupport::Inflector.singularize(assoc[:inverse][:inverse_table].split('.').last)}_id" != assoc[:fk]
                 end
+                singular_assoc_name = ActiveSupport::Inflector.singularize(assoc_name.tr('.', '_'))
                 has_ones = ::Brick.config.has_ones&.fetch(full_name, nil)
-                if has_ones&.key?(singular_assoc_name = ActiveSupport::Inflector.singularize(assoc_name.tr('.', '_')))
-                  assoc_name = if (custom_assoc_name = has_ones[singular_assoc_name])
-                                 need_class_name = custom_assoc_name != singular_assoc_name
-                                 custom_assoc_name
-                               else
-                                 singular_assoc_name
-                               end
-                  :has_one
-                else
-                  :has_many
-                end
+                macro = if has_ones&.key?(singular_assoc_name)
+                          assoc_name = if (custom_assoc_name = has_ones[singular_assoc_name])
+                                        need_class_name = custom_assoc_name != singular_assoc_name
+                                        custom_assoc_name
+                                      else
+                                        singular_assoc_name
+                                      end
+                          :has_one
+                        else
+                          :has_many
+                        end
+                # Auto-create an accepts_nested_attributes_for for this HM?
+                is_anaf = (anaf = ::Brick.config.nested_attributes&.fetch(full_name, nil)) &&
+                          (anaf.is_a?(Array) ? anaf.include?(assoc_name) : anaf == assoc_name)
+                macro
               end
       # Figure out if we need to specially call out the class_name and/or foreign key
       # (and if either of those then definitely also a specific inverse_of)
@@ -1708,6 +1713,10 @@ class Object
       assoc_name = assoc_name.tr('.', '_').to_sym
       code << "  #{macro} #{assoc_name.inspect}#{options.map { |k, v| ", #{k}: #{v.inspect}" }.join}\n"
       self.send(macro, assoc_name, **options)
+      if is_anaf
+        code << "  accepts_nested_attributes_for #{assoc_name.inspect}\n"
+        self.send(:accepts_nested_attributes_for, assoc_name)
+      end
     end
 
     def default_ordering(table_name, pk)
