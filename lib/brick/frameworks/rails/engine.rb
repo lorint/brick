@@ -1686,7 +1686,7 @@ end
         end %>
         BT <%= bt_class&.bt_link(bt.first) || orig_poly_name %>
     <% else %>
-      <%= k %>
+      <%= #{model_name}.human_attribute_name(k, { default: k }) %>
     <% end %>
     </th>
     <td>

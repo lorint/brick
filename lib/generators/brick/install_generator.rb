@@ -19,13 +19,25 @@ module Brick
 
     def create_initializer_file
       is_brick_file = File.exist?(filename = 'config/initializers/brick.rb')
-      if is_brick_file && ::Brick.config.schema_behavior[:multitenant] || !is_brick_file
+      if (is_brick_file && (tnps = ::Brick.config.table_name_prefixes).present?) ||
+                           (::Brick.config.schema_behavior[:multitenant]
+         ) || !is_brick_file
         # See if we can make suggestions for additional_references and polymorphic associations
         resembles_fks = Hash.new { |h, k| h[k] = [] }
         possible_polymorphics = {}
-        possible_additional_references = (relations = ::Brick.relations).each_with_object(Hash.new { |h, k| h[k] = [] }) do |v, s|
-          model_filename = "app/models/#{ActiveSupport::Inflector.singularize(v.first)}.rb"
-          v.last[:cols].each do |col, type|
+        relations = ::Brick.relations
+        if is_brick_file
+          # Need to remove any currently-existing additional_references so that it doesn't cloud the discovery process:
+          ::Brick.config.additional_references.each do |ar|
+            if (fks = relations.fetch(ar[0], nil)&.fetch(:fks, nil))
+              fks.delete(fks.find { |k, v| v[:is_bt] && k.start_with?('(brick) ') && v[:fk] == ar[1] }&.first)
+            end
+          end
+        end
+        possible_additional_references = relations.each_with_object(Hash.new { |h, k| h[k] = [] }) do |relation, s|
+          this_tnp = tnps&.keys.find { |tnp| relation.first.start_with?(tnp) }
+          model_filename = "app/models/#{ActiveSupport::Inflector.singularize(relation.first)}.rb"
+          relation.last[:cols].each do |col, type|
             col_down = col.downcase
 
             if (is_possible_poly = ['character varying', 'text'].include?(type.first))
@@ -40,7 +52,7 @@ module Brick
               end
               is_possible_poly = false if col_down.length < 6 # Was it simply called "type" or something else really short?
               if is_possible_poly && !File.exist?(model_filename) # Make sure a model file isn't present
-                possible_polymorphics["#{v.first}.#{col_down}"] = "'#{v.first}.#{col[0..poly_type_cut_length]}'"
+                possible_polymorphics["#{relation.first}.#{col_down}"] = "'#{relation.first}.#{col[0..poly_type_cut_length]}'"
                 next
               end
             end
@@ -66,16 +78,24 @@ module Brick
               col_down = col_down[2..-1]
             end
             # This possible key not really a primary key and not yet used as a foreign key?
-            if is_possible && !(relation = relations.fetch(v.first, {}))[:pkey].first&.last&.include?(col) &&
-               !relations.fetch(v.first, {})[:fks]&.any? { |_k, v| v[:is_bt] && v[:fk] == col }
-              # Starting to look promising ... make sure a model file isn't present
-              if !File.exist?(model_filename)
-                if (relations.fetch(f_table = col_down, nil) ||
-                  relations.fetch(f_table = ActiveSupport::Inflector.pluralize(col_down), nil)) &&
-                  s["#{v.first}.#{col_down}"] << "['#{v.first}', '#{col}', '#{f_table}']"
-                else
-                  resembles_fks["#{v.first}.#{col_down}"] << "#{v.first}.#{col}"
-                end
+            if is_possible && !relation.last[:pkey].first&.last&.include?(col) &&
+               !relation.last[:fks]&.any? { |_k, v| v[:is_bt] && v[:fk] == col } &&
+               # Starting to look promising ... make sure a model file isn't present
+               !File.exist?(model_filename)
+              if (
+                  (relations.fetch(f_table = col_down, nil) ||
+                   relations.fetch(f_table = ActiveSupport::Inflector.pluralize(col_down), nil)
+                  ) && s["#{relation.first}.#{col_down}"] << "['#{relation.first}', '#{col}', '#{f_table}']"
+                 ) ||
+                 (
+                  this_tnp && (full_col_down = this_tnp + col_down) &&
+                  (relations.fetch(f_table = full_col_down, nil) ||
+                   relations.fetch(f_table = ActiveSupport::Inflector.pluralize(full_col_down), nil)
+                  ) && s["#{relation.first}.#{full_col_down}"] << "['#{relation.first}', '#{col}', '#{f_table}']"
+                 )
+                # Found a possible_additional_reference (and set as the last action of the conditional check above)
+              else
+                resembles_fks["#{relation.first}.#{col_down}"] << "#{relation.first}.#{col}"
               end
             end
           end
@@ -183,7 +203,13 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # ::Brick.controllers_inherit_from = 'ApplicationController'
 
   # # When table names have specific prefixes automatically place them in their own module with a table_name_prefix.
-  # Brick.table_name_prefixes = { 'nav_' => 'Navigation' }
+  #{
+    if tnps
+      "Brick.table_name_prefixes = #{tnps.inspect}"
+    else
+      "# Brick.table_name_prefixes = { 'nav_' => 'Navigation' }"
+    end
+  }
 
   # # COLUMN SEQUENCING AND INCLUSION / EXCLUSION
 

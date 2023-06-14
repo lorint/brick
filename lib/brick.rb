@@ -192,10 +192,17 @@ module Brick
           puts "Based on inclusion in ::Brick.polymorphics, marking association #{full_assoc_name} as being polymorphic."
           a.options[:polymorphic] = true
         end
-        next unless a.polymorphic? || (!a.belongs_to? && (through = a.options[:through])) ||
-                    (a.klass && ::Brick.config.exclude_tables.exclude?(a.klass.table_name) &&
-                     (!a.belongs_to? || model_cols[a.foreign_key]&.type == pk_type)
-                    )
+        unless a.polymorphic? || (!a.belongs_to? && (through = a.options[:through])) ||
+               (a.klass && ::Brick.config.exclude_tables.exclude?(a.klass.table_name) &&
+                 (!a.belongs_to? || (same_type = (fk_type = model_cols[a.foreign_key]&.type) == pk_type))
+               )
+          if same_type == false # We really do want to test specifically for false here, and not nil!
+            puts "WARNING:
+  Foreign key column #{a.klass.table_name}.#{a.foreign_key} is #{fk_type}, but the primary key it relates to, #{a.active_record.table_name}.#{a.active_record.primary_key}, is #{pk_type}.
+  These columns should both be of the same type."
+          end
+          next
+        end
 
         if a.belongs_to?
           if a.polymorphic?
@@ -1375,14 +1382,18 @@ ActiveSupport.on_load(:active_record) do
     arsc.class_exec do
       def self.create(connection, callable = nil, &block)
         relation = (callable || block).call ::ActiveRecord::StatementCache::Params.new
-        bind_map = ::ActiveRecord::StatementCache::BindMap.new(
-                     # AR <= 4.2 uses relation.bind_values
-                     relation.respond_to?(:bound_attributes) ? relation.bound_attributes : relation.bind_values
-                   )
         options = [self, relation.arel]
         options.shift if connection.method(:cacheable_query).arity == 1 # Rails <= 5.0
         query_builder = connection.cacheable_query(*options)
-        new query_builder, bind_map
+        query_builder, binds = query_builder if query_builder.is_a?(Array) # Accommodate AR < 5.2.4
+
+        bind_map = ::ActiveRecord::StatementCache::BindMap.new(
+                     # AR <= 4.2 uses relation.bind_values
+                     relation.respond_to?(:bound_attributes) ? relation.bound_attributes : (binds || relation.bind_values)
+                   )
+        new_options = [query_builder, bind_map]
+        new_options << relation.klass if binds # Accommodate AR < 5.2.4
+        new(*new_options)
       end
     end
   end

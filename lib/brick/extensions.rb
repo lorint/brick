@@ -1244,25 +1244,38 @@ end
     result = if ::Brick.enable_controllers? &&
                 is_controller && (plural_class_name = class_name[0..-11]).length.positive?
                # Otherwise now it's up to us to fill in the gaps
+               controller_class_name = +''
                full_class_name = +''
-               full_class_name << "::#{(split_self_name&.first && split_self_name.join('::')) || self.name}" unless self == Object
+               unless self == Object
+                 controller_class_name << ((split_self_name&.first && split_self_name.join('::')) || self.name)
+                 full_class_name << "::#{controller_class_name}"
+                 controller_class_name << '::'
+               end
                # (Go over to underscores for a moment so that if we have something come in like VABCsController then the model name ends up as
                # Vabc instead of VABC)
                singular_class_name = ::Brick.namify(plural_class_name, :underscore).singularize.camelize
                full_class_name << "::#{singular_class_name}"
+               skip_controller = nil
                if plural_class_name == 'BrickOpenapi' ||
                   (
                     (::Brick.config.add_status || ::Brick.config.add_orphans) &&
                     plural_class_name == 'BrickGem'
                   ) ||
-                  model = self.const_get(full_class_name)
-                 # In the very rare case that we've picked up a MODULE which has the same name as what would be the
-                 # resource's MODEL name, just build out an appropriate auto-model on-the-fly. (RailsDevs code has this in PayCustomer.)
-                 # %%% We don't yet display the code for this new model
-                 if model && !model.is_a?(Class)
-                   model, _code = Object.send(:build_model, relations, model.module_parent, model.module_parent.name, singular_class_name)
+                 begin
+                   model = self.const_get(full_class_name)
+
+                   # In the very rare case that we've picked up a MODULE which has the same name as what would be the
+                   # resource's MODEL name, just build out an appropriate auto-model on-the-fly. (RailsDevs code has this in PayCustomer.)
+                   # %%% We don't yet display the code for this new model
+                   if model && !model.is_a?(Class)
+                     model, _code = Object.send(:build_model, relations, model.module_parent, model.module_parent.name, singular_class_name)
+                   end
+                 rescue NameError # If the const_get for the model has failed...
+                   skip_controller = true
+                   # ... then just fall through and allow it to fail when trying to loading the ____Controller class normally.
                  end
-                 # if it's a controller and no match or a model doesn't really use the same table name, eager load all models and try to find a model class of the right name.
+               end
+               unless skip_controller
                  Object.send(:build_controller, self, class_name, plural_class_name, model, relations)
                end
 
@@ -1475,7 +1488,7 @@ class Object
           code << "  has_secure_password\n"
         end
         # Accommodate singular or camel-cased table names such as "order_detail" or "OrderDetails"
-        code << "  self.table_name = '#{self.table_name = matching}'\n" if inheritable_name || table_name != matching
+        code << "  self.table_name = '#{self.table_name = matching}'\n" if inheritable_name || self.table_name != matching
 
         # Override models backed by a view so they return true for #is_view?
         # (Dynamically-created controllers and view templates for such models will then act in a read-only way)
@@ -2225,7 +2238,7 @@ class Object
                   end
                 end
               end
-              if (upd_hash ||= upd_params).fetch(model.inheritance_column, nil).strip == ''
+              if (upd_hash ||= upd_params).fetch(model.inheritance_column, nil)&.strip == ''
                 upd_hash[model.inheritance_column] = nil
               end
               obj.send(:update, upd_hash || upd_params)
@@ -2484,6 +2497,11 @@ end.class_exec do
              !::Brick.config.table_name_prefixes.key?(as_tnp = extension.table_name_prefix)
             ::Brick.config.table_name_prefixes[as_tnp] = ar_extension
           end
+        end
+
+        # Support the followability gem:  https://github.com/nejdetkadir/followability
+        if Object.const_defined?('Followability') && !::Brick.config.table_name_prefixes.key?('followability_')
+          ::Brick.config.table_name_prefixes['followability_'] = 'Followability'
         end
       end
       # Load the initializer for the Apartment gem a little early so that if .excluded_models and

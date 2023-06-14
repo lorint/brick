@@ -44,7 +44,8 @@ module Brick::Rails::FormTags
                       "x-order=\"#{bt.first.to_s + '"' unless bt[2]}>BT " +
                       bt[1].map { |bt_pair| bt_pair.first.bt_link(bt.first) }.join(' ')
                     else # Normal column
-                      "x-order=\"#{col_name + '"' if true}>#{col_name}"
+                      col_name_humanised = klass.human_attribute_name(col_name, { default: col_name })
+                      "x-order=\"#{col_name + '"' if true}>#{col_name_humanised}"
                     end
              elsif col # HM column
                options = {}
