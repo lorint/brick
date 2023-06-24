@@ -1,7 +1,29 @@
 module Brick::Rails::FormTags
   # Our super speedy grid
-  def brick_grid(relation, bt_descrip, sequence = nil, inclusions, exclusions,
-                 cols, poly_cols, bts, hms_keys, hms_cols)
+  def brick_grid(relation = nil, bt_descrip = nil, sequence = nil, inclusions = nil, exclusions = nil,
+                 cols = {}, poly_cols = nil, bts = {}, hms_keys = [], hms_cols = {})
+    # When a relation is not provided, first see if one exists which matches the controller name
+    unless (relation ||= instance_variable_get("@#{controller_name}".to_sym))
+      # Failing that, dig through the instance variables with hopes to find something that is an ActiveRecord::Relation
+      case (collections = _brick_resource_from_iv).length
+      when 0
+        puts '#brick_grid:  Not having been provided with a collection to work from, searched through all instance variables to find an ActiveRecord::Relation.  None could be found.'
+        return
+      when 1 # If there's only one type match then simply get the first one, hoping that this is what they intended
+        relation = instance_variable_get(iv = (chosen = collections.first).last.first)
+        puts "#brick_grid:  Not having been provided with a collection to work from, first tried @#{controller_name}.
+              Failing that, have searched through instance variables and found #{iv} of type #{chosen.first.name}.
+              Running with it!"
+      else
+        myriad = collections.each_with_object([]) { |c, s| c.last.each { |iv| s << "#{iv} (#{c.first.name})" } }
+        puts "#brick_grid:  Not having been provided with a collection to work from, first tried @#{controller_name}, and then searched through all instance variables.
+              Found ActiveRecord::Relation objects of multiple types:
+                #{myriad.inspect}
+              Not knowing which of these to render, have erred on the side of caution and simply provided this warning message."
+        return
+      end
+    end
+
     out = "<table id=\"headerTop\"></table>
 <table id=\"#{relation.table_name.split('.').last}\" class=\"shadow\">
   <thead><tr>"
@@ -14,8 +36,8 @@ module Brick::Rails::FormTags
     col_keys = relation.columns.each_with_object([]) do |col, s|
       col_name = col.name
       next if inclusions&.exclude?(col_name) ||
-              (pk.include?(col_name) && [:integer, :uuid].include?(col.type) && !bts.key?(col_name)) ||
-              ::Brick.config.metadata_columns.include?(col_name) || poly_cols.include?(col_name)
+              (pk.include?(col_name) && [:integer, :uuid].include?(col.type) && !bts&.key?(col_name)) ||
+              ::Brick.config.metadata_columns.include?(col_name) || poly_cols&.include?(col_name)
 
       s << col_name
       cols[col_name] = col
@@ -262,16 +284,7 @@ module Brick::Rails::FormTags
     else
       # puts "Warning:  link_to_brick could not find a class for \"#{controller_path}\" -- consider setting @_brick_model within that controller."
       # if (hits = res_names.keys & instance_variables.map { |v| v.to_s[1..-1] }).present?
-      links = instance_variables.each_with_object(Hash.new { |h, k| h[k] = [] }) do |name, s|
-                iv_name = name.to_s[1..-1]
-                case (val = instance_variable_get(name))
-                when ActiveRecord::Relation
-                  s[val.klass] << iv_name
-                when ActiveRecord::Base
-                  s[val] << iv_name
-                end
-              end
-      if links.length == 1 # If there's only one match then use any text that was supplied
+      if (links = _brick_resource_from_iv(true)).length == 1 # If there's only one match then use any text that was supplied
         link_to_brick(text || links.first.last.join('/'), links.first.first, **kwargs)
       else
         links.each_with_object([]) { |v, s| s << link if link = link_to_brick(v.join('/'), v, **kwargs) }.join(' &nbsp; ').html_safe
@@ -279,4 +292,17 @@ module Brick::Rails::FormTags
     end
   end # link_to_brick
 
+private
+
+  def _brick_resource_from_iv(trim_ampersand = false)
+    instance_variables.each_with_object(Hash.new { |h, k| h[k] = [] }) do |name, s|
+      iv_name = trim_ampersand ? name.to_s[1..-1] : name
+      case (val = instance_variable_get(name))
+      when ActiveRecord::Relation
+        s[val.klass] << iv_name
+      when ActiveRecord::Base
+        s[val] << iv_name
+      end
+    end
+  end
 end
