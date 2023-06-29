@@ -864,6 +864,10 @@ tr th {
   color: #fff;
   text-align: left;
 }
+.col-sticky {
+  position: sticky;
+  left: 0;
+}
 #headerTop tr th {
   position: relative;
 }
@@ -902,6 +906,10 @@ tr td.highlight {
   background-color: #B0B0FF;
 }
 
+table tr .col-sticky {
+  background-color: #28B898;
+}
+
 .show-field {
   background-color: #004998;
 }
@@ -914,6 +922,12 @@ table.shadow > tbody > tr {
 }
 
 table tbody tr:nth-of-type(even) {
+  background-color: #f3f3f3;
+}
+table tbody tr:nth-of-type(even) .col-sticky {
+  background-color: #fff;
+}
+table tbody tr:nth-of-type(odd) .col-sticky {
   background-color: #f3f3f3;
 }
 
@@ -1080,18 +1094,30 @@ function setHeaderSizes() {
   // %%% Grab the TRs from headerTop, clear it out, do this stuff, add them back
   headerTop.innerHTML = \"\"; // %%% Would love to not have to clear it out like this every time!  (Currently doing this to support resize events.)
   var isEmpty = headerTop.childElementCount === 0;
+  var numFixed = parseInt(grid.getAttribute(\"x-num-frozen\")) || 0;
+  var fixedColLefts = [0];
+
   // Set up proper sizings of sticky column header
   var node;
   for (var j = 0; j < #{table_name}HtColumns.length; ++j) {
     var row = #{table_name}HtColumns[j];
     var tr = isEmpty ? document.createElement(\"TR\") : headerTop.childNodes[j];
     tr.innerHTML = row.innerHTML.trim();
+    var curLeft = 0.0;
     // Match up widths from the original column headers
     for (var i = 0; i < row.childNodes.length; ++i) {
       node = row.childNodes[i];
       if (node.nodeType === 1) {
         var th = tr.childNodes[i];
         th.style.minWidth = th.style.maxWidth = getComputedStyle(node).width;
+        // Add \"left: __px\" style to the fixed-width column THs
+        if (i <= numFixed) {
+          th.style.position = \"sticky\";
+          th.style.backgroundColor = \"#008061\";
+          th.style.zIndex = \"1\";
+          th.style.left = curLeft + \"px\";
+          fixedColLefts.push(curLeft += node.clientWidth);
+        }
         if (#{pk&.present? ? 'i > 0' : 'true'}) {
           // Add <span> at the end
           var span = document.createElement(\"SPAN\");
@@ -1108,6 +1134,12 @@ function setHeaderSizes() {
     headerCols = tr.childNodes;
     if (isEmpty) headerTop.appendChild(tr);
   }
+  // Add \"left: __px\" style to all fixed-width column TDs
+  [...grid.children[1].children].forEach(function (row) {
+    for (var j = 1; j <= numFixed; ++j) {
+      row.children[j].style.left = fixedColLefts[j] + 'px';
+    }
+  });
   grid.style.marginTop = \"-\" + getComputedStyle(headerTop).height;
   // console.log(\"end\");
 }

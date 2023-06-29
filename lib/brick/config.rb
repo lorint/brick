@@ -230,6 +230,14 @@ module Brick
       @mutex.synchronize { @json_columns = cols }
     end
 
+    def sidescroll
+      @mutex.synchronize { @sidescroll ||= {} }
+    end
+
+    def sidescroll=(scroll)
+      @mutex.synchronize { @sidescroll = scroll }
+    end
+
     def model_descrips
       @mutex.synchronize { @model_descrips ||= {} }
     end

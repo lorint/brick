@@ -501,6 +501,11 @@ module Brick
       Brick.config.json_columns = cols
     end
 
+    # @api public
+    def sidescroll=(scroll)
+      Brick.config.sidescroll = scroll
+    end
+
     # DSL templates for individual models to provide prettier descriptions of objects
     # @api public
     def model_descrips=(descrips)

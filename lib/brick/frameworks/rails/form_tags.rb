@@ -24,8 +24,11 @@ module Brick::Rails::FormTags
       end
     end
 
+    nfc = Brick.config.sidescroll.fetch(relation.table_name, nil)&.fetch(:num_frozen_columns, nil) ||
+          Brick.config.sidescroll.fetch(:num_frozen_columns, nil) ||
+          0
     out = "<table id=\"headerTop\"></table>
-<table id=\"#{relation.table_name.split('.').last}\" class=\"shadow\">
+<table id=\"#{relation.table_name.split('.').last}\" class=\"shadow\"#{ " x-num-frozen=\"#{nfc}\"" if nfc.positive? }>
   <thead><tr>"
     pk = (klass = relation.klass).primary_key || []
     pk = [pk] unless pk.is_a?(Array)
@@ -95,12 +98,13 @@ module Brick::Rails::FormTags
     #     (After restarting the server it worked fine again.)
     relation.each do |obj|
       out << "<tr>\n"
-      out << "<td>#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym,
+      out << "<td class=\"col-sticky\">#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym,
                                       pk.map { |pk_part| obj.send(pk_part.to_sym) }), { class: 'big-arrow' })}</td>\n" if pk.present?
-      sequence.each do |col_name|
+      sequence.each_with_index do |col_name, idx|
         val = obj.attributes[col_name]
         bt = bts[col_name]
         out << '<td'
+        (classes ||= []) << 'col-sticky' if idx < nfc
         (classes ||= []) << 'dimmed' unless cols.key?(col_name) || (cust_col = cust_cols[col_name]) ||
                                             (col_name.is_a?(Symbol) && bts.key?(col_name)) # HOT
         (classes ||= []) << 'right' if val.is_a?(Numeric) && !bt

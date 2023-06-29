@@ -244,6 +244,14 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # Brick.column_sequence = { 'users' =>   { include: ['email', 'profile.firstname', 'profile.lastname'] },
   #                           'profile' => { exclude: ['birthdate'] } }
 
+  # # When rendering the grid on index pages, a default number of columns to keep as \"sticky\" so that they remain
+  # # at the left of the grid while scrolling.  By default this is 0 extra columns -- only the link to that
+  # # object's show / edit page is sticky.  And this would add one extra column in the mix:
+  # Brick.sidescroll = { num_frozen_columns: 1 }
+  # # As well if you would like to customise this for specific resources, that is possible:
+  # Brick.sidescroll = { num_frozen_columns: 0,
+  #                      'products' => { num_frozen_columns: 2 } }
+
   # # EXTRA FOREIGN KEYS AND OTHER HAS_MANY SETTINGS
 
   # # Additional table references which are used to create has_many / belongs_to associations inside auto-created
