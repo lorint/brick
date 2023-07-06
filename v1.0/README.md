@@ -34,7 +34,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.154        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.155        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -97,8 +97,9 @@ It can be provided by putting a line like this in an initialiser file:
     ::Brick.additional_references = [['recipe_ingredients', 'recipe_id', 'recipes']]
 
 If you'd like to have a set of migration files built out from an existing database, that can be
-done by running the generator `bin/rails g brick:migrations`.  More detail is found below under
-the section "Autogenerate Migration Files".
+done by running the generator `bin/rails g brick:migrations`.  And similarly, to create a
+`db/seeds.rb` file, just run `bin/rails g brick:seeds`.  More detail is found below under
+the sections "Autogenerate Migration Files" and "Autogenerate Seeds File".
 
 Brick can auto-create such an initialiser file, and often infer these kinds of useful
 references to fill in the gaps for missing foreign keys.  These suggestions are left commented
@@ -117,6 +118,7 @@ avaiable therein.
   - [1.e. Using rails g df_export](#1e-using-rails-g-df-export)
   - [1.f. Autogenerate Model Files](#1f-autogenerate-model-files)
   - [1.g. Autogenerate Migration Files](#1g-autogenerate-migration-files)
+  - [1.h. Autogenerate Seeds File](#1g-autogenerate-seeds-file)
 - [2. More Fancy Exports](#2-limiting-what-is-versioned-and-when)
   - [2.a. Simplify Column Names Using Aliases](#2a-simplify-column-names-using-aliases)
   - [2.b. Filtering the Rows to Export](#2b-filtering-the-rows-to-export)
@@ -488,6 +490,27 @@ If you'd like to have a set of migration files built out from an existing databa
 First a table picker comes up where you choose which table(s) you wish to build migrations for -- by default all the tables are chosen. (Use the arrow keys and spacebar to select and deselect items in the list), then press ENTER and new migration files for each individual table in your database are built out either in db/migrate, or if that folder already has .rb files then the destination becomes tmp/brick_migrations.
 
 After successful file generation, the `schema_migrations` table is updated to have appropriate numerical `version` entries, one for each file which was generated.  This is so that after generating, you don't end up seeing the "Migrations are pending" error later.
+
+### 1.h. Autogenerate Seeds File
+
+Not unlike the migration generator, you can also generate `db/seeds.rb`.  When you run this:
+
+    bin/rails g brick:seeds
+
+Then the table picker appears.  After choosing the ones that you wish to have contribute to the
+`db/seeds.rb` file, all related models are loaded in sequence, starting with "outer" models
+which do not have foreign keys to anything, and continuing logically to the next "layer" of
+models which then have foreign keys only going to models that so far have been seeded, and so
+it continues, layer by layer.  Pretty smart routine that facilitates all of this, and the same
+kind of logic is also used for the migrations generator since it has to go in proper sequence
+when building out related tables -- first the "outer" ones, and then progressing in to cover
+related tables.
+
+In the event that there is a catch-22 situation where a circular reference is present such that
+(A) foreign keys in one table rely on another, and (B) in that other there are also keys which
+rely upon the one, then your table relations prevent being able to completely seed the data.
+In that scenario, all possible seeds up to the catch-22 point are retained, and a note is shown
+indicating which models prohibit any further creation of seed data.
 
 ## Issues
 
