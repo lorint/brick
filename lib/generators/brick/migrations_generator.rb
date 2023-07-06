@@ -23,7 +23,8 @@ module Brick
                   'time with time zone' => 'time',
                   'double precision' => 'float',
                   'smallint' => 'integer', # %%% Need to put in "limit: 2"
-                  # # Oracle data types
+                  'ARRAY' => 'string', # Note that we'll also add ", array: true"
+                  # Oracle data types
                   'VARCHAR2' => 'string',
                   'CHAR' => 'string',
                   ['NUMBER', 22] => 'integer',
@@ -54,8 +55,8 @@ module Brick
     def brick_migrations
       # If Apartment is active, see if a default schema to analyse is indicated
 
-      # # Load all models
-      # ::Brick.eager_load_classes
+      ::Brick.mode = :on
+      ActiveRecord::Base.establish_connection
 
       if (tables = ::Brick.relations.reject { |k, v| v.key?(:isView) && v[:isView] == true }.map(&:first).sort).empty?
         puts "No tables found in database #{ActiveRecord::Base.connection.current_database}."
@@ -123,21 +124,27 @@ module Brick
       built_schemas = {} # Track all built schemas so we can place an appropriate drop_schema command only in the first
                          # migration in which that schema is referenced, thereby allowing rollbacks to function properly.
       versions_to_create = [] # Resulting versions to be used when updating the schema_migrations table
+      ar_base = Object.const_defined?(:ApplicationRecord) ? ApplicationRecord : Class.new(ActiveRecord::Base)
       # Start by making migrations for fringe tables (those with no foreign keys).
       # Continue layer by layer, creating migrations for tables that reference ones already done, until
       # no more migrations can be created.  (At that point hopefully all tables are accounted for.)
       while (fringe = chosen.reject do |tbl|
+                        snag_fks = []
                         snags = ::Brick.relations.fetch(tbl, nil)&.fetch(:fks, nil)&.select do |_k, v|
                           v[:is_bt] && !v[:polymorphic] &&
                           tbl != v[:inverse_table] && # Ignore self-referencing associations (stuff like "parent_id")
-                          !done.include?(v[:inverse_table])
+                          !done.include?(v[:inverse_table]) &&
+                          ::Brick.config.ignore_migration_fks.exclude?(snag_fk = "#{tbl}.#{v[:fk]}") &&
+                          snag_fks << snag_fk
                         end
-                        stuck[tbl] = snags if snags&.present?
+                        if snags&.present?
+                          # puts snag_fks.inspect
+                          stuck[tbl] = snags
+                        end
                       end).present?
         fringe.each do |tbl|
           next unless (relation = ::Brick.relations.fetch(tbl, nil))&.fetch(:cols, nil)&.present?
 
-          ar_base = Object.const_defined?(:ApplicationRecord) ? ApplicationRecord : Class.new(ActiveRecord::Base)
           pkey_cols = (rpk = relation[:pkey].values.flatten) & (arpk = [ar_base.primary_key].flatten.sort)
           # In case things aren't as standard
           if pkey_cols.empty?
@@ -170,7 +177,7 @@ module Brick
           # Support missing primary key (by adding:  , id: false)
           id_option = if pk_is_also_fk || !pkey_cols&.present?
                         needs_serial_col = true
-                        ', id: false'
+                        +', id: false'
                       elsif ((pkey_col_first = (col_def = relation[:cols][pkey_cols&.first])&.first) &&
                              (pkey_col_first = SQL_TYPES[pkey_col_first] || SQL_TYPES[col_def&.[](0..1)] ||
                                                SQL_TYPES.find { |r| r.first.is_a?(Regexp) && pkey_col_first =~ r.first }&.last ||
@@ -179,16 +186,16 @@ module Brick
                             )
                         case pkey_col_first
                         when 'integer'
-                          ', id: :serial'
+                          +', id: :serial'
                         when 'bigint'
-                          ', id: :bigserial'
+                          +', id: :bigserial'
                         else
-                          ", id: :#{pkey_col_first}" # Something like:  id: :integer, primary_key: :businessentityid
+                          +", id: :#{pkey_col_first}" # Something like:  id: :integer, primary_key: :businessentityid
                         end +
                           (pkey_cols.first ? ", primary_key: :#{pkey_cols.first}" : '')
                       end
           if !id_option && pkey_cols.sort != arpk
-            id_option = ", primary_key: :#{pkey_cols.first}"
+            id_option = +", primary_key: :#{pkey_cols.first}"
           end
           if !is_4x_rails && (comment = relation&.fetch(:description, nil))&.present?
             (id_option ||= +'') << ", comment: #{comment.inspect}"
@@ -217,6 +224,7 @@ module Brick
                        SQL_TYPES.find { |r| r.first.is_a?(Regexp) && col_type.first =~ r.first }&.last ||
                        col_type.first
             suffix = col_type[3] || pkey_cols&.include?(col) ? +', null: false' : +''
+            suffix << ', array: true' if (col_type.first == 'ARRAY')
             if !is_4x_rails && klass && (comment = klass.columns_hash.fetch(col, nil)&.comment)&.present?
               suffix << ", comment: #{comment.inspect}"
             end
@@ -246,7 +254,8 @@ module Brick
                   suffix << ", index: { name: '#{shorter || idx_name}' }"
                   indexes[shorter || idx_name] = nil
                 end
-                mig << "      t.references :#{fk[:assoc_name]}#{suffix}, foreign_key: { to_table: #{to_table} }\n"
+                primary_key = ::Brick.relations[fk[:inverse_table]][:class_name]&.constantize&.primary_key
+                mig << "      t.references :#{fk[:assoc_name]}#{suffix}, foreign_key: { to_table: #{to_table}#{", primary_key: :#{primary_key}" if primary_key != ar_base.primary_key} }\n"
               end
             else
               next if !id_option&.end_with?('id: false') && pkey_cols&.include?(col)

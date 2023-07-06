@@ -380,6 +380,14 @@ module Brick
       @mutex.synchronize { @always_load_fields = field_set }
     end
 
+    def ignore_migration_fks
+      @mutex.synchronize { @ignore_migration_fks || [] }
+    end
+
+    def ignore_migration_fks=(relations)
+      @mutex.synchronize { @ignore_migration_fks = relations }
+    end
+
     # Add status page showing all resources and what files have been built out for them
     def add_status
       true

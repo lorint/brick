@@ -1658,7 +1658,7 @@ end
      # path_options = [obj.#{pk}]
      # path_options << { '_brick_schema':  } if
      options = {}
-     if ::Brick.config.path_prefix
+     if ::Brick.config.path_prefix || (obj.class.table_name.singularize == obj.class.table_name)
        path_helper = obj.new_record? ? #{model_name}._brick_index : #{model_name}._brick_index(:singular)
        options[:url] = send(\"#\{path_helper}_path\".to_sym, obj)
      end

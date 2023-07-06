@@ -15,6 +15,9 @@ module Brick
     def brick_models
       # %%% If Apartment is active and there's no schema_to_analyse, ask which schema they want
 
+      ::Brick.mode = :on
+      ActiveRecord::Base.establish_connection
+
       # Load all models
       ::Brick.eager_load_classes
 

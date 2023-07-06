@@ -71,11 +71,11 @@ module Brick::Rails::FormBuilder
         # Postgres naturally uses the +uuid_generate_v4()+ function from the uuid-ossp extension
         # If it's not yet enabled then:  create extension \"uuid-ossp\";
         # ActiveUUID gem created a new :uuid type
-        out << val
+        out << val if val
       when :ltree
         # In Postgres labels of data stored in a hierarchical tree-like structure
         # If it's not yet enabled then:  create extension ltree;
-        out << val
+        out << val if val
       when :binary
         is_revert = false
         if val
@@ -95,7 +95,7 @@ module Brick::Rails::FormBuilder
         else
           eheij = ActiveSupport::JSON::Encoding.escape_html_entities_in_json
           ActiveSupport::JSON::Encoding.escape_html_entities_in_json = false if eheij
-          val_str = val.to_json
+          val_str = val&.to_json
           ActiveSupport::JSON::Encoding.escape_html_entities_in_json = eheij
         end
         # Because there are so danged many quotes in JSON, escape them specially by converting to backticks.

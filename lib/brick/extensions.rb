@@ -1187,7 +1187,7 @@ end
     end
     base_module = if self < ActiveRecord::Migration || !self.name
                     brick_root || Object
-                  elsif (split_self_name || self.name.split('::')).length > 1 # Classic mode
+                  elsif split_self_name&.length&.> 1 # Classic mode
                     begin
                       return self._brick_const_missing(*args)
 
@@ -1294,7 +1294,6 @@ end
                # Build out a module for the schema if it's namespaced
                # schema_name = schema_name.camelize
                base_module.const_set(schema_name.to_sym, (built_module = Module.new))
-
                [built_module, "module #{schema_name}; end\n"]
                # %%% Perhaps an option to use the first module just as schema, and additional modules as namespace with a table name prefix applied
 
@@ -1464,7 +1463,6 @@ class Object
                                                               rescue StandardError => ex
                                                                 ::ActiveRecord::Base
                                                               end))
-
       end
       hmts = nil
       code = +"class #{full_name} < #{base_model.name}\n"
@@ -1489,6 +1487,10 @@ class Object
         end
         # Accommodate singular or camel-cased table names such as "order_detail" or "OrderDetails"
         code << "  self.table_name = '#{self.table_name = matching}'\n" if inheritable_name || self.table_name != matching
+        if (inh_col = ::Brick.config.sti_type_column.find { |_k, v| v.include?(matching) }&.first)
+          self.inheritance_column = inh_col
+          code << "  self.inheritance_column = '#{inh_col}'\n"
+        end
 
         # Override models backed by a view so they return true for #is_view?
         # (Dynamically-created controllers and view templates for such models will then act in a read-only way)

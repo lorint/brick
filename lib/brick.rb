@@ -1159,10 +1159,15 @@ ActiveSupport.on_load(:active_record) do
       # :singleton-method:
       # Determines whether to use Time.utc (using :utc) or Time.local (using :local) when pulling
       # dates and times from the database. This is set to :utc by default.
-      unless respond_to?(:default_timezone)
-        puts "ADDING!!! 4.w"
+      unless ::ActiveRecord.respond_to?(:default_timezone) || respond_to?(:default_timezone)
         mattr_accessor :default_timezone, instance_writer: false
         self.default_timezone = :utc
+      end
+
+      unless respond_to?(:primary_abstract_class)
+        def self.primary_abstract_class
+          self.abstract_class = true
+        end
       end
     end
 
