@@ -1164,6 +1164,12 @@ ActiveSupport.on_load(:active_record) do
         mattr_accessor :default_timezone, instance_writer: false
         self.default_timezone = :utc
       end
+
+      unless respond_to?(:primary_abstract_class)
+        def self.primary_abstract_class
+          self.abstract_class = true
+        end
+      end
     end
 
     # Rails < 4.0 cannot do #find_by, #find_or_create_by, or do #pluck on multiple columns, so here are the patches:

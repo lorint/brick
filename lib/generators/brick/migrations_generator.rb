@@ -123,21 +123,27 @@ module Brick
       built_schemas = {} # Track all built schemas so we can place an appropriate drop_schema command only in the first
                          # migration in which that schema is referenced, thereby allowing rollbacks to function properly.
       versions_to_create = [] # Resulting versions to be used when updating the schema_migrations table
+      ar_base = Object.const_defined?(:ApplicationRecord) ? ApplicationRecord : Class.new(ActiveRecord::Base)
       # Start by making migrations for fringe tables (those with no foreign keys).
       # Continue layer by layer, creating migrations for tables that reference ones already done, until
       # no more migrations can be created.  (At that point hopefully all tables are accounted for.)
       while (fringe = chosen.reject do |tbl|
+                        snag_fks = []
                         snags = ::Brick.relations.fetch(tbl, nil)&.fetch(:fks, nil)&.select do |_k, v|
                           v[:is_bt] && !v[:polymorphic] &&
                           tbl != v[:inverse_table] && # Ignore self-referencing associations (stuff like "parent_id")
-                          !done.include?(v[:inverse_table])
+                          !done.include?(v[:inverse_table]) &&
+                          ::Brick.config.ignore_migration_fks.exclude?(snag_fk = "#{tbl}.#{v[:fk]}") &&
+                          snag_fks << snag_fk
                         end
-                        stuck[tbl] = snags if snags&.present?
+                        if snags&.present?
+                          # puts snag_fks.inspect
+                          stuck[tbl] = snags
+                        end
                       end).present?
         fringe.each do |tbl|
           next unless (relation = ::Brick.relations.fetch(tbl, nil))&.fetch(:cols, nil)&.present?
 
-          ar_base = Object.const_defined?(:ApplicationRecord) ? ApplicationRecord : Class.new(ActiveRecord::Base)
           pkey_cols = (rpk = relation[:pkey].values.flatten) & (arpk = [ar_base.primary_key].flatten.sort)
           # In case things aren't as standard
           if pkey_cols.empty?
@@ -246,7 +252,8 @@ module Brick
                   suffix << ", index: { name: '#{shorter || idx_name}' }"
                   indexes[shorter || idx_name] = nil
                 end
-                mig << "      t.references :#{fk[:assoc_name]}#{suffix}, foreign_key: { to_table: #{to_table} }\n"
+                primary_key = ::Brick.relations[fk[:inverse_table]][:class_name]&.constantize&.primary_key
+                mig << "      t.references :#{fk[:assoc_name]}#{suffix}, foreign_key: { to_table: #{to_table}#{", primary_key: :#{primary_key}" if primary_key != ar_base.primary_key} }\n"
               end
             else
               next if !id_option&.end_with?('id: false') && pkey_cols&.include?(col)
