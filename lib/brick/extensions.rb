@@ -1464,7 +1464,6 @@ class Object
                                                               rescue StandardError => ex
                                                                 ::ActiveRecord::Base
                                                               end))
-
       end
       hmts = nil
       code = +"class #{full_name} < #{base_model.name}\n"
@@ -1489,6 +1488,10 @@ class Object
         end
         # Accommodate singular or camel-cased table names such as "order_detail" or "OrderDetails"
         code << "  self.table_name = '#{self.table_name = matching}'\n" if inheritable_name || self.table_name != matching
+        if (inh_col = ::Brick.config.sti_type_column.find { |_k, v| v.include?(matching) }&.first)
+          self.inheritance_column = inh_col
+          code << "  self.inheritance_column = '#{inh_col}'\n"
+        end
 
         # Override models backed by a view so they return true for #is_view?
         # (Dynamically-created controllers and view templates for such models will then act in a read-only way)

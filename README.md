@@ -90,20 +90,27 @@ and in Ingredient another HMT would be added:
 So when you run the whole thing you could navigate to https://localhost:3000/recipes, and see
 each recipe and also all the ingredients which it requires through its HMT.
 
-If either (or both) of the foreign keys were missing in the database, they could be added as an
-additional_reference.  Say that the foreign key between Recipe and RecipeIngredient is missing.
+If either (or both) of the foreign keys were missing in the database, they could be added into
+additional_references.  Say that the foreign key between Recipe and RecipeIngredient is missing.
 It can be provided by putting a line like this in an initialiser file:
 
     ::Brick.additional_references = [['recipe_ingredients', 'recipe_id', 'recipes']]
 
-If you'd like to have a set of migration files built out from an existing database, that can be
-done by running the generator `bin/rails g brick:migrations`.  More detail is found below under
-the section "Autogenerate Migration Files".
+Brick can auto-create its own initialiser file by doing `rails g brick:install`, and as part of
+the process automatically infers missing foreign key references.  These suggestions can fill in
+the gaps where belongs_to and has_many associations could exist, but don't yet because of the
+missing foreign key.  It does this based on finding column names that look like appropriate key
+names, and then makes a commented out suggestion if the data type also matches the primary key's
+type.  By un-commenting the ones you would like (or perhaps even all of them), then to The Brick
+it will seem as if those foreign keys are present, and from there Rails will provide referential
+integrity.
 
-Brick can auto-create such an initialiser file, and often infer these kinds of useful
-references to fill in the gaps for missing foreign keys.  These suggestions are left commented
-out initially, so very easily brought into play by editing that file.  Myriad settings are
-avaiable therein.
+Myriad other settings can be found in `config/initializers/brick.rb`.
+
+Some other fun generators exist as well -- if you'd like to have a set of migration files built
+out from an existing database, that can be done by running the generator
+`bin/rails g brick:migrations`.  And similarly, models with `bin/rails g brick:models`.  More
+detail is to be found below under 1.f and 1.g -- the various "Autogenerate ___ Files" sections.
 
 ## Table of Contents
 
@@ -319,7 +326,7 @@ un-comment the line:
 
     ::Brick.path_prefix = 'admin'
 
-and it will affect all routes.  In this case, instead of http://localhost:3000/hr/job_histories, you would navigate to http://localhost:3000/admin/hr/job_histories, and so forth for all routes.  This kind of prefix is very useful when you drop **The Brick** into an existing project and want a full set of administration pages tucked away into their own namespace.  If you are placing this in an existing project then as well you might want to add the very intelligent **link_to_brick** form helper into the <body> portion of your `layouts/application.html.erb` file like this:
+and it will affect all routes.  In this case, instead of http://localhost:3000/hr/job_histories, you would navigate to http://localhost:3000/admin/hr/job_histories, and so forth for all routes.  This kind of prefix is very useful when you drop **The Brick** into an existing project and want a full set of administration pages tucked away into their own namespace.  If you are placing this in an existing project then as well you might want to add the very intelligent **link_to_brick** form helper into the `<body>` portion of your `layouts/application.html.erb` file like this:
 
     <%= link_to_brick %>
 
@@ -336,8 +343,6 @@ unless ActiveRecord::Base.respond_to?(:brick_select)
   end
 end
 ```
-
-Another useful entry that can be placed in `config/initializers/brick.rb` is `Brick.additional_references` which defines additional foreign key associations, and even shows some suggested ones where possible.  By default these are commented out, and by un-commenting the ones you would like (or perhaps even all of them), then to The Brick it will seem as if these foreign keys are present to provide referential integrity.  If you then start up a `rails c` you'll find that appropriate belongs_to and has_many associations are automatically fleshed out.  Even has_many :through associations are provided when possible associative tables are identified -- that is, tables having only foreign keys that refer to other tables.
 
 ### 1.c. Displaying an ERD
 
@@ -472,7 +477,8 @@ Table and column names do not have to adhere to Rails convention -- singular / p
 
 On associations it sets the class_name, foreign_key, and for has_many :through the source, and inverse_of when any of those are necessary. If they're not needed (which is pretty common of course when following standard Rails conventions) then it refrains.
 
-It also knows how to deal with Postgres schemas, building out modules for anything that's not public, so for a sales.orders table the model class would become Sales::Order, and the controller Sales::OrdersController, etc.
+Brick also knows how to deal with Postgres schemas, building out modules for anything that's not public, so for a
+sales.orders table the model class would become Sales::Order, and the controller Sales::OrdersController, etc.
 
 Special consideration is made when multiple foreign keys go from one table to another so that unique associations
 will be created.  For instance, given Flight and Airport tables where Flight has two foreign keys to Airport,
@@ -506,7 +512,7 @@ and then bundle, and all should be well.
 ---
 Every effort is given to maintain compatibility with the current version of the Rails ecosystem,
 so if you hit a snag then we'd at least like to understand the situation.  Often we'll also offer
-suggestions.  Some feature requests will be enteratined, and for things deemed to be outside of
+suggestions.  Some feature requests will be entertained, and for things deemed to be outside of
 the scope of The Brick, an attempt to provide useful extensibility will be made such that add-ons
 can be integrated in order to work in tandem with The Brick.
 
