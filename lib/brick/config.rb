@@ -332,6 +332,14 @@ module Brick
       @mutex.synchronize { @table_name_prefixes = value }
     end
 
+    def treat_as_module
+      @mutex.synchronize { @treat_as_module || [] }
+    end
+
+    def treat_as_module=(mod_names)
+      @mutex.synchronize { @treat_as_module = mod_names }
+    end
+
     def order
       @mutex.synchronize { @order || {} }
     end

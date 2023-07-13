@@ -417,6 +417,12 @@ module Brick
     end
 
     # @api public
+    # Causes Decidim to work with this line:  Brick.treat_as_module = ['Decidim::ContentBlocks']
+    def treat_as_module=(value)
+      Brick.config.treat_as_module = value
+    end
+
+    # @api public
     def metadata_columns=(value)
       Brick.config.metadata_columns = value
     end
@@ -1452,7 +1458,8 @@ ActiveSupport.on_load(:active_record) do
       class << self
         alias _original_load load
         def load(yaml, *args, **kwargs)
-          if kwargs[:aliases].nil? && caller[0..4].any? { |line| line.end_with?("`database_configuration'") }
+          if kwargs[:aliases].nil? && caller[0..4].any? { |line| line.end_with?("`database_configuration'") ||
+                                                                 line.end_with?("`secrets'") }
             kwargs[:aliases] = true
           end
           _original_load(yaml, *args, **kwargs)

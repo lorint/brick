@@ -1163,6 +1163,9 @@ if ActiveSupport::Dependencies.respond_to?(:autoload_module!) # %%% Only works w
 end
 
 ::Brick::ADD_CONST_MISSING = lambda do
+  return if @_brick_const_missing_done
+
+  @_brick_const_missing_done = true
   alias _brick_const_missing const_missing
   def const_missing(*args)
     requested = args.first.to_s
@@ -1189,7 +1192,11 @@ end
                     brick_root || Object
                   elsif split_self_name&.length&.> 1 # Classic mode
                     begin
-                      return self._brick_const_missing(*args)
+                      base = self
+                      unless (base_goal = requested.split('::')[0..-2].join('::')).empty?
+                        base = base.parent while base.name != base_goal && base != Object
+                      end
+                      return base._brick_const_missing(*args)
 
                     rescue NameError # %%% Avoid the error "____ cannot be autoloaded from an anonymous class or module"
                       return self.const_get(args.first) if self.const_defined?(args.first)
@@ -1296,6 +1303,13 @@ end
                base_module.const_set(schema_name.to_sym, (built_module = Module.new))
                [built_module, "module #{schema_name}; end\n"]
                # %%% Perhaps an option to use the first module just as schema, and additional modules as namespace with a table name prefix applied
+
+             # MODULE (overrides from "treat_as_module")
+             elsif (::Brick.enable_models? || ::Brick.enable_controllers?) &&
+                   (possible_module = (base_module == Object ? '' : "#{base_module.name}::") + class_name) &&
+                   ::Brick.config.treat_as_module.include?(possible_module)
+               base_module.const_set(class_name.to_sym, (built_module = Module.new))
+               [built_module, "module #{possible_module}; end\n"]
 
              # AVO Resource
              elsif base_module == Object && Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) && requested.end_with?('Resource') &&
