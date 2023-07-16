@@ -157,7 +157,7 @@ module Brick::Rails::FormTags
                 out << link_to(ho_txt, send("#{hm_klass.base_class._brick_index(:singular)}_path".to_sym, ho_id))
               end
             elsif obj.respond_to?(ct_col = hms_col[1].to_sym) && (ct = obj.send(ct_col)&.to_i)&.positive?
-              predicates = hms_col[2].each_with_object({}) { |v, s| s[v.first] = v.last.is_a?(String) ? v.last : obj.send(v.last) }
+              predicates = hms_col[2].each_with_object({}) { |v, s| s["__#{v.first}"] = v.last.is_a?(String) ? v.last : obj.send(v.last) }
               predicates.each { |k, v| predicates[k] = klass.name if v == '[sti_type]' }
               out << "#{link_to("#{ct || 'View'} #{hms_col.first}",
                                 send("#{hm_klass._brick_index}_path".to_sym, predicates))}\n"

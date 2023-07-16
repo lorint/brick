@@ -221,8 +221,8 @@ module Brick
               hm_models = ActiveRecord::Base.descendants.select do |m|
                 m.reflect_on_all_associations.any? { |assoc| !assoc.belongs_to? && assoc.options[:as]&.to_sym == a.name }
               end
-              # No need to include subclassed models if their parent is already in the list
-              hm_models.reject! { |m| hm_models.any? { |parent| parent != m && m < parent } }
+              # No need to include models with no table, or subclassed models if their parent is already in the list
+              hm_models.reject! { |m| !m.table_exists? || hm_models.any? { |parent| parent != m && m < parent } }
               if hm_models.empty?
                 puts "Missing any real indication as to which models \"has_many\" this polymorphic BT in model #{a.active_record.name}:"
                 puts "  belongs_to :#{a.name}, polymorphic: true"
