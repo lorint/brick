@@ -544,11 +544,9 @@ module ActiveRecord
       wheres = {}
       params.each do |k, v|
         k = k.to_s # Rails < 4.2 comes in as a symbol
-        next if ['_brick_schema', '_brick_order',
-                 '_brick_erd', '_brick_exclude', '_brick_unexclude',
-                 '_brick_page', '_brick_page_size', '_brick_offset', '_brick_limit',
-                 '_brick_is_api', 'controller', 'action'].include?(k)
+        next unless k.start_with?('__')
 
+        k = k[2..-1] # Take off leading "__"
         if (where_col = (ks = k.split('.')).last)[-1] == '!'
           where_col = where_col[0..-2]
         end
@@ -2159,6 +2157,17 @@ class Object
               new_obj.serializable_hash.each do |k, v|
                 new_obj.send("#{k}=", ActiveStorage::Filename.new('')) if v.is_a?(ActiveStorage::Filename) && !v.instance_variable_get(:@filename)
               end if Object.const_defined?('ActiveStorage')
+            end
+            new_obj.attribute_names.each do |a|
+              if (val = params["__#{a}"])
+                # val = case new_obj.class.column_for_attribute(a).type
+                #       when :datetime, :date, :time, :timestamp
+                #         val.
+                #       else
+                #         val
+                #       end
+                new_obj.send("#{a}=", val)
+              end
             end
             instance_variable_set("@#{singular_table_name}".to_sym, new_obj)
             add_csp_hash

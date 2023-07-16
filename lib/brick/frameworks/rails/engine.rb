@@ -750,12 +750,12 @@ window.addEventListener(\"popstate\", linkSchemas);
                                      (hm_fk_name.is_a?(String) && hm_fk_name.include?('.')) # HMT?  (Could do a better check for this)
                                     predicates = path_keys(hm_assoc, hm_fk_name, pk).map do |k, v|
                                                    if v == '[sti_type]'
-                                                     "'#{k}': (@#{obj_name}.#{hm_assoc.active_record.inheritance_column})&.constantize&.base_class&.name"
+                                                     "'__#{k}': (@#{obj_name}.#{hm_assoc.active_record.inheritance_column})&.constantize&.base_class&.name"
                                                    else
-                                                     v.is_a?(String) ? "'#{k}': '#{v}'" : "'#{k}': @#{obj_name}.#{v}"
+                                                     v.is_a?(String) ? "'__#{k}': '#{v}'" : "'__#{k}': @#{obj_name}.#{v}"
                                                    end
                                                  end.join(', ')
-                                    "<%= link_to '#{assoc_name}', #{hm_assoc.klass._brick_index}_path({ #{predicates} }) %>\n"
+                                    "<%= link_to '#{assoc_name}', #{hm_assoc.klass._brick_index}_path(predicates = { #{predicates} }) %>\n"
                                   else
                                     puts "Warning:  has_many :#{hm_assoc.name} in model #{hm_assoc.active_record.name} currently looks for a foreign key called \"#{hm_assoc.foreign_key}\".  "\
                                          "Instead it should use the clause  \"foreign_key: :#{hm_assoc.inverse_of&.foreign_key}\"."
@@ -896,6 +896,9 @@ tr th {
 }
 tr th a {
   color: #80FFB8;
+}
+.add-hm-related {
+  float: right;
 }
 
 tr th, tr td {
@@ -1766,7 +1769,14 @@ end
                      end"}"
                  end
       s << "<table id=\"#{hm_name}\" class=\"shadow\">
-        <tr><th>#{hm[1]}#{' poly' if hm[0].options[:as]} #{hm[3]}</th></tr>
+        <tr><th>#{hm[1]}#{' poly' if hm[0].options[:as]} #{hm[3]}
+          <span class = \"add-hm-related\"><%=
+            pk_val = (obj_pk = model.primary_key).is_a?(String) ? obj.send(obj_pk) : obj_pk.map { |pk_part| obj.send(pk_part) }
+            pk_val_arr = [pk_val] unless pk_val.is_a?(Array)
+            link_to('<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\"><path fill=\"#fff\" d=\"M24 10h-10v-10h-4v10h-10v4h10v10h4v-10h10z\"/></svg>'.html_safe,
+              new_#{hm.first.klass._brick_index(:singular)}_path(predicates))
+          %></span>
+        </th></tr>
         <% if (assoc = @#{obj_name}.class.reflect_on_association(:#{hm_name})).macro == :has_one &&
               assoc.options&.fetch(:through, nil).nil?
              # In order to apply DSL properly, evaluate this HO the other way around as if it were as a BT
