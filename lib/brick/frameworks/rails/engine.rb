@@ -1169,7 +1169,10 @@ if (window.brickFontFamily) {
       x.style.fontFamily = brickFontFamily.toString();
   });
 }
-</script>"
+</script>
+<% if (apartment_default_schema = ::Brick.apartment_multitenant && ::Brick.apartment_default_tenant)
+     Apartment::Tenant.switch!(apartment_default_schema)
+   end %>"
 
               erd_markup = if @_brick_model
                              "<div id=\"mermaidErd\" class=\"mermaid\">
@@ -2034,9 +2037,7 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
               alias _brick_render_template render_template
               def render_template(view, template, layout_name, *args)
                 layout_name = nil if (is_brick = template.instance_variable_get(:@is_brick)) && layout_name.is_a?(Proc)
-                result = _brick_render_template(view, template, layout_name, *args)
-                Apartment::Tenant.switch!(::Brick.apartment_default_tenant) if is_brick && ::Brick.apartment_multitenant
-                result
+                _brick_render_template(view, template, layout_name, *args)
               end
           end # TemplateRenderer
         end
