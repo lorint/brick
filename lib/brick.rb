@@ -113,21 +113,23 @@ module Brick
     def set_db_schema(params = nil)
       # If Apartment::Tenant.current is not still the default (usually 'public') then an elevator has brought us into
       # a different tenant.  If so then don't allow schema navigation.
-      chosen = if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL' &&
-                  (current_schema = (ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2]
-                                                       .split(',') - ['pg_catalog', 'pg_toast', 'heroku_ext']).first) &&
-                  (is_show_schema_list = (apartment_multitenant && current_schema == ::Brick.default_schema)) &&
-                  (schema = (params ? params['_brick_schema'] : ::Brick.default_schema)) &&
-                  ::Brick.db_schemas&.key?(schema)
-                 Apartment::Tenant.switch!(schema)
-                 schema
-               elsif ::Brick.test_schema
-                 is_show_schema_list = true
-                 Apartment::Tenant.switch!(::Brick.test_schema)
-                 ::Brick.test_schema
-               else
-                 current_schema # Just return the current schema
-               end
+      if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL' && apartment_multitenant
+        current_schema = (ActiveRecord::Base.execute_sql('SELECT current_schemas(true)')
+                                            .first['current_schemas'][1..-2]
+                                            .split(',') - ['pg_catalog', 'pg_toast', 'heroku_ext']).first
+        is_show_schema_list = current_schema == ::Brick.default_schema
+        schema = (is_show_schema_list && params && params['_brick_schema']) || ::Brick.default_schema
+        chosen = if is_show_schema_list && ::Brick.db_schemas&.key?(schema)
+                   Apartment::Tenant.switch!(schema)
+                   schema
+                 elsif ::Brick.test_schema
+                   is_show_schema_list = true
+                   Apartment::Tenant.switch!(::Brick.test_schema)
+                   ::Brick.test_schema
+                 else
+                   current_schema # Just return the current schema
+                 end
+      end
       [chosen == ::Brick.default_schema ? nil : chosen, is_show_schema_list]
     end
 
@@ -1153,8 +1155,11 @@ ActiveSupport.on_load(:active_record) do
         class << self
           def execute_sql(sql, *param_array)
             param_array = param_array.first if param_array.length == 1 && param_array.first.is_a?(Array)
-            if ['OracleEnhanced', 'SQLServer'].include?(ActiveRecord::Base.connection.adapter_name)
+            case ActiveRecord::Base.connection.adapter_name
+            when 'OracleEnhanced', 'SQLServer'
               connection.exec_query(send(:sanitize_sql_array, [sql] + param_array)).rows
+            when 'Trilogy'
+              connection.execute(send(:sanitize_sql_array, [sql] + param_array)).rows
             else
               connection.execute(send(:sanitize_sql_array, [sql] + param_array))
             end

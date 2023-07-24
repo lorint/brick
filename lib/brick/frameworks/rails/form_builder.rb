@@ -100,7 +100,7 @@ module Brick::Rails::FormBuilder
         end
         # Because there are so danged many quotes in JSON, escape them specially by converting to backticks.
         # (and previous to this, escape backticks with our own goofy code of ^^br_btick__ )
-        out << (json_field = self.hidden_field(method.to_sym, { class: 'jsonpicker', value: val_str.gsub('`', '^^br_btick__').tr('\"', '`').html_safe }))
+        out << (json_field = self.hidden_field(method.to_sym, { class: 'jsonpicker', value: val_str&.gsub('`', '^^br_btick__')&.tr('\"', '`')&.html_safe }))
         out << "<div id=\"_br_json_#{self.field_id(method)}\"></div>"
       else
         is_revert = false

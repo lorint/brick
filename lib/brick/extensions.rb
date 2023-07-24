@@ -59,7 +59,7 @@ module ActiveRecord
       end
 
       def is_brick?
-        instance_variables.include?(:@_brick_built) && instance_variable_get(:@_brick_built)
+        instance_variables.include?(:@_brick_relation) && instance_variable_get(:@_brick_relation)
       end
 
       def _assoc_names
@@ -1482,6 +1482,7 @@ class Object
       code = +"class #{full_name} < #{base_model.name}\n"
       built_model = Class.new(base_model) do |new_model_class|
         (schema_module || Object).const_set((chosen_name = (inheritable_name || model_name)).to_sym, new_model_class)
+        @_brick_relation = relation
         if inheritable_name
           new_model_class.define_singleton_method :inherited do |subclass|
             super(subclass)
@@ -1491,7 +1492,7 @@ class Object
               puts "should be \"class #{model_name} < #{inheritable_name}\"\n           (not \"#{subclass.name} < #{inheritable_name}\")"
             end
           end
-          self.abstract_class = true
+          new_model_class.abstract_class = true
           code << "  self.abstract_class = true\n"
         elsif Object.const_defined?('BCrypt') && relation[:cols].include?('password_digest') &&
               !instance_methods.include?(:password) && respond_to?(:has_secure_password)
@@ -1502,7 +1503,7 @@ class Object
         # Accommodate singular or camel-cased table names such as "order_detail" or "OrderDetails"
         code << "  self.table_name = '#{self.table_name = matching}'\n" if inheritable_name || self.table_name != matching
         if (inh_col = ::Brick.config.sti_type_column.find { |_k, v| v.include?(matching) }&.first)
-          self.inheritance_column = inh_col
+          new_model_class.inheritance_column = inh_col
           code << "  self.inheritance_column = '#{inh_col}'\n"
         end
 
@@ -1555,19 +1556,19 @@ class Object
         unless is_sti
           fks = relation[:fks] || {}
           # Do the bulk of the has_many / belongs_to processing, and store details about HMT so they can be done at the very last
-          fks.each_with_object(Hash.new { |h, k| h[k] = [] }) do |fk, hmts|
-            # The key in each hash entry (fk.first) is the constraint name
-            inverse_assoc_name = (assoc = fk.last)[:inverse]&.fetch(:assoc_name, nil)
-            if (invs = assoc[:inverse_table]).is_a?(Array)
-              if assoc[:is_bt]
-                invs = invs.first # Just do the first one of what would be multiple identical polymorphic belongs_to
-              else
-                invs.each { |inv| build_bt_or_hm(full_name, relations, relation, hmts, assoc, inverse_assoc_name, inv, code) }
-              end
-            end
-            build_bt_or_hm(full_name, relations, relation, hmts, assoc, inverse_assoc_name, invs, code) unless invs.is_a?(Array)
-            hmts
-          end
+          hmts = fks.each_with_object(Hash.new { |h, k| h[k] = [] }) do |fk, hmts2|
+                   # The key in each hash entry (fk.first) is the constraint name
+                   inverse_assoc_name = (assoc = fk.last)[:inverse]&.fetch(:assoc_name, nil)
+                   if (invs = assoc[:inverse_table]).is_a?(Array)
+                     if assoc[:is_bt]
+                       invs = invs.first # Just do the first one of what would be multiple identical polymorphic belongs_to
+                     else
+                       invs.each { |inv| build_bt_or_hm(full_name, relations, relation, hmts2, assoc, inverse_assoc_name, inv, code) }
+                     end
+                   else
+                     build_bt_or_hm(full_name, relations, relation, hmts2, assoc, inverse_assoc_name, invs, code)
+                   end
+                 end
           # # Not NULLables
           # # %%% For the minute we've had to pull this out because it's been troublesome implementing the NotNull validator
           # relation[:cols].each do |col, datatype|
@@ -1585,58 +1586,54 @@ class Object
         #   self.broadcasts_to ->(model) { (model&.class&.name || chosen_name).underscore.pluralize.to_sym }
         #   code << "  broadcasts_to ->(#{chosen_name}) { #{chosen_name}&.class&.name&.underscore&.pluralize&.to_sym }\n"
         # end
-      end # class definition
-      # Having this separate -- will this now work out better?
-        built_model.class_exec do
-          @_brick_built = true
-          @_brick_relation = relation
-          hmts&.each do |hmt_fk, hms|
-            hmt_fk = hmt_fk.tr('.', '_')
-            hms.each do |hm|
-              # %%% Need to confirm that HMTs work when they are built from has_manys with custom names
-              through = ::Brick.config.schema_behavior[:multitenant] ? hm.first[:assoc_name] : hm.first[:inverse_table].tr('.', '_').pluralize
-              options = {}
-              hmt_name = if hms.length > 1
-                           if hms[0].first[:inverse][:assoc_name] == hms[1].first[:inverse][:assoc_name] # Same BT names pointing back to us? (Most common scenario)
-                             "#{hmt_fk}_through_#{hm.first[:assoc_name]}"
-                           else # Use BT names to provide uniqueness
-                             if self.name.underscore.singularize == hm.first[:alternate_name]
-                               #  Has previously been:
-                               # # If it folds back on itself then look at the other side
-                               # # (At this point just infer the source be the inverse of the first has_many that
-                               # # we find that is not ourselves.  If there are more than two then uh oh, can't
-                               # # yet handle that rare circumstance!)
-                               # other = hms.find { |hm1| hm1 != hm } # .first[:fk]
-                               # options[:source] = other.first[:inverse][:assoc_name].to_sym
-                               #  And also has been:
-                               # hm.first[:inverse][:assoc_name].to_sym
-                               options[:source] = hm.last.to_sym
-                             else
-                               through = hm.first.fetch(:alternate_chosen_name, hm.first[:alternate_name])
-                             end
-                             singular_assoc_name = hm.first[:inverse][:assoc_name].singularize
-                             "#{singular_assoc_name}_#{hmt_fk}"
-                           end
-                         else
-                           hmt_fk
-                         end
-              options[:through] = through.to_sym
-              if relation[:fks].any? { |k, v| v[:assoc_name] == hmt_name }
-                hmt_name = "#{hmt_name.singularize}_#{hm.first[:assoc_name]}"
-                # Was:
-                # options[:class_name] = hm.first[:inverse_table].singularize.camelize
-                # options[:foreign_key] = hm.first[:fk].to_sym
-                far_assoc = relations[hm.first[:inverse_table]][:fks].find { |_k, v| v[:assoc_name] == hm.last }
-                options[:class_name] = far_assoc.last[:inverse_table].singularize.camelize
-                options[:foreign_key] = far_assoc.last[:fk].to_sym
-              end
-              options[:source] ||= hm.last.to_sym unless hmt_name.singularize == hm.last
-              code << "  has_many :#{hmt_name}#{options.map { |opt| ", #{opt.first}: #{opt.last.inspect}" }.join}\n"
-              self.send(:has_many, hmt_name.to_sym, **options)
+
+        hmts&.each do |hmt_fk, hms|
+          hmt_fk = hmt_fk.tr('.', '_')
+          hms.each do |hm|
+            # %%% Need to confirm that HMTs work when they are built from has_manys with custom names
+            through = ::Brick.config.schema_behavior[:multitenant] ? hm.first[:assoc_name] : hm.first[:inverse_table].tr('.', '_').pluralize
+            options = {}
+            hmt_name = if hms.length > 1
+                          if hms[0].first[:inverse][:assoc_name] == hms[1].first[:inverse][:assoc_name] # Same BT names pointing back to us? (Most common scenario)
+                            "#{hmt_fk}_through_#{hm.first[:assoc_name]}"
+                          else # Use BT names to provide uniqueness
+                            if self.name.underscore.singularize == hm.first[:alternate_name]
+                              #  Has previously been:
+                              # # If it folds back on itself then look at the other side
+                              # # (At this point just infer the source be the inverse of the first has_many that
+                              # # we find that is not ourselves.  If there are more than two then uh oh, can't
+                              # # yet handle that rare circumstance!)
+                              # other = hms.find { |hm1| hm1 != hm } # .first[:fk]
+                              # options[:source] = other.first[:inverse][:assoc_name].to_sym
+                              #  And also has been:
+                              # hm.first[:inverse][:assoc_name].to_sym
+                              options[:source] = hm.last.to_sym
+                            else
+                              through = hm.first.fetch(:alternate_chosen_name, hm.first[:alternate_name])
+                            end
+                            singular_assoc_name = hm.first[:inverse][:assoc_name].singularize
+                            "#{singular_assoc_name}_#{hmt_fk}"
+                          end
+                        else
+                          hmt_fk
+                        end
+            options[:through] = through.to_sym
+            if relation[:fks].any? { |k, v| v[:assoc_name] == hmt_name }
+              hmt_name = "#{hmt_name.singularize}_#{hm.first[:assoc_name]}"
+              # Was:
+              # options[:class_name] = hm.first[:inverse_table].singularize.camelize
+              # options[:foreign_key] = hm.first[:fk].to_sym
+              far_assoc = relations[hm.first[:inverse_table]][:fks].find { |_k, v| v[:assoc_name] == hm.last }
+              options[:class_name] = far_assoc.last[:inverse_table].singularize.camelize
+              options[:foreign_key] = far_assoc.last[:fk].to_sym
             end
+            options[:source] ||= hm.last.to_sym unless hmt_name.singularize == hm.last
+            code << "  has_many :#{hmt_name}#{options.map { |opt| ", #{opt.first}: #{opt.last.inspect}" }.join}\n"
+            new_model_class.send(:has_many, hmt_name.to_sym, **options)
           end
         end
         code << "end # model #{full_name}\n"
+      end # model class definition
       [built_model, code]
     end
 

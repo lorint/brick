@@ -713,12 +713,9 @@ window.addEventListener(\"popstate\", linkSchemas);
                                  next unless @_brick_model.instance_methods.include?(through) &&
                                              (associative = @_brick_model._br_associatives.fetch(hm.first, nil))
 
-                                 tbl_nm = if (source = hm_assoc.source_reflection).macro == :has_many
-                                            source.inverse_of&.name # For HM -> HM style HMT
-                                          else # belongs_to or has_one
-                                            hm_assoc.through_reflection&.name # for standard HMT, which is HM -> BT
-                                          end
-                                 # If there is no inverse available for the source belongs_to association, make one based on the class name
+                                 # Should handle standard HMT, which is HM -> BT, as well as HM -> HM style HMT
+                                 tbl_nm = hm_assoc.source_reflection&.inverse_of&.name
+                                 # If there is no inverse available for the source belongs_to association, infer one based on the class name
                                  unless tbl_nm
                                    tbl_nm = associative.class_name.underscore
                                    tbl_nm.slice!(0) if tbl_nm[0] == '/'
@@ -1169,7 +1166,10 @@ if (window.brickFontFamily) {
       x.style.fontFamily = brickFontFamily.toString();
   });
 }
-</script>"
+</script>
+<% if (apartment_default_schema = ::Brick.apartment_multitenant && ::Brick.apartment_default_tenant)
+     Apartment::Tenant.switch!(apartment_default_schema)
+   end %>"
 
               erd_markup = if @_brick_model
                              "<div id=\"mermaidErd\" class=\"mermaid\">
@@ -2034,9 +2034,7 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
               alias _brick_render_template render_template
               def render_template(view, template, layout_name, *args)
                 layout_name = nil if (is_brick = template.instance_variable_get(:@is_brick)) && layout_name.is_a?(Proc)
-                result = _brick_render_template(view, template, layout_name, *args)
-                Apartment::Tenant.switch!(::Brick.apartment_default_tenant) if is_brick && ::Brick.apartment_multitenant
-                result
+                _brick_render_template(view, template, layout_name, *args)
               end
           end # TemplateRenderer
         end

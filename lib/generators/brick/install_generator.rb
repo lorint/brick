@@ -28,7 +28,7 @@ module Brick
         relations = ::Brick.relations
         if is_brick_file
           # Need to remove any currently-existing additional_references so that it doesn't cloud the discovery process:
-          ::Brick.config.additional_references.each do |ar|
+          ::Brick.config.additional_references&.each do |ar|
             if (fks = relations.fetch(ar[0], nil)&.fetch(:fks, nil))
               fks.delete(fks.find { |k, v| v[:is_bt] && k.start_with?('(brick) ') && v[:fk] == ar[1] }&.first)
             end
