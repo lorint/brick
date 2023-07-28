@@ -1676,12 +1676,22 @@ end
          @#{obj_name}.send(\"#\{model.brick_foreign_type(v.first)}=\", v[1].first&.first&.name)
        end
      end if @#{obj_name}.new_record?
-     @#{obj_name}.attributes.each do |k, val|
-       next if !(col = #{model_name}.columns_hash[k]) ||
-               (#{(pk.map(&:to_s) || []).inspect}.include?(k) && !bts.key?(k)) ||
-               ::Brick.config.metadata_columns.include?(k) %>
+     rtans = #{model_name}.rich_text_association_names if #{model_name}.respond_to?(:rich_text_association_names)
+     (#{model_name}.column_names + (rtans || [])).each do |k|
+       next if (#{(pk.map(&:to_s) || []).inspect}.include?(k) && !bts.key?(k)) ||
+               ::Brick.config.metadata_columns.include?(k)
+
+       col = #{model_name}.columns_hash[k]
+       if !col && rtans&.include?(k)
+         k = k[10..-1] if k.start_with?('rich_text_')
+         col = (rt_col ||= ActiveRecord::ConnectionAdapters::Column.new(
+                             '', nil, ActiveRecord::ConnectionAdapters::SqlTypeMetadata.new(sql_type: 'varchar', type: :text)
+                           )
+               )
+       end
+       val = @#{obj_name}.attributes[k] %>
     <tr>
-    <th class=\"show-field\"<%= \" title=\\\"#\{col.comment}\\\"\".html_safe if col.respond_to?(:comment) && !col.comment.blank? %>>
+    <th class=\"show-field\"<%= \" title=\\\"#\{col&.comment}\\\"\".html_safe if col&.respond_to?(:comment) && !col&.comment.blank? %>>
 <%    has_fields = true
       if (bt = bts[k])
         # Add a final member in this array with descriptive options to be used in <select> drop-downs
@@ -1713,7 +1723,7 @@ end
           collection&.brick_(:each) do |obj|
             option_detail << [
               obj.brick_descrip(
-                descrip_cols&.first&.map { |col| obj.send(col.last) },
+                descrip_cols&.first&.map { |col2| obj.send(col2.last) },
                 obj_pk
               ), obj.send(obj_pk)
             ]

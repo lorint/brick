@@ -89,6 +89,13 @@ module ActiveRecord
       def brick_foreign_type(assoc)
         reflect_on_association(assoc).foreign_type || "#{assoc}_type"
       end
+
+      def _brick_all_fields
+        rtans = if respond_to?(:rich_text_association_names)
+                  rich_text_association_names&.map { |rtan| rtan.to_s.start_with?('rich_text_') ? rtan[10..-1] : rtan }
+                end
+        columns_hash.keys.map(&:to_sym) + (rtans || [])
+      end
     end
 
     def self._brick_primary_key(relation = nil)
@@ -357,7 +364,7 @@ module ActiveRecord
               # Support nested attributes which use the friendly_id gem
               assoc.klass._brick_nested_friendly_id if Object.const_defined?('FriendlyId') &&
                                                        assoc.klass.instance_variable_get(:@friendly_id_config)
-              new_attrib_text = assoc.klass._brick_find_permits(assoc, (new_permits = assoc.klass.columns_hash.keys.map(&:to_sym)), done_permits)
+              new_attrib_text = assoc.klass._brick_find_permits(assoc, (new_permits = assoc.klass._brick_all_fields), done_permits)
               new_permits << :_destroy
               current_permits << { "#{assoc.name}_attributes".to_sym => new_permits }
               s << "#{assoc.name}_attributes: #{new_attrib_text}"
@@ -2152,13 +2159,7 @@ class Object
           code << "  end\n"
           self.define_method :new do
             _schema, @_is_show_schema_list = ::Brick.set_db_schema(params)
-            if (new_obj = model.new).respond_to?(:serializable_hash)
-              # Convert any Filename objects with nil into an empty string so that #encode can be called on them
-              new_obj.serializable_hash.each do |k, v|
-                new_obj.send("#{k}=", ActiveStorage::Filename.new('')) if v.is_a?(ActiveStorage::Filename) && !v.instance_variable_get(:@filename)
-              end if Object.const_defined?('ActiveStorage')
-            end
-            new_obj.attribute_names.each do |a|
+            new_params = model.attribute_names.each_with_object({}) do |a, s|
               if (val = params["__#{a}"])
                 # val = case new_obj.class.column_for_attribute(a).type
                 #       when :datetime, :date, :time, :timestamp
@@ -2166,8 +2167,14 @@ class Object
                 #       else
                 #         val
                 #       end
-                new_obj.send("#{a}=", val)
+                s[a] = val
               end
+            end
+            if (new_obj = model.new(new_params)).respond_to?(:serializable_hash)
+              # Convert any Filename objects with nil into an empty string so that #encode can be called on them
+              new_obj.serializable_hash.each do |k, v|
+                new_obj.send("#{k}=", ActiveStorage::Filename.new('')) if v.is_a?(ActiveStorage::Filename) && !v.instance_variable_get(:@filename)
+              end if Object.const_defined?('ActiveStorage')
             end
             instance_variable_set("@#{singular_table_name}".to_sym, new_obj)
             add_csp_hash
@@ -2310,7 +2317,7 @@ class Object
 
           if is_need_params
             code << "  def #{params_name}\n"
-            permits_txt = model._brick_find_permits(model, permits = model.columns_hash.keys.map(&:to_sym))
+            permits_txt = model._brick_find_permits(model, permits = model._brick_all_fields)
             code << "    params.require(:#{require_name = model.name.underscore.tr('/', '_')
                              }).permit(#{permits_txt.map(&:inspect).join(', ')})\n"
             code << "  end\n"
