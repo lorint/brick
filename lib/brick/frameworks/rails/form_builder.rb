@@ -20,7 +20,14 @@ module Brick::Rails::FormBuilder
 
       html_options[:prompt] = "Select #{bt_name}"
       out << self.select(method.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options)
-      bt_link = if (bt_obj = bt_class&.find_by(bt_pair[1] => val))
+      bt_obj = nil
+      begin
+        bt_obj = bt_class&.find_by(bt_pair[1] => val)
+      rescue ActiveRecord::SubclassNotFound => e
+        # %%% Would be cool to indicate to the user that a subclass is missing.
+        # Its name starts at:  e.message.index('failed to locate the subclass: ') + 31
+      end
+      bt_link = if bt_obj
                   bt_path = template.send(
                               "#{bt_class.base_class._brick_index(:singular)}_path".to_sym,
                               bt_obj.send(bt_class.primary_key.to_sym)
