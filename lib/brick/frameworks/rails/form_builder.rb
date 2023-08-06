@@ -67,9 +67,14 @@ module Brick::Rails::FormBuilder
       when :boolean
         out << self.check_box(method.to_sym)
       when :integer, :decimal, :float
-        digit_pattern = col_type == :integer ? '\d*' : '\d*(?:\.\d*|)'
-        # Used to do this for float / decimal:  self.number_field method.to_sym
-        out << self.text_field(method.to_sym, { pattern: digit_pattern, class: 'check-validity' })
+        if model.respond_to?(:attribute_types) && (enum_type = model.attribute_types[method]).is_a?(ActiveRecord::Enum::EnumType)
+          opts = enum_type.send(:mapping)&.each_with_object([]) { |v, s| s << [v.first, v.first] } || []
+          out << self.select(method.to_sym, [["(No #{method} chosen)", '^^^brick_NULL^^^']] + opts, { value: val || '^^^brick_NULL^^^' }, options)
+        else
+          digit_pattern = col_type == :integer ? '\d*' : '\d*(?:\.\d*|)'
+          # Used to do this for float / decimal:  self.number_field method.to_sym
+          out << self.text_field(method.to_sym, { pattern: digit_pattern, class: 'check-validity' })
+        end
       when *DT_PICKERS.keys
         template.instance_variable_set(:@_date_fields_present, true)
         out << self.text_field(method.to_sym, { class: DT_PICKERS[col_type] })

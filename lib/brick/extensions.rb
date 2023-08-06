@@ -30,13 +30,13 @@
 
 # Drag something like HierModel#name onto the rows and have it automatically add five columns -- where type=zone / where type = section / etc
 
-# Support for Postgres / MySQL enums (add enum to model, use model enums to make a drop-down in the UI)
-
-# Currently quadrupling up routes
-
 # Modal pop-up things for editing large text / date ranges / hierarchies of data
 
 # For recognised self-references, have the show page display all related objects up to the parent (or the start of a circular reference)
+
+# When creating or updating an object through an auto-generated controller, it always goes to an auto-generated view template even if the user has supplied their own index.html.erb (or similar) view template
+
+# Upon creation of a new object, when going to the index page, highlight this new object and scroll it into view (likely to the very bottom of everything, although might be sorted differently)
 
 # ==========================================================
 # Dynamically create model or controller classes when needed
@@ -2199,7 +2199,8 @@ class Object
               render json: { result: ::Brick.unexclude_column(table_name, col) }
             else
               @_lookup_context.instance_variable_set("@#{singular_table_name}".to_sym,
-                                                     model.send(:create, send(params_name_sym)))
+                                                     (created_obj = model.send(:create, send(params_name_sym))))
+              # %%% Surface any errors to the user in a flash message
               @_lookup_context.instance_variable_set(:@_brick_model, model)
               index
               render :index

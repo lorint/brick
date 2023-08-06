@@ -1673,9 +1673,9 @@ end
      # If it's a new record, set any default polymorphic types
      bts.each do |_k, v|
        if v[2]
-         @#{obj_name}.send(\"#\{model.brick_foreign_type(v.first)}=\", v[1].first&.first&.name)
+         obj.send(\"#\{model.brick_foreign_type(v.first)}=\", v[1].first&.first&.name)
        end
-     end if @#{obj_name}.new_record?
+     end if obj.new_record?
      rtans = #{model_name}.rich_text_association_names if #{model_name}.respond_to?(:rich_text_association_names)
      (#{model_name}.column_names + (rtans || [])).each do |k|
        next if (#{(pk.map(&:to_s) || []).inspect}.include?(k) && !bts.key?(k)) ||
@@ -1689,7 +1689,7 @@ end
                            )
                )
        end
-       val = @#{obj_name}.attributes[k] %>
+       val = obj.attributes[k] %>
     <tr>
     <th class=\"show-field\"<%= \" title=\\\"#\{col&.comment}\\\"\".html_safe if col&.respond_to?(:comment) && !col&.comment.blank? %>>
 <%    has_fields = true
@@ -1698,7 +1698,7 @@ end
         bt_name = bt[1].map { |x| x.first.name }.join('/')
         # %%% Only do this if the user has permissions to edit this bt field
         if bt[2] # Polymorphic?
-          poly_class_name = orig_poly_name = @#{obj_name}.send(model.brick_foreign_type(bt.first))
+          poly_class_name = orig_poly_name = obj.send(model.brick_foreign_type(bt.first))
           bt_pair = nil
           loop do
             bt_pair = bt[1].find { |pair| pair.first.name == poly_class_name }
@@ -1711,7 +1711,7 @@ end
 ***   Brick.sti_namespace_prefixes = { '::#\{orig_poly_name\}' => 'SomeParentModel' }
 ***   Brick.polymorphics = { '#{table_name}.#\{bt.first\}' => ['SomeParentModel'] }\" if bt_pair.nil?
           # descrips = @_brick_bt_descrip[bt.first][bt_class]
-          poly_id = @#{obj_name}.send(\"#\{bt.first\}_id\")
+          poly_id = obj.send(\"#\{bt.first\}_id\")
           # bt_class.order(obj_pk = bt_class.primary_key).each { |obj| option_detail << [obj.brick_descrip(nil, obj_pk), obj.send(obj_pk)] }
         end
         bt_pair ||= bt[1].first # If there's no polymorphism (or polymorphism status is unknown), just get the first one

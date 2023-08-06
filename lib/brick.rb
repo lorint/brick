@@ -1112,20 +1112,22 @@ require 'active_record/relation'
 require 'active_record/relation/query_methods' if ActiveRecord.version < ::Gem::Version.new('5')
 require 'rails/railtie' if ActiveRecord.version < ::Gem::Version.new('4.2')
 
-# Rake tasks
-class Railtie < ::Rails::Railtie
-  Dir.glob("#{File.expand_path(__dir__)}/brick/tasks/**/*.rake").each { |task| load task }
-end
+if Object.const_defined?('Rails')
+  # Rake tasks
+  class Railtie < ::Rails::Railtie
+    Dir.glob("#{File.expand_path(__dir__)}/brick/tasks/**/*.rake").each { |task| load task }
+  end
 
-# Rails < 4.2 does not have env
-module ::Rails
-  unless respond_to?(:env)
-    def self.env
-      @_env ||= ActiveSupport::StringInquirer.new(ENV["RAILS_ENV"] || ENV["RACK_ENV"] || "development")
-    end
+  # Rails < 4.2 does not have env
+  module ::Rails
+    unless respond_to?(:env)
+      def self.env
+        @_env ||= ActiveSupport::StringInquirer.new(ENV["RAILS_ENV"] || ENV["RACK_ENV"] || "development")
+      end
 
-    def self.env=(environment)
-      @_env = ActiveSupport::StringInquirer.new(environment)
+      def self.env=(environment)
+        @_env = ActiveSupport::StringInquirer.new(environment)
+      end
     end
   end
 end

@@ -1,5 +1,7 @@
 module Brick
   module MigrationBuilder
+    include FancyGets
+
     # Many SQL types are the same as their migration data type name:
     #   text, integer, bigint, date, boolean, decimal, float
     # These however are not:

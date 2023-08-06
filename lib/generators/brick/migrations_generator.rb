@@ -8,7 +8,6 @@ require 'generators/brick/migration_builder'
 module Brick
   # Auto-generates migration files
   class MigrationsGenerator < ::Rails::Generators::Base
-    include FancyGets
     include ::Brick::MigrationBuilder
 
     desc 'Auto-generates migration files for an existing database.'
