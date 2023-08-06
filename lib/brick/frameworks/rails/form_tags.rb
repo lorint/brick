@@ -203,6 +203,100 @@ module Brick::Rails::FormTags
     out.html_safe
   end # brick_grid
 
+  # Our mega show/new/update form
+  def brick_form_for(obj, options = {}, model = obj.class, bts = {}, pk = (obj.class.primary_key || []))
+    pk = [pk] unless pk.is_a?(Array)
+    pk.map!(&:to_s)
+    form_for(obj.becomes(model), options) do |f|
+      out = +'<table class="shadow">'
+      has_fields = false
+      # If it's a new record, set any default polymorphic types
+      bts&.each do |_k, v|
+        if v[2]
+          obj.send("#{model.brick_foreign_type(v.first)}=", v[1].first&.first&.name)
+        end
+      end if obj.new_record?
+      rtans = model.rich_text_association_names if model.respond_to?(:rich_text_association_names)
+      (model.column_names + (rtans || [])).each do |k|
+        next if (pk.include?(k) && !bts.key?(k)) ||
+                ::Brick.config.metadata_columns.include?(k)
+
+        col = model.columns_hash[k]
+        if !col && rtans&.include?(k)
+          k = k[10..-1] if k.start_with?('rich_text_')
+          col = (rt_col ||= ActiveRecord::ConnectionAdapters::Column.new(
+                              '', nil, ActiveRecord::ConnectionAdapters::SqlTypeMetadata.new(sql_type: 'varchar', type: :text)
+                            )
+                )
+        end
+        val = obj.attributes[k]
+        out << "
+    <tr>
+    <th class=\"show-field\"#{" title=\"#{col&.comment}\"".html_safe if col&.respond_to?(:comment) && !col&.comment.blank?}>"
+        has_fields = true
+        if (bt = bts[k])
+          # Add a final member in this array with descriptive options to be used in <select> drop-downs
+          bt_name = bt[1].map { |x| x.first.name }.join('/')
+          # %%% Only do this if the user has permissions to edit this bt field
+          if bt[2] # Polymorphic?
+            poly_class_name = orig_poly_name = obj.send(model.brick_foreign_type(bt.first))
+            bt_pair = nil
+            loop do
+              bt_pair = bt[1].find { |pair| pair.first.name == poly_class_name }
+              # Accommodate any valid STI by going up the chain of inheritance
+              break unless bt_pair.nil? && poly_class_name = ::Brick.existing_stis[poly_class_name]
+            end
+            puts "*** Might be missing an STI class called #{orig_poly_name} whose base class should have this:
+***   has_many :#{table_name}, as: :#{bt.first}
+*** Can probably auto-configure everything using these lines in an initialiser:
+***   Brick.sti_namespace_prefixes = { '::#{orig_poly_name}' => 'SomeParentModel' }
+***   Brick.polymorphics = { '#{table_name}.#{bt.first}' => ['SomeParentModel'] }" if bt_pair.nil?
+            # descrips = @_brick_bt_descrip[bt.first][bt_class]
+            poly_id = obj.send("#{bt.first}_id")
+            # bt_class.order(obj_pk = bt_class.primary_key).each { |obj| option_detail << [obj.brick_descrip(nil, obj_pk), obj.send(obj_pk)] }
+          end
+          bt_pair ||= bt[1].first # If there's no polymorphism (or polymorphism status is unknown), just get the first one
+          bt_class = bt_pair&.first
+          if bt.length < 4
+            bt << (option_detail = [["(No #{bt_name} chosen)", '^^^brick_NULL^^^']])
+            # %%% Accommodate composite keys for obj.pk at the end here
+            collection, descrip_cols = bt_class&.order(Arel.sql("#{bt_class.table_name}.#{obj_pk = bt_class.primary_key}"))&.brick_list
+            collection&.brick_(:each) do |obj|
+              option_detail << [
+                obj.brick_descrip(
+                  descrip_cols&.first&.map { |col2| obj.send(col2.last) },
+                  obj_pk
+                ), obj.send(obj_pk)
+              ]
+            end
+          end
+          out << "BT #{bt_class&.bt_link(bt.first) || orig_poly_name}"
+        else
+          out << model.human_attribute_name(k, { default: k })
+        end
+        out << "
+    </th>
+    <td>
+      #{f.brick_field(k, html_options = {}, val, col, bt, bt_class, bt_name, bt_pair)}
+    </td>
+  </tr>"
+      end
+      if has_fields
+        out << "<tr><td colspan=\"2\">#{f.submit({ class: 'update' })}</td></tr>"
+      else
+        out << '<tr><td colspan="2">(No displayable fields)</td></tr>'
+      end
+      out << '</table>'
+      if model.name == 'ActiveStorage::Attachment'
+        begin
+          out << ::Brick::Rails.display_binary(obj&.blob&.download, 500_000)&.html_safe
+        rescue
+        end
+      end
+      out.html_safe
+    end
+  end # brick_form_for
+
   def link_to_brick(*args, **kwargs)
     return unless ::Brick.config.mode == :on
 
