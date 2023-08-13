@@ -1984,6 +1984,10 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
             # In order to defer auto-creation of any routes that already exist, calculate Brick routes only after having loaded all others
             prepend ::Brick::RouteSet
           end
+          ActionDispatch::Routing::Mapper.class_exec do
+            include ::Brick::RouteMapper
+          end
+
           # Do the root route before the Rails Welcome one would otherwise take precedence
           if (route = ::Brick.config.default_route_fallback).present?
             action = "#{route}#{'#index' unless route.index('#')}"

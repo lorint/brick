@@ -34,7 +34,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.160        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.161        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -434,6 +434,7 @@ provided but not a **v2** version, no worries because when asking for the **v2**
 inherits from the **v1** version.  Technically this is accomplished by creating a route for **v2**
 which points back to that older **v1** version of the API controller during Rails startup.  Brick
 auto-creates these routes during the same time in which Rails is finalising all the routes.
+(Or at the point when `#mount_brick_routes` is called if that is placed within **routes.rb**.)
 
 Perhaps an example will make this whole concept a bit clearer -- say for example you wanted to make
 three different versions of an API available.  With **v1** there should only be two views, one for
