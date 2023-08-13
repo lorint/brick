@@ -972,9 +972,14 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
                                      (!a.options[:polymorphic] && a.klass == klass && klass_cols.include?(a.foreign_key))
                                     )
       end
+
       # ActiveStorage compatibility
       selects << 'service_name' if klass.name == 'ActiveStorage::Blob' && ActiveStorage::Blob.columns_hash.key?('service_name')
       selects << 'blob_id' if klass.name == 'ActiveStorage::Attachment' && ActiveStorage::Attachment.columns_hash.key?('blob_id')
+      # Pay gem compatibility
+      selects << 'processor' if klass.name == 'Pay::Customer' && Pay::Customer.columns_hash.key?('processor')
+      selects << 'customer_id' if klass.name == 'Pay::Subscription' && Pay::Subscription.columns_hash.key?('customer_id')
+
       pieces, my_dsl = klass.brick_parse_dsl(join_array = ::Brick::JoinArray.new, [], translations = {}, false, nil, true)
       brick_select(
         selects, where_values_hash, nil, translations: translations, join_array: join_array,
@@ -1807,7 +1812,7 @@ class Object
                 cspd.select! { |val| val == "'self'" }
                 cspd << style_value
               else
-                cspd << "'sha256-QHKxqKcUq7AER1QwEu5uQXRQwC8j4iTWkE8mpOmP7ms='"
+                cspd << "'sha256-VbHigzrnU2KiWIjHStrKhnGxWRv25WXQNdKr5qhevD8='"
               end
               cspd << 'https://cdn.jsdelivr.net'
             end

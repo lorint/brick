@@ -246,6 +246,7 @@ module Brick::Rails::FormTags
               # Accommodate any valid STI by going up the chain of inheritance
               break unless bt_pair.nil? && poly_class_name = ::Brick.existing_stis[poly_class_name]
             end
+            table_name = model.name.split('::').last.underscore.pluralize
             puts "*** Might be missing an STI class called #{orig_poly_name} whose base class should have this:
 ***   has_many :#{table_name}, as: :#{bt.first}
 *** Can probably auto-configure everything using these lines in an initialiser:
@@ -385,7 +386,11 @@ module Brick::Rails::FormTags
       if (links = _brick_resource_from_iv(true)).length == 1 # If there's only one match then use any text that was supplied
         link_to_brick(text || links.first.last.join('/'), links.first.first, **kwargs)
       else
-        links.each_with_object([]) { |v, s| s << link if link = link_to_brick(v.join('/'), v, **kwargs) }.join(' &nbsp; ').html_safe
+        links.each_with_object([]) do |v, s|
+          if (link = link_to_brick(v.join('/'), v, **kwargs))
+            s << link
+          end
+        end.join(' &nbsp; ').html_safe
       end
     end
   end # link_to_brick
