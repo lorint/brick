@@ -1136,6 +1136,20 @@ if Object.const_defined?('ActionView')
       end
     end
   end
+
+  module ActionDispatch::Routing
+    class Mapper
+      module Base
+        # Pro-actively assess Brick routes.  Useful when there is a "catch all" wildcard route
+        # at the end of an existing `routes.rb` file, which would normally steal the show and
+        # not let Brick have any fun.  So just call this right before any wildcard routes, and
+        # you'll be in business!
+        def mount_brick_routes
+          add_brick_routes unless ::Brick.routes_done
+        end
+      end
+    end
+  end
 end
 
 if ActiveSupport::Dependencies.respond_to?(:autoload_module!) # %%% Only works with previous non-zeitwerk auto-loading
