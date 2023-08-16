@@ -1487,6 +1487,21 @@ ActiveSupport.on_load(:active_record) do
     end
   end
 
+  # Allow ActiveRecord < 6.0 to work with Ruby 3.1 and later
+  if ActiveRecord.version < ::Gem::Version.new('6.0a') && ::Gem::Version.new(RUBY_VERSION) >= ::Gem::Version.new('3.1')
+    ::ActiveRecord::Relation.class_exec do
+      alias _original_initialize initialize
+      def initialize(klass, *args)
+        kwargs = if args.last.is_a?(Hash)
+                   args.pop
+                 else
+                   {}
+                 end
+        _original_initialize(klass, **kwargs)
+      end
+    end
+  end
+
   if ActiveRecord.version < ::Gem::Version.new('6.1.4') &&
      Psych.method(:load).parameters.any? { |param| param.first == :key && param.last == :aliases }
     Psych.class_exec do
@@ -1965,7 +1980,6 @@ if ActiveRecord.version < ::Gem::Version.new('6.0') && ruby_version >= ::Gem::Ve
   admsm.class_exec do
     # redefine #build
     def build(app, **kwargs)
-      # puts klass.name
       if args.length > 1 && args.last.is_a?(Hash)
         kwargs.merge!(args.pop)
       end
