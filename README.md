@@ -34,7 +34,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.163        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.165        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -200,6 +200,22 @@ Employee.includes(orders: :order_details)
 ```
 
 More information is available in this [discussion post](https://discuss.rubyonrails.org/t/includes-and-select-for-joined-data/81640).
+
+Another enhancement is a smart `.brick_where()` which operates just like ActiveRecord's normal `.where()` with
+the addition that if you reference a related table then it automatically adds appropriate `.joins()` entries
+for you.  For instance, if you have **Post** that `has_many :user_posts`, and also
+`has_many :users, through: :user_posts`, then let's say on the associative model UserPost there is a boolean
+for `liked`.  With this, if you wanted to find all posts which a given user had liked, you could do:
+
+```
+Post.brick_where('user_posts.user.id' => my_user.id, 'user_posts.liked' => true)
+```
+
+And then the resulting SQL would automatically include JOINs for the related tables, and properly reference the
+alias names for those tables in the WHERE clause:
+```
+Post Load (1.6ms)  SELECT "posts".* FROM "posts" INNER JOIN "user_posts" ON "user_posts"."post_id" = "posts"."id" INNER JOIN "users" ON "users"."id" = "user_posts"."user_id" WHERE "users"."id" = $1 AND "user_posts"."liked" = $2 ORDER BY "posts"."id" ASC  [["id", 5], ["liked", true]]
+```
 
 As well, some aspects of the Zeitwerk autoloader get enhanced so that everything operates more consistently when classes are nested in multiple modules.  Here is a [video demonstrating default snags and how Brick fixes them](https://user-images.githubusercontent.com/5301131/235632564-95f28f7e-854c-417c-b00e-078c4fe8e7f3.mp4).  More background about this specific example can be found in [this Reddit post](https://www.reddit.com/r/rails/comments/134o6nr/why_does_pryzeitwerk_have_issues_loading/).
 
