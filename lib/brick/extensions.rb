@@ -481,6 +481,10 @@ module ActiveRecord
       relation.select(selects)
     end
 
+    def self.brick_where(*args)
+      (relation = all).brick_where(*args)
+    end
+
   private
 
     def self._brick_get_fks
@@ -987,6 +991,46 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
       )
       order_values = "#{klass.table_name}.#{klass.primary_key}"
       [self.select(selects), descrip_cols]
+    end
+
+    # Smart Brick #where that automatically adds the inner JOINs when you have a query like:
+    #   Customer.brick_where('orders.order_details.order_date' => '2005-1-1', 'orders.employee.first_name' => 'Nancy')
+    # Way to make it a more intrinsic part of ActiveRecord
+    # alias _brick_where! where!
+    # def where!(opts, *rest)
+    def brick_where(opts)
+      if opts.is_a?(Hash)
+        # && joins_values.empty? # Make sure we don't step on any toes if they've already specified JOIN things
+        ja = nil
+        opts.each do |k, v|
+          if k.is_a?(String) && (ref_parts = k.split('.')).length > 1
+            # JOIN in all the same ways as the pathing describes
+            linkage = (ja ||= ::Brick::JoinArray.new)
+            ref_parts[0..-3].each do |prefix_part|
+              linkage = linkage[prefix_part.to_sym]
+            end
+            linkage[ref_parts[-2].to_sym] = nil
+          end
+        end
+        if ja&.present?
+          if ActiveRecord.version < Gem::Version.new('4.2')
+            self.joins_values += ja # Same as:  joins!(ja)
+          else
+            self.joins!(ja)
+          end
+          (ast_tree = self.dup).arel.ast # Walk the AST tree so we can rewrite the prefixes accordingly
+          conditions = opts.each_with_object({}) do |v, s|
+            if (ref_parts = v.first.split('.')).length > 1 &&
+               (tbl = ast_tree.brick_links[ref_parts[0..-2].join('.')])
+              s["#{tbl}.#{ref_parts.last}"] = v.last
+            else
+              s[v.first] = v.last
+            end
+          end
+        end
+      end
+      # If you want it to be more intrinsic with ActiveRecord, do this instead:  super(conditions, *rest)
+      self.where!(conditions)
     end
 
     # Accommodate when a relation gets queried for a model, and in that model it has an #after_initialize block
