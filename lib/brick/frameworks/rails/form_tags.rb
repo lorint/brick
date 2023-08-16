@@ -66,8 +66,8 @@ module Brick::Rails::FormTags
                s << "title=\"#{col.comment}\" " if col.respond_to?(:comment) && !col.comment.blank?
                s << if (bt = bts[col_name])
                       # Allow sorting for any BT except polymorphics
-                      "x-order=\"#{bt.first.to_s + '"' unless bt[2]}>BT " +
-                      bt[1].map { |bt_pair| bt_pair.first.bt_link(bt.first) }.join(' ')
+                      x_order = "x-order=\"#{bt.first.to_s + '"'}" unless bt[2]
+                      "#{x_order}>BT #{bt[1].map { |bt_pair| bt_pair.first.bt_link(bt.first) }.join(' ')}"
                     else # Normal column
                       col_name_humanised = klass.human_attribute_name(col_name, { default: col_name })
                       "x-order=\"#{col_name + '"' if true}>#{col_name_humanised}"
