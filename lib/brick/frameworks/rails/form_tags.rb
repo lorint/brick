@@ -61,29 +61,34 @@ module Brick::Rails::FormTags
     end
     sequence.reject! { |nm| exclusions.include?(nm) } if exclusions
     out << sequence.each_with_object(+'') do |col_name, s|
-             s << '<th '
+             s << '<th'
              if (col = cols[col_name]).is_a?(ActiveRecord::ConnectionAdapters::Column)
-               s << "title=\"#{col.comment}\" " if col.respond_to?(:comment) && !col.comment.blank?
+               s << " title=\"#{col.comment}\"" if col.respond_to?(:comment) && !col.comment.blank?
                s << if (bt = bts[col_name])
                       # Allow sorting for any BT except polymorphics
-                      "x-order=\"#{bt.first.to_s + '"' unless bt[2]}>BT " +
-                      bt[1].map { |bt_pair| bt_pair.first.bt_link(bt.first) }.join(' ')
+                      x_order = " x-order=\"#{bt.first.to_s + '"'}" unless bt[2]
+                      "#{x_order}>BT #{bt[1].map { |bt_pair| bt_pair.first.bt_link(bt.first) }.join(' ')}"
                     else # Normal column
                       col_name_humanised = klass.human_attribute_name(col_name, { default: col_name })
-                      "x-order=\"#{col_name + '"' if true}>#{col_name_humanised}"
+                      x_order = " x-order=\"#{col_name}\"" if true
+                      "#{x_order}>#{col_name_humanised}"
                     end
              elsif col # HM column
                options = {}
                options[col[1].inheritance_column] = col[1].name unless col[1] == col[1].base_class
-               s << "x-order=\"#{col_name + '"' if true}>#{col[2]} "
+               x_order = " x-order=\"#{col_name}\"" if true
+               s << "#{x_order}>#{col[2]} "
                s << (col.first ? "#{col[3]}" : "#{link_to(col[3], send("#{col[1]._brick_index}_path", options))}")
              elsif cust_cols.key?(col_name) # Custom column
-               s << "x-order=\"#{col_name}\">#{col_name}"
+               x_order = " x-order=\"#{col_name}\"" if true
+               s << "#{x_order}>#{col_name}"
              elsif col_name.is_a?(Symbol) && (hot = bts[col_name]) # has_one :through
-               s << "x-order=\"#{hot.first.to_s}\">HOT " +
+               x_order = " x-order=\"#{hot.first.to_s}\"" if true
+               s << "#{x_order}>HOT " +
                     hot[1].map { |hot_pair| hot_pair.first.bt_link(col_name) }.join(' ')
              elsif (bt = composite_bt_names[col_name])
-               s << "x-order=\"#{bt.first.to_s + '"' unless bt[2]}>BT comp " +
+               x_order = " x-order=\"#{bt.first.to_s}\"" unless bt[2]
+               s << "#{x_order}>BT comp " +
                     bt[1].map { |bt_pair| bt_pair.first.bt_link(bt.first) }.join(' ')
              else # Bad column name!
                s << "title=\"<< Unknown column >>\">#{col_name}"
