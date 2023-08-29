@@ -1364,7 +1364,8 @@ end
                                    (plural_class_name = class_name.pluralize)].find { |s| Brick.db_schemas&.include?(s) }&.camelize ||
                                   (::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}::") && class_name) ||
                                   (::Brick.config.table_name_prefixes&.values&.include?(class_name) && class_name))
-               return self.const_get(schema_name) if !is_tnp_module && self.const_defined?(schema_name)
+               return self.const_get(schema_name) if self.const_defined?(schema_name) &&
+                                                     (!is_tnp_module || self.const_get(schema_name).is_a?(Class))
 
                # Build out a module for the schema if it's namespaced
                # schema_name = schema_name.camelize
