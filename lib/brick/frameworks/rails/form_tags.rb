@@ -27,10 +27,46 @@ module Brick::Rails::FormTags
     nfc = Brick.config.sidescroll.fetch(relation.table_name, nil)&.fetch(:num_frozen_columns, nil) ||
           Brick.config.sidescroll.fetch(:num_frozen_columns, nil) ||
           0
-    out = "<table id=\"headerTop\"></table>
+    out = +"<div id=\"headerTopContainer\"><table id=\"headerTop\"></table>
+  <div id=\"headerTopAddNew\">
+    <div id=\"headerButtonBox\">
+      <div id=\"imgErd\" title=\"Show ERD\"></div>
+"
+    klass = relation.klass
+    if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) && klass.name.exclude?('::')
+      out << "
+        <td>#{link_to_brick(
+          ::Brick::Rails::AVO_SVG,
+          { index_proc: Proc.new do |_avo_model, relation|
+                          path_helper = "resources_#{relation.fetch(:auto_prefixed_schema, nil)}#{klass.model_name.route_key}_path".to_sym
+                          ::Avo.railtie_routes_url_helpers.send(path_helper) if ::Avo.railtie_routes_url_helpers.respond_to?(path_helper)
+                        end,
+            title: "#{klass.name} in Avo" }
+        )}</td>
+"
+    end
+
+    if Object.const_defined?('ActiveAdmin')
+      ActiveAdmin.application.namespaces.names.each do |ns|
+      out << "
+        <td>#{link_to_brick(
+          ::Brick::Rails::AA_PNG,
+          { index_proc: Proc.new do |aa_model, relation|
+                          path_helper = "#{ns}_#{relation.fetch(:auto_prefixed_schema, nil)}#{rk = aa_model.model_name.route_key}_path".to_sym
+                          send(path_helper) if respond_to?(path_helper)
+                        end,
+            title: "#{klass.name} in ActiveAdmin" }
+        )}</td>
+"
+      end
+    end
+
+    out << "    </div>
+  </div>
+</div>
 <table id=\"#{relation.table_name.split('.').last}\" class=\"shadow\"#{ " x-num-frozen=\"#{nfc}\"" if nfc.positive? }>
   <thead><tr>"
-    pk = (klass = relation.klass).primary_key || []
+    pk = klass.primary_key || []
     pk = [pk] unless pk.is_a?(Array)
     if pk.present?
       out << "<th x-order=\"#{pk.join(',')}\"></th>"
