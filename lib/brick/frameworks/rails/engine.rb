@@ -813,10 +813,11 @@ h1, h3 {
   margin-bottom: 0;
 }
 #imgErd {
+  display: table-cell;
   background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAE0AAABNCAMAAADU1xmCAAAABGdBTUEAALGPC/xhBQAAAAFzUkdCAK7OHOkAAARxaVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJYTVAgQ29yZSA2LjAuMCI+CiAgIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICAgICAgICAgIHhtbG5zOnRpZmY9Imh0dHA6Ly9ucy5hZG9iZS5jb20vdGlmZi8xLjAvIgogICAgICAgICAgICB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIKICAgICAgICAgICAgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiCiAgICAgICAgICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyI+CiAgICAgICAgIDx0aWZmOllSZXNvbHV0aW9uPjcyPC90aWZmOllSZXNvbHV0aW9uPgogICAgICAgICA8dGlmZjpYUmVzb2x1dGlvbj43MjwvdGlmZjpYUmVzb2x1dGlvbj4KICAgICAgICAgPHRpZmY6T3JpZW50YXRpb24+MTwvdGlmZjpPcmllbnRhdGlvbj4KICAgICAgICAgPHhtcE1NOkRlcml2ZWRGcm9tIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgPHN0UmVmOmluc3RhbmNlSUQ+eG1wLmlpZDoxN0U3OEI3RjAzN0MxMUU3QTZDMDhBQjVCRDc2QkZCQjwvc3RSZWY6aW5zdGFuY2VJRD4KICAgICAgICAgICAgPHN0UmVmOmRvY3VtZW50SUQ+eG1wLmRpZDoxN0U3OEI4MDAzN0MxMUU3QTZDMDhBQjVCRDc2QkZCQjwvc3RSZWY6ZG9jdW1lbnRJRD4KICAgICAgICAgPC94bXBNTTpEZXJpdmVkRnJvbT4KICAgICAgICAgPHhtcE1NOkRvY3VtZW50SUQ+eG1wLmRpZDoxN0U3OEI4MjAzN0MxMUU3QTZDMDhBQjVCRDc2QkZCQjwveG1wTU06RG9jdW1lbnRJRD4KICAgICAgICAgPHhtcE1NOkluc3RhbmNlSUQ+eG1wLmlpZDoxN0U3OEI4MTAzN0MxMUU3QTZDMDhBQjVCRDc2QkZCQjwveG1wTU06SW5zdGFuY2VJRD4KICAgICAgICAgPHhtcDpDcmVhdG9yVG9vbD5BZG9iZSBQaG90b3Nob3AgQ1M1IFdpbmRvd3M8L3htcDpDcmVhdG9yVG9vbD4KICAgICAgPC9yZGY6RGVzY3JpcHRpb24+CiAgIDwvcmRmOlJERj4KPC94OnhtcG1ldGE+ChMBcXgAAAAJcEhZcwAACxMAAAsTAQCanBgAAAL9UExURUdwTDRRc1EVG6ioqFJSUmJiYn+AgURWa2uEkauorszGwmtrawonUKzY7DMRIlFTVWV9m4qKiwaN0G1raJSQiJjV7jWh2HmizPLs6CaV0QohSmdoaVdXWLWsomFdYmIgD4WCfQWa2WIoFUxylldpekeRuGtrajhztIuLizV3qc3DvThDVEyFs31+fiRViVRNViVWjwsvWxIzXxZEekeL1FZIVVRdeEZrk359fj52ppubm3l6e4qbqJOTlBlGfM3k3Nzc3K6lnk9RWaenp0FjikGDyJGRkWJiYk2L0Li4uJubnH5+flFbeNPT02tpac3NzVBGJkCCyMvLy9LS0oxETk2U3tLS0tXV1cPDw+Xl5amDftbX19na2uLj4+jo6dzd3OXl511dXd/g31paWlZXV9TU1HBwcOvr687OzdDQ0u/u7fTx79PSzcrJx6KiooWFhujn5NvW05WUk7S1t3R1d7y9vcLCv37J68vMzVJTVOLY1gMiSpmamnt7e7K6zHq+43LQ9Vyez+Pf3LGyscXGybzD1sXDw46v02vI8I+Pj7vEtNvIx7q4ubnZ54a3it3f5s+8vGS/6L6trK+6qICs1H+33cXc6KiuwAOr48fN20ee0Fao0lyz4W6s1qyrrKKlt3XdkoqnyyFoqzuTy6ixosuVeobA4YHNl8TOv3/Ck9bc4I3P7Uqq3tDIxz2FwzN/vF+VxdDe59mIfU+OxJmovxl+wX7S9WjbhovW9jihyKGalIq31uNyY36exJCatJONhTm36nKj0B2q4Mqxsae2zc/U3tvf1cqKa7zAyJS4npqyyTh2tUhMT1drj5ixtN98cEfC8U2Y5vf39355cSN0s4mDfKaomlrG8b2cmcFvaGx/m2CeZge68HG64YCNntSgoVHUdJzKnIHIh6c+BalVVaPM5qrG2CZZkyaHH3WRtYrdn5nH2rxoP22+gN1VQTyxW1aXl0iO2GaxtFuzaCCAQyXSWDOKlDZwkxIINVZPP52Io3uldtIoC1uGVxmzRP6PHn8AAADVdFJOUwAmEf6t/v4EAQVR/oT+Hl4U/v1bR/7+Kf7+a/76Q4Y2Wf1b4j71sXm0y2hF/bBwbtXN/fyGl8Sxiu382Preqfzia9iIkdP51/Povnineu+9n6H7ov5ksLfYy/7////////+/////////////////////v/////////////////////////////////////////////////////////////////////////////+/////////////////////////////////////////////////////r5xM8kAAA0qSURBVFjDpZh3WFNnG8YDMZOiLEFEsVhn1Vq1Vq1abWv3br+dc5IQsklCSEiIyAoJyAhb9h4ishVQcCAIOLC4UBFxr7bu0X6dX6/vec8JikIptecPVrh+576f5z3vez+HQmGyKBSK28eT4SsL/fiXLiaFwmD/E5NzPmU7wG8s5l/DOXy8+vhxLg8TcN5/yw0JZPwV2GoJH+fjPI7UHBWV/8HzwGIynlkgm+vv788RiURSs06bT6WuJAQynlEgO+JaUzoWhGAWE1X1mkqlmYUEMp5JIBs7ejYz3L4iyN+gy1epVMGvaYI1K5faIIF/nsfuPDr325LMo5XpvCCFThUMrHccY2L85j2TQHZna11kZFGd19lo+4oI/yiqJiYmxtGP7kdf/gwC2bLWuix1RWTX7uzMo+PTI4KkJo0fXPSQkBDxDOc/KZBtaK3P4uLqrPXri+rcz4YjgbpgegidHhIgDhC/6/mnBLLNVTWdclzdmbYTeAMClVS6OCAgQGxnZ0cbM4dBPDKjoh2oqo309ZV3ppWV7UTAur1nw+MrIhRaRzsPsdiDRqN5v+lpO0oc0OrrirLkiWGVZVYeIXBLRFBUsNiH5kHz9vHxeZMxOhxb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);
   background-size: 100% 100%;
-  width: 2.2em;
-  height: 2.2em;
+  width: 28px;
+  height: 28px;
   cursor: pointer;
 }
 #mermaidErd {
@@ -840,12 +841,34 @@ h1, h3 {
   display: none;
 }
 
-#headerTop {
+#headerTopContainer {
   position: sticky;
+  display: inline-block;
   top: 0px;
   background-color: white;
   z-index: 1;
 }
+#headerTopAddNew {
+  position: absolute;
+  width: 100%;
+  top: -29px;
+}
+#headerButtonBox {
+  display: inline-block;
+  position: sticky;
+  right: 0px;
+  float: right;
+}
+#headerButtonBox a, #headerButtonBox svg {
+  display: table-cell;
+  height: 24px;
+  width: 24px;
+  padding: 2px;
+}
+#addNew {
+  background-color: #008061;
+}
+
 table {
   border-collapse: collapse;
   font-size: 0.9em;
@@ -1014,6 +1037,17 @@ callbacks = {} %>"
                 poly_cols = #{poly_cols.inspect} %>"
               end
 
+              addNewLink = if !@_brick_model&.is_view?
+                             "<% if respond_to?(:#{new_path_name = "new_#{path_obj_name}_path"}) %>
+var addNew = document.createElement(\"A\");
+addNew.id = \"addNew\";
+addNew.href = \"<%= send(:#{new_path_name}) %>\";
+addNew.title = \"New #{obj_name}\";
+addNew.innerHTML = '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\"><path fill=\"#fff\" d=\"M24 10h-10v-10h-4v10h-10v4h10v10h4v-10h10z\"/></svg>';
+document.getElementById(\"headerButtonBox\").append(addNew);
+<% end %>"
+                           end
+
               # %%% When doing schema select, if we're on a new page go to index
               script = "<script>
 var #{table_name}HtColumns;
@@ -1146,7 +1180,8 @@ if (headerTop) {
   setHeaderSizes();
   window.addEventListener('resize', function(event) {
     setHeaderSizes();
-  }, true);
+  }, true);#{
+  addNewLink}
 }
 // Cause descriptive text to use the same font as the resource 
 var brickFontFamily = document.getElementById(\"resourceName\").computedStyleMap().get(\"font-family\");
@@ -1371,33 +1406,8 @@ erDiagram
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><tr>
-  <td><h1><%= td_count = 2
+  <td><h1><%= td_count = 1
               model.name %></h1></td>
-  <td id=\"imgErd\" title=\"Show ERD\"></td>
-  <% if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) && model.name.exclude?('::')
-       td_count += 1 %>
-    <td><%= link_to_brick(
-        ::Brick::Rails::AVO_SVG,
-        { index_proc: Proc.new do |_avo_model, relation|
-                        path_helper = \"resources_#\{relation.fetch(:auto_prefixed_schema, nil)}#\{model.model_name.route_key}_path\".to_sym
-                        ::Avo.railtie_routes_url_helpers.send(path_helper) if ::Avo.railtie_routes_url_helpers.respond_to?(path_helper)
-                      end,
-          title: \"#\{model.name} in Avo\" }
-      ) %></td>
-  <% end %>
-  <% if Object.const_defined?('ActiveAdmin')
-       ActiveAdmin.application.namespaces.names.each do |ns|
-         td_count += 1 %>
-      <td><%= link_to_brick(
-          ::Brick::Rails::AA_PNG,
-          { index_proc: Proc.new do |aa_model, relation|
-                          path_helper = \"#\{ns}_#\{relation.fetch(:auto_prefixed_schema, nil)}#\{rk = aa_model.model_name.route_key}_path\".to_sym
-                          send(path_helper) if respond_to?(path_helper)
-                        end,
-            title: \"#\{model.name} in ActiveAdmin\" }
-        ) %></td>
-  <%   end
-     end %>
 </tr>
 
 <%= if model < (base_model = model.base_class)
