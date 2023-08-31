@@ -213,6 +213,15 @@ module Brick
       @mutex.synchronize { @nested_attributes = anaf }
     end
 
+    # Associations for which to auto-create a has_many ___, through: ___
+    def hmts
+      @mutex.synchronize { @hmts }
+    end
+
+    def hmts=(assocs)
+      @mutex.synchronize { @hmts = assocs }
+    end
+
     # Polymorphic associations
     def polymorphics
       @mutex.synchronize { @polymorphics }

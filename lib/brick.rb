@@ -278,7 +278,8 @@ module Brick
         if (through = hmt.last.options[:through])
           # ::Brick.relations[hmt.last.through_reflection.table_name]
           skip_hms[through] = nil if hms[through] && model.is_brick? &&
-                                     hmt.last.klass != hmt.last.active_record # Don't pull HMs for HMTs that point back to the same table
+                                     hmt.last.klass != hmt.last.active_record && # Don't pull HMs for HMTs that point back to the same table
+                                     hmt[1].source_reflection.belongs_to? # Don't pull HMs when the HMT is built from HM -> HM
           # End up with a hash of HMT names pointing to join-table associations
           model._br_associatives[hmt.first] = hms[through] # || hms["#{(opt = hmt.last.options)[:through].to_s.singularize}_#{opt[:source].to_s.pluralize}".to_sym]
         end
@@ -497,6 +498,12 @@ module Brick
     # @api public
     def nested_attributes=(anaf)
       Brick.config.nested_attributes = anaf
+    end
+
+    # Associations for which to auto-create a has_many ___, through: ___
+    # @api public
+    def hmts=(assocs)
+      Brick.config.hmts = assocs
     end
 
     # Polymorphic associations

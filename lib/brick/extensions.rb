@@ -1676,7 +1676,7 @@ class Object
                               # options[:source] = other.first[:inverse][:assoc_name].to_sym
                               #  And also has been:
                               # hm.first[:inverse][:assoc_name].to_sym
-                              options[:source] = hm.last.to_sym
+                              options[:source] = hm[1].to_sym
                             else
                               through = hm.first.fetch(:alternate_chosen_name, hm.first[:alternate_name])
                             end
@@ -1692,11 +1692,11 @@ class Object
               # Was:
               # options[:class_name] = hm.first[:inverse_table].singularize.camelize
               # options[:foreign_key] = hm.first[:fk].to_sym
-              far_assoc = relations[hm.first[:inverse_table]][:fks].find { |_k, v| v[:assoc_name] == hm.last }
+              far_assoc = relations[hm.first[:inverse_table]][:fks].find { |_k, v| v[:assoc_name] == hm[1] }
               options[:class_name] = far_assoc.last[:inverse_table].singularize.camelize
               options[:foreign_key] = far_assoc.last[:fk].to_sym
             end
-            options[:source] ||= hm.last.to_sym unless hmt_name.singularize == hm.last
+            options[:source] ||= hm[1].to_sym unless hmt_name.singularize == hm[1]
             code << "  has_many :#{hmt_name}#{options.map { |opt| ", #{opt.first}: #{opt.last.inspect}" }.join}\n"
             new_model_class.send(:has_many, hmt_name.to_sym, **options)
           end
@@ -1798,10 +1798,24 @@ class Object
 
       # Prepare a list of entries for "has_many :through"
       if macro == :has_many
-        relations[inverse_table][:hmt_fks].each do |k, hmt_fk|
+        relations[inverse_table].fetch(:hmt_fks, nil)&.each do |k, hmt_fk|
           next if k == assoc[:fk]
 
           hmts[ActiveSupport::Inflector.pluralize(hmt_fk.last)] << [assoc, hmt_fk.first]
+        end
+
+        # Add any relevant user-requested HMTs
+        Brick.config.hmts&.each do |hmt|
+          # Make sure this HMT lines up with the current HM
+          next unless hmt.first == table_name && hmt[1] == inverse_table &&
+                      # And has not already been auto-created
+                      !(hmts.fetch(hmt[2], nil)&.any? { |existing_hmt| existing_hmt.first[:assoc_name] == hmt[1] })
+
+          # Good so far -- now see if we have appropriate HM -> BT/HM associations by which we can create this user-requested HMT
+          if (hm_assoc = relation[:fks].find { |_k, v| !v[:is_bt] && v[:assoc_name] == hmt[1] }.last) &&
+             (hmt_assoc = relations[hm_assoc[:inverse_table]][:fks]&.find { |_k, v| v[:inverse_table] == hmt[2] }.last)
+            hmts[hmt[2]] << [hm_assoc, hmt_assoc[:assoc_name]]
+          end
         end
       end
       # And finally create a has_one, has_many, or belongs_to for this association

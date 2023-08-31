@@ -294,6 +294,9 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # # This video to demonstrates how this works:  https://github.com/lorint/brick/assets/5301131/82ac4f6d-bc23-4a55-adab-bc754bcb0f26
   # Brick.nested_attributes = { 'User' => ['profile', 'posts'] }
 
+  # # Auto-create specific has_many ___, through: ___ associations
+  # Brick.hmts = [['recipes', 'recipe_ingredients', 'ingredients']]
+
   # # We normally don't show the timestamp columns \"created_at\", \"updated_at\", and \"deleted_at\", and also do
   # # not consider them when finding associative tables to support an N:M association.  (That is, ones that can be a
   # # part of a has_many :through association.)  If you want to use different exclusion columns than our defaults
