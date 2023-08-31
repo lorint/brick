@@ -499,6 +499,12 @@ module Brick
       Brick.config.nested_attributes = anaf
     end
 
+    # Associations for which to auto-create a has_many ___, through: ___
+    # @api public
+    def hmts=(assocs)
+      Brick.config.hmts = assocs
+    end
+
     # Polymorphic associations
     def polymorphics=(polys)
       polys = polys.each_with_object({}) { |poly, s| s[poly] = nil } if polys.is_a?(Array)

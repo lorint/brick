@@ -1798,10 +1798,24 @@ class Object
 
       # Prepare a list of entries for "has_many :through"
       if macro == :has_many
-        relations[inverse_table][:hmt_fks].each do |k, hmt_fk|
+        relations[inverse_table].fetch(:hmt_fks, nil)&.each do |k, hmt_fk|
           next if k == assoc[:fk]
 
           hmts[ActiveSupport::Inflector.pluralize(hmt_fk.last)] << [assoc, hmt_fk.first]
+        end
+
+        # Add any relevant user-requested HMTs
+        Brick.config.hmts.each do |hmt|
+          # Make sure this HMT lines up with the current HM
+          next unless hmt.first == table_name && hmt[1] == inverse_table &&
+                      # And has not already been auto-created
+                      !(y = hmts.fetch(hmt[2], nil)&.find { |x| x.first[:assoc_name] == hmt[1] })
+
+          # Good so far -- now see if we have appropriate HM -> BT/HM associations by which we can create this user-requested HMT
+          if (hm_assoc = relation[:fks].find { |_k, v| !v[:is_bt] && v[:assoc_name] == hmt[1] }.last) &&
+             (hmt_assoc = relations[hm_assoc[:inverse_table]][:fks]&.find { |_k, v| v[:inverse_table] == hmt[2] }.last)
+            hmts[hmt[2]] << [hm_assoc, hmt_assoc[:assoc_name]]
+          end
         end
       end
       # And finally create a has_one, has_many, or belongs_to for this association
