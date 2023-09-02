@@ -1,7 +1,8 @@
 module Brick::Rails::FormTags
   # Our super speedy grid
   def brick_grid(relation = nil, bt_descrip = nil, sequence = nil, inclusions = nil, exclusions = nil,
-                 cols = {}, poly_cols = nil, bts = {}, hms_keys = [], hms_cols = {})
+                 cols = {}, poly_cols = nil, bts = {}, hms_keys = [], hms_cols = {},
+                 show_header: nil, show_row_count: nil, show_erd_button: nil, show_new_button: nil, show_avo_button: nil, show_aa_button: nil)
     # When a relation is not provided, first see if one exists which matches the controller name
     unless (relation ||= instance_variable_get("@#{controller_name}".to_sym))
       # Failing that, dig through the instance variables with hopes to find something that is an ActiveRecord::Relation
@@ -28,36 +29,46 @@ module Brick::Rails::FormTags
           Brick.config.sidescroll.fetch(:num_frozen_columns, nil) ||
           0
     out = +"<div id=\"headerTopContainer\"><table id=\"headerTop\"></table>
-  <div id=\"headerTopAddNew\">
-    <div id=\"headerButtonBox\">
-      <div id=\"imgErd\" title=\"Show ERD\"></div>
 "
     klass = relation.klass
-    if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) && klass.name.exclude?('::')
-      out << "
+    unless show_header == false
+      out << "  <div id=\"headerTopAddNew\">
+    <div id=\"headerButtonBox\">
+"
+      unless show_row_count == false
+        out << "      <div id=\"rowCount\"></div>
+"
+      end
+      unless show_erd_button == false
+        out << "      <div id=\"imgErd\" title=\"Show ERD\"></div>
+"
+      end
+      if show_avo_button != false && Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) && klass.name.exclude?('::')
+        out << "
         <td>#{link_to_brick(
-          ::Brick::Rails::AVO_SVG,
-          { index_proc: Proc.new do |_avo_model, relation|
-                          path_helper = "resources_#{relation.fetch(:auto_prefixed_schema, nil)}#{klass.model_name.route_key}_path".to_sym
-                          ::Avo.railtie_routes_url_helpers.send(path_helper) if ::Avo.railtie_routes_url_helpers.respond_to?(path_helper)
-                        end,
-            title: "#{klass.name} in Avo" }
+            ::Brick::Rails::AVO_SVG,
+            { index_proc: Proc.new do |_avo_model, relation|
+                            path_helper = "resources_#{relation.fetch(:auto_prefixed_schema, nil)}#{klass.model_name.route_key}_path".to_sym
+                            ::Avo.railtie_routes_url_helpers.send(path_helper) if ::Avo.railtie_routes_url_helpers.respond_to?(path_helper)
+                          end,
+              title: "#{klass.name} in Avo" }
         )}</td>
 "
-    end
+      end
 
-    if Object.const_defined?('ActiveAdmin')
-      ActiveAdmin.application.namespaces.names.each do |ns|
-      out << "
-        <td>#{link_to_brick(
-          ::Brick::Rails::AA_PNG,
-          { index_proc: Proc.new do |aa_model, relation|
-                          path_helper = "#{ns}_#{relation.fetch(:auto_prefixed_schema, nil)}#{rk = aa_model.model_name.route_key}_path".to_sym
-                          send(path_helper) if respond_to?(path_helper)
-                        end,
-            title: "#{klass.name} in ActiveAdmin" }
+      if show_aa_button != false && Object.const_defined?('ActiveAdmin')
+        ActiveAdmin.application.namespaces.names.each do |ns|
+        out << "
+          <td>#{link_to_brick(
+            ::Brick::Rails::AA_PNG,
+            { index_proc: Proc.new do |aa_model, relation|
+                            path_helper = "#{ns}_#{relation.fetch(:auto_prefixed_schema, nil)}#{rk = aa_model.model_name.route_key}_path".to_sym
+                            send(path_helper) if respond_to?(path_helper)
+                          end,
+              title: "#{klass.name} in ActiveAdmin" }
         )}</td>
 "
+        end
       end
     end
 
@@ -137,6 +148,7 @@ module Brick::Rails::FormTags
     #     ActiveRecord::StatementTimeout in Warehouse::ColdRoomTemperatures_Archive#index
     #     TinyTds::Error: Adaptive Server connection timed out
     #     (After restarting the server it worked fine again.)
+    rowCount = 0
     relation.each do |obj|
       out << "<tr>\n"
       out << "<td class=\"col-sticky\">#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym,
@@ -237,9 +249,11 @@ module Brick::Rails::FormTags
         out << '</td>'
       end
       out << '</tr>'
+      rowCount += 1
     end
     out << "  </tbody>
 </table>
+<script>document.getElementById(\"rowCount\").innerHTML = \"#{pluralize(rowCount, "row")} &nbsp;\";</script>
 "
     out.html_safe
   end # brick_grid

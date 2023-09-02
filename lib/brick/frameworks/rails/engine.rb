@@ -799,6 +799,7 @@ window.addEventListener(\"popstate\", linkSchemas);
   position: sticky;
   display: inline-block;
   left: 0;
+  z-index: 2;
 }
 
 .flashNotice {
@@ -807,6 +808,13 @@ window.addEventListener(\"popstate\", linkSchemas);
 
 h1, h3 {
   margin-bottom: 0;
+}
+#rowCount {
+  display: table-cell;
+  height: 32px;
+  vertical-align: middle;
+  font-size: 0.9em;
+  font-family: sans-serif;
 }
 #imgErd {
   display: table-cell;
