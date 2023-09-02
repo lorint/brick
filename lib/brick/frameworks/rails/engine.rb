@@ -1041,21 +1041,8 @@ callbacks = {} %>"
                 poly_cols = #{poly_cols.inspect} %>"
               end
 
-              addNewLink = if !@_brick_model&.is_view?
-                             "<% if respond_to?(:#{new_path_name = "new_#{path_obj_name}_path"}) %>
-var addNew = document.createElement(\"A\");
-addNew.id = \"addNew\";
-addNew.href = \"<%= send(:#{new_path_name}) %>\";
-addNew.title = \"New #{obj_name}\";
-addNew.innerHTML = '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\"><path fill=\"#fff\" d=\"M24 10h-10v-10h-4v10h-10v4h10v10h4v-10h10z\"/></svg>';
-document.getElementById(\"headerButtonBox\").append(addNew);
-<% end %>"
-                           end
-
               # %%% When doing schema select, if we're on a new page go to index
               script = "<script>
-var #{table_name}HtColumns;
-
 // Add \"Are you sure?\" behaviour to any data-confirm buttons out there
 document.querySelectorAll(\"input[type=submit][data-confirm]\").forEach(function (btn) {
   btn.addEventListener(\"click\", function (evt) {
@@ -1066,107 +1053,10 @@ document.querySelectorAll(\"input[type=submit][data-confirm]\").forEach(function
   });
 });
 
+<%= @_brick_javascripts&.fetch(:grid_scripts, nil)&.html_safe
+%>
 #{JS_CHANGEOUT}#{
   "\nbrickTestSchema = \"#{::Brick.test_schema}\";" if ::Brick.test_schema
-}
-// Snag first TR for sticky header
-var grid = document.getElementById(\"#{table_name}\");
-#{table_name}HtColumns = grid && [grid.getElementsByTagName(\"TR\")[0]];
-var headerTop = document.getElementById(\"headerTop\");
-var headerCols;
-if (grid) {
-  // COLUMN HEADER AND TABLE CELL HIGHLIGHTING
-  var gridHighHeader = null,
-      gridHighCell = null;
-  grid.addEventListener(\"mouseenter\", gridMove);
-  grid.addEventListener(\"mousemove\", gridMove);
-  grid.addEventListener(\"mouseleave\", function (evt) {
-    if (gridHighCell) gridHighCell.classList.remove(\"highlight\");
-    gridHighCell = null;
-    if (gridHighHeader) gridHighHeader.classList.remove(\"highlight\");
-    gridHighHeader = null;
-  });
-  function gridMove(evt) {
-    var lastHighCell = gridHighCell;
-    gridHighCell = document.elementFromPoint(evt.x, evt.y);
-    while (gridHighCell && gridHighCell.tagName !== \"TD\" && gridHighCell.tagName !== \"TH\")
-      gridHighCell = gridHighCell.parentElement;
-    if (gridHighCell) {
-      if (lastHighCell !== gridHighCell) {
-        gridHighCell.classList.add(\"highlight\");
-        if (lastHighCell) lastHighCell.classList.remove(\"highlight\");
-      }
-      var lastHighHeader = gridHighHeader;
-      if ((gridHighHeader = headerCols[gridHighCell.cellIndex]) && lastHighHeader !== gridHighHeader) {
-        if (gridHighHeader) gridHighHeader.classList.add(\"highlight\");
-        if (lastHighHeader) lastHighHeader.classList.remove(\"highlight\");
-      }
-    }
-  }
-  // // LESS TOUCHY NAVIGATION BACK OR FORWARD IN HISTORY WHEN USING MOUSE WHEEL
-  // grid.addEventListener(\"wheel\", function (evt) {
-  //   grid.scrollLeft += evt.deltaX;
-  //   document.body.scrollTop += (evt.deltaY * 0.6);
-  //   evt.preventDefault();
-  //   return false;
-  // });
-}
-function setHeaderSizes() {
-  if (grid.clientWidth > window.outerWidth)
-    document.getElementById(\"titleBox\").style.width = grid.clientWidth;
-  // console.log(\"start\");
-  // See if the headerTop is already populated
-  // %%% Grab the TRs from headerTop, clear it out, do this stuff, add them back
-  headerTop.innerHTML = \"\"; // %%% Would love to not have to clear it out like this every time!  (Currently doing this to support resize events.)
-  var isEmpty = headerTop.childElementCount === 0;
-  var numFixed = parseInt(grid.getAttribute(\"x-num-frozen\")) || 0;
-  var fixedColLefts = [0];
-
-  // Set up proper sizings of sticky column header
-  var node;
-  for (var j = 0; j < #{table_name}HtColumns.length; ++j) {
-    var row = #{table_name}HtColumns[j];
-    var tr = isEmpty ? document.createElement(\"TR\") : headerTop.childNodes[j];
-    tr.innerHTML = row.innerHTML.trim();
-    var curLeft = 0.0;
-    // Match up widths from the original column headers
-    for (var i = 0; i < row.childNodes.length; ++i) {
-      node = row.childNodes[i];
-      if (node.nodeType === 1) {
-        var th = tr.childNodes[i];
-        th.style.minWidth = th.style.maxWidth = getComputedStyle(node).width;
-        // Add \"left: __px\" style to the fixed-width column THs
-        if (i <= numFixed) {
-          th.style.position = \"sticky\";
-          th.style.backgroundColor = \"#008061\";
-          th.style.zIndex = \"1\";
-          th.style.left = curLeft + \"px\";
-          fixedColLefts.push(curLeft += node.clientWidth);
-        }
-        if (#{pk&.present? ? 'i > 0' : 'true'}) {
-          // Add <span> at the end
-          var span = document.createElement(\"SPAN\");
-          span.className = \"exclude\";
-          span.innerHTML = \"X\";
-          span.addEventListener(\"click\", function (e) {
-            e.stopPropagation();
-            doFetch(\"POST\", {_brick_exclude: this.parentElement.getAttribute(\"x-order\")});
-          });
-          th.appendChild(span);
-        }
-      }
-    }
-    headerCols = tr.childNodes;
-    if (isEmpty) headerTop.appendChild(tr);
-  }
-  // Add \"left: __px\" style to all fixed-width column TDs
-  [...grid.children[1].children].forEach(function (row) {
-    for (var j = 1; j <= numFixed; ++j) {
-      row.children[j].style.left = fixedColLefts[j] + 'px';
-    }
-  });
-  grid.style.marginTop = \"-\" + getComputedStyle(headerTop).height;
-  // console.log(\"end\");
 }
 function doFetch(method, payload, success) {
   payload.authenticity_token = <%= session[:_csrf_token].inspect.html_safe %>;
@@ -1179,32 +1069,6 @@ function doFetch(method, payload, success) {
   var options = {method: method, headers: {\"Content-Type\": \"application/json\"}};
   if (payload) options.body = JSON.stringify(payload);
   return fetch(location.href, options).then(success);
-}
-if (headerTop) {
-  onImagesLoaded(function() {
-    setHeaderSizes();
-  });
-  window.addEventListener(\"resize\", function(event) {
-    setHeaderSizes();
-  }, true);#{
-  addNewLink}
-}
-
-function onImagesLoaded(event) {
-  var images = document.getElementsByTagName(\"IMG\");
-  var numLoaded = images.length;
-  for (var i = 0; i < images.length; ++i) {
-    if (images[i].complete)
-      --numLoaded;
-    else {
-      images[i].addEventListener(\"load\", function() {
-        if (--numLoaded <= 0)
-          event();
-      });
-    }
-  }
-  if (numLoaded <= 0)
-    event();
 }
 
 // Cause descriptive text to use the same font as the resource 
