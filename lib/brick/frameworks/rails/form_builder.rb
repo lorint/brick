@@ -91,8 +91,7 @@ module Brick::Rails::FormBuilder
       when :binary
         is_revert = false
         if val
-          # %%% This same kind of geography check is done two other times in engine.rb ... would be great to DRY it up.
-          out << if val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12]
+          out << if ::Brick.is_geography?(val)
                    ::Brick::Rails.display_value('geography', val)
                  else
                    ::Brick::Rails.display_binary(val)

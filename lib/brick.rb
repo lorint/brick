@@ -111,6 +111,15 @@ module Brick
                   :is_oracle, :is_eager_loading, :auto_models, :initializer_loaded
     ::Brick.auto_models = []
 
+    def get_possible_schemas
+      if (possible_schemas = (multitenancy = ::Brick.config.schema_behavior&.[](:multitenant)) &&
+                              multitenancy&.[](:schema_to_analyse))
+        possible_schemas = [possible_schemas] unless possible_schemas.is_a?(Array)
+        possible_schema = possible_schemas.find { |ps| ::Brick.db_schemas.key?(ps) }
+      end
+      [possible_schema, possible_schemas, multitenancy]
+    end
+
     def set_db_schema(params = nil)
       # If Apartment::Tenant.current is not still the default (usually 'public') then an elevator has brought us into
       # a different tenant.  If so then don't allow schema navigation.
@@ -295,6 +304,10 @@ module Brick
     def unexclude_column(table, col)
       puts "Unexcluding #{table}.#{col}"
       true
+    end
+
+    def is_geography?(val)
+      val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12]
     end
 
     # @api public
@@ -894,7 +907,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
           else
             table_class_length = class_name.length if class_name.length > table_class_length
             tables
-          end << [class_name, aps, resource_name]
+          end << [class_name, aps, k.tr('.', '/')]
         end
 
         options = {}

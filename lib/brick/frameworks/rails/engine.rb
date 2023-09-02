@@ -6,7 +6,7 @@ module Brick
       def display_value(col_type, val, lat_lng = nil)
         is_mssql_geography = nil
         # Some binary thing that really looks like a Microsoft-encoded WGS84 point?  (With the first two bytes, E6 10, indicating an EPSG code of 4326)
-        if col_type == :binary && val && val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12]
+        if col_type == :binary && val && ::Brick.is_geography?(val)
           col_type = 'geography'
           is_mssql_geography = true
         end
@@ -19,7 +19,7 @@ module Brick
 
             if @is_mysql || (is_mssql_geography ||=
                               (@is_mssql ||
-                                (val && val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12])
+                                (val && ::Brick.is_geography?(val))
                               )
                             )
               # MySQL's \"Internal Geometry Format\" and MSSQL's Geography are like WKB, but with an initial 4 bytes that indicates the SRID.
@@ -335,14 +335,10 @@ function linkSchemas() {
                 def eager_load(entity)
                   _brick_eager_load(entity)
                   if entity == :resources
-                    # %%% This useful logic can be DRYd up since it's very similar to what's around extensions.rb:1894
-                    if (possible_schemas = (multitenancy = ::Brick.config.schema_behavior&.[](:multitenant)) &&
-                                           multitenancy&.[](:schema_to_analyse))
-                      possible_schemas = [possible_schemas] unless possible_schemas.is_a?(Array)
-                      if (possible_schema = possible_schemas.find { |ps| ::Brick.db_schemas.key?(ps) })
-                        orig_tenant = Apartment::Tenant.current
-                        Apartment::Tenant.switch!(possible_schema)
-                      end
+                    possible_schema, _x1, _x2 = ::Brick.get_possible_schemas
+                    if possible_schema
+                      orig_tenant = Apartment::Tenant.current
+                      Apartment::Tenant.switch!(possible_schema)
                     end
                     existing = Avo::BaseResource.descendants.each_with_object({}) do |r, s|
                                  s[r.name[0..-9]] = nil if r.name.end_with?('Resource')
@@ -1177,12 +1173,32 @@ function doFetch(method, payload, success) {
   return fetch(location.href, options).then(success);
 }
 if (headerTop) {
-  setHeaderSizes();
-  window.addEventListener('resize', function(event) {
+  onImagesLoaded(function() {
+    setHeaderSizes();
+  });
+  window.addEventListener(\"resize\", function(event) {
     setHeaderSizes();
   }, true);#{
   addNewLink}
 }
+
+function onImagesLoaded(event) {
+  var images = document.getElementsByTagName(\"IMG\");
+  var numLoaded = images.length;
+  for (var i = 0; i < images.length; ++i) {
+    if (images[i].complete)
+      --numLoaded;
+    else {
+      images[i].addEventListener(\"load\", function() {
+        if (--numLoaded <= 0)
+          event();
+      });
+    }
+  }
+  if (numLoaded <= 0)
+    event();
+}
+
 // Cause descriptive text to use the same font as the resource 
 var brickFontFamily = document.getElementById(\"resourceName\").computedStyleMap().get(\"font-family\");
 if (window.brickFontFamily) {
@@ -1402,7 +1418,9 @@ erDiagram
 </head>
 <body>
 <div id=\"titleBox\"><div id=\"titleSticky\">
-<p class=\"flashNotice\"><%= notice if request.respond_to?(:flash) %></p>#{"
+<% if request.respond_to?(:flash)
+%><p class=\"flashNotice\"><%= notice %></p><%
+end %>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><tr>
@@ -1694,12 +1712,14 @@ end
                  end
       s << "<table id=\"#{hm_name}\" class=\"shadow\">
         <tr><th>#{hm[1]}#{' poly' if hm[0].options[:as]} #{hm[3]}
+          <% if respond_to?(:new_#{partial_new_path_name = hm.first.klass._brick_index(:singular)}_path) %>
           <span class = \"add-hm-related\"><%=
             pk_val = (obj_pk = model.primary_key).is_a?(String) ? obj.send(obj_pk) : obj_pk.map { |pk_part| obj.send(pk_part) }
             pk_val_arr = [pk_val] unless pk_val.is_a?(Array)
             link_to('<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\"><path fill=\"#fff\" d=\"M24 10h-10v-10h-4v10h-10v4h10v10h4v-10h10z\"/></svg>'.html_safe,
-              new_#{hm.first.klass._brick_index(:singular)}_path(predicates))
+              new_#{partial_new_path_name}_path(predicates))
           %></span>
+          <% end %>
         </th></tr>
         <% if (assoc = @#{obj_name}.class.reflect_on_association(:#{hm_name})).macro == :has_one &&
               assoc.options&.fetch(:through, nil).nil?

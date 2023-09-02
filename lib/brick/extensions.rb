@@ -2660,10 +2660,9 @@ end.class_exec do
           s[row.first] = { dt: row.last } unless ['information_schema', 'pg_catalog', 'pg_toast', 'heroku_ext',
                                                   'INFORMATION_SCHEMA', 'sys'].include?(row.first)
         end
-        if (possible_schemas = (multitenancy = ::Brick.config.schema_behavior&.[](:multitenant)) &&
-                               multitenancy&.[](:schema_to_analyse))
-          possible_schemas = [possible_schemas] unless possible_schemas.is_a?(Array)
-          if (possible_schema = possible_schemas.find { |ps| ::Brick.db_schemas.key?(ps) })
+        possible_schema, possible_schemas, multitenancy = ::Brick.get_possible_schemas
+        if possible_schemas
+          if possible_schema
             ::Brick.default_schema = ::Brick.apartment_default_tenant
             schema = possible_schema
             orig_schema = ActiveRecord::Base.execute_sql('SELECT current_schemas(true)').first['current_schemas'][1..-2].split(',')

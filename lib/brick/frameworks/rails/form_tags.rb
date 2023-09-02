@@ -152,16 +152,16 @@ module Brick::Rails::FormTags
         out << " class=\"#{classes.join(' ')}\"" if classes&.present?
         out << '>'
         if (bt || composite_bt_names[col_name])
-          if bt[2] # Polymorphic?
-            if (poly_id = obj.send("#{bt.first}_id"))
+          if bt[2] && obj.respond_to?(poly_id_col = "#{bt.first}_id") # Polymorphic?
+            if (poly_id = obj.send(poly_id_col))
               bt_class = obj.send(klass.brick_foreign_type(bt.first))
               base_class_underscored = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class._brick_index(:singular)
               out << link_to("#{bt_class} ##{poly_id}", send("#{base_class_underscored}_path".to_sym, poly_id))
             end
           else # BT or HOT
             bt_class = bt[1].first.first
-            if bt_descrip
-              descrips = bt_descrip[bt.first][bt_class]
+            if bt_descrip && (this_bt_descrip = bt_descrip[bt.first])
+              descrips = this_bt_descrip[bt_class]
               bt_id_col = if descrips.nil?
                             puts "Caught it in the act for obj / #{col_name}!"
                           elsif descrips.length == 1
