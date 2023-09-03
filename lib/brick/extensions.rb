@@ -1885,7 +1885,7 @@ class Object
                 cspd.select! { |val| val == "'self'" }
                 cspd << style_value
               else
-                cspd << "'sha256-ODFNXZ++dtO02BnymCbSrpRTk+woi27G+FKhPb1lKHQ='"
+                cspd << "'sha256-Q8t+pETkz0RtyV4XprwdP+uEkVaFyMnx1mXif0wDoxw='"
               end
               cspd << 'https://cdn.jsdelivr.net'
             end
@@ -2278,10 +2278,15 @@ class Object
             else
               @_lookup_context.instance_variable_set("@#{singular_table_name}".to_sym,
                                                      (created_obj = model.send(:create, send(params_name_sym))))
-              # %%% Surface any errors to the user in a flash message
               @_lookup_context.instance_variable_set(:@_brick_model, model)
-              index
-              render :index
+              if created_obj.errors.empty?
+                index
+                render :index
+              else # Surface errors to the user in a flash message
+                flash.alert = (created_obj.errors.errors.map { |err| "<b>#{err.attribute}</b> #{err.message}" }.join(', '))
+                new
+                render :new
+              end
             end
           end
 
@@ -2350,6 +2355,9 @@ class Object
                 upd_hash[model.inheritance_column] = nil
               end
               obj.send(:update, upd_hash || upd_params)
+              if obj.errors.any? # Surface errors to the user in a flash message
+                flash.alert = (obj.errors.errors.map { |err| "<b>#{err.attribute}</b> #{err.message}" }.join(', '))
+              end
             end
 
             code << "  def destroy\n"

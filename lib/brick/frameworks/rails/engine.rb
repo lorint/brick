@@ -805,6 +805,9 @@ window.addEventListener(\"popstate\", linkSchemas);
 .flashNotice {
   color: green;
 }
+.flashAlert {
+  color: red;
+}
 
 h1, h3 {
   margin-bottom: 0;
@@ -1291,7 +1294,12 @@ erDiagram
 <body>
 <div id=\"titleBox\"><div id=\"titleSticky\">
 <% if request.respond_to?(:flash)
-%><p class=\"flashNotice\"><%= notice %></p><%
+     if (alert)
+%><p class=\"flashAlert\"><%= alert.html_safe %></p><%
+     end
+     if (notice)
+%><p class=\"flashNotice\"><%= notice.html_safe %></p><%
+     end
 end %>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
@@ -1510,7 +1518,14 @@ end
   c23.141-70.188,89.141-120.906,167.063-120.906c97.25,0,176,78.813,176,176C511.828,227.078,404.391,119.641,271.844,119.641z\" />
 </svg>
 
-<p class=\"flashNotice\"><%= notice if request.respond_to?(:flash) %></p>#{"
+<% if request.respond_to?(:flash)
+     if (alert)
+%><p class=\"flashAlert\"><%= alert.html_safe %></p><%
+     end
+     if (notice)
+%><p class=\"flashNotice\"><%= notice.html_safe %></p><%
+     end
+end %>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><td><h1><%= page_title %></h1></td>
