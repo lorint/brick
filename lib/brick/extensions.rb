@@ -1288,6 +1288,7 @@ end
                   end
     # puts "#{self.name} - #{args.first}"
     # Unless it's a Brick prefix looking for a TNP that should create a module ...
+    relations = ::Brick.relations
     unless (is_tnp_module = (is_brick_prefix && !is_controller && ::Brick.config.table_name_prefixes.values.include?(requested)))
       # ... first look around for an existing module or class.
       desired_classname = (self == Object || !name) ? requested : "#{name}::#{requested}"
@@ -1319,7 +1320,6 @@ end
       end
     end
     class_name = ::Brick.namify(requested)
-    relations = ::Brick.relations
     #        CONTROLLER
     result = if ::Brick.enable_controllers? &&
                 is_controller && (plural_class_name = class_name[0..-11]).length.positive?
@@ -1913,6 +1913,8 @@ class Object
           end
           self.define_method :crosstab do
             @relations = ::Brick.relations.each_with_object({}) do |r, s|
+              next if r.first.is_a?(Symbol)
+
               cols = r.last[:cols].each_with_object([]) do |c, s2|
                 s2 << [c.first] + c.last
               end
@@ -2035,8 +2037,10 @@ class Object
                      }
               unless ::Brick.config.enable_api == false
                 json['paths'] = relations.each_with_object({}) do |relation, s|
-                  next if (api_vers = relation.last.fetch(:api, nil)) &&
-                          !(api_ver_paths = api_vers[current_api_ver] || api_vers[nil])
+                  next if relation.first.is_a?(Symbol) || (
+                            (api_vers = relation.last.fetch(:api, nil)) &&
+                            !(api_ver_paths = api_vers[current_api_ver] || api_vers[nil])
+                          )
 
                   schema_tag = {}
                   if (schema_name = relation.last&.fetch(:schema, nil))
@@ -2600,7 +2604,7 @@ end.class_exec do
     # return if ActiveRecord::Base.connection.current_database == 'postgres'
 
     orig_schema = nil
-    if (relations = ::Brick.relations).empty?
+    if (relations = ::Brick.relations).keys == [:db_name]
       ::Brick.remove_instance_variable(:@_additional_references_loaded) if ::Brick.instance_variable_defined?(:@_additional_references_loaded)
       # Very first thing, load inflections since we'll be using .pluralize and .singularize on table and model names
       if File.exist?(inflections = ::Rails.root&.join('config/initializers/inflections.rb') || '')
@@ -2928,6 +2932,8 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
     end
 
     relations.each do |k, v|
+      next if k.is_a?(Symbol)
+
       rel_name = k.split('.').map { |rel_part| ::Brick.namify(rel_part, :underscore) }
       schema_names = rel_name[0..-2]
       schema_names.shift if ::Brick.apartment_multitenant && schema_names.first == ::Brick.apartment_default_tenant
@@ -3164,6 +3170,10 @@ module Brick
       assoc_bt[:inverse] = assoc_hm
     end
 
+    def ar_base
+      @ar_base ||= Object.const_defined?(:ApplicationRecord) ? ApplicationRecord : Class.new(ActiveRecord::Base)
+    end
+
     # Identify built out routes, migrations, models,
     # (and also soon controllers and views!)
     # for each resource
@@ -3190,6 +3200,8 @@ module Brick
       abstract_activerecord_bases = ::Brick.eager_load_classes(true)
       rails_root = ::Rails.root.to_s
       models = ::Brick.relations.each_with_object({}) do |rel, s|
+                 next if rel.first.is_a?(Symbol)
+
                  begin
                    if (model = rel.last[:class_name]&.constantize) &&
                       (inh = ActiveRecord::Base._brick_inheriteds[model]&.join(':'))
@@ -3242,7 +3254,8 @@ module Brick
       is_default_schema = multi_schema&.==(::Brick.apartment_default_tenant)
       relations.each_with_object([]) do |v, s|
         frn_tbl = v.first
-        next if (relation = v.last).key?(:isView) || config.exclude_tables.include?(frn_tbl) ||
+        next if frn_tbl.is_a?(Symbol) || # Skip internal metadata entries
+                (relation = v.last).key?(:isView) || config.exclude_tables.include?(frn_tbl) ||
                 !(for_pk = (relation[:pkey].values.first&.first))
 
         is_default_frn_schema = !is_default_schema && multi_schema &&

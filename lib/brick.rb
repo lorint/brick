@@ -149,7 +149,19 @@ module Brick
                    ch.connection_pool_list.blank?
 
       # Key our list of relations for this connection off of the connection pool's object_id
-      (@relations ||= {})[ActiveRecord::Base.connection_pool.object_id] ||= Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = {} } }
+      cp_objid = ActiveRecord::Base.connection_pool.object_id
+      @relations ||= {}
+
+      # Have we already seen this database? (Perhaps we're connecting to a replica?)
+      @relations[cp_objid] ||= if (db_name = ActiveRecord::Base.connection&.instance_variable_get(:@config)&.fetch(:database, nil)) &&
+                                  !@relations.key?(cp_objid) &&
+                                  (existing = @relations.find { |_k, v| v.fetch(:db_name, nil) == db_name })
+                                 existing.last
+                               else
+                                 Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = {} } }.tap do |h|
+                                   h[:db_name] = db_name if db_name
+                                 end
+                               end
     end
 
     def apartment_multitenant
@@ -624,7 +636,9 @@ In config/initializers/brick.rb appropriate entries would look something like:
       end
 
       # Find associative tables that can be set up for has_many :through
-      ::Brick.relations.each do |_key, tbl|
+      ::Brick.relations.each do |key, tbl|
+        next if key.is_a?(Symbol)
+
         tbl_cols = tbl[:cols].keys
         fks = tbl[:fks].each_with_object({}) { |fk, s| s[fk.last[:fk]] = [fk.last[:assoc_name], fk.last[:inverse_table]] if fk.last[:is_bt]; s }
         # Aside from the primary key and the metadata columns created_at, updated_at, and deleted_at, if this table only has
@@ -719,6 +733,8 @@ In config/initializers/brick.rb appropriate entries would look something like:
 
       if res_names.empty?
         ::Brick.relations.each_with_object({}) do |v, s|
+          next if v.first.is_a?(Symbol)
+
           v_parts = v.first.split('.')
           v_parts.shift if v_parts.first == 'public'
           res_names[v_parts.join('.')] = v.first
@@ -880,6 +896,8 @@ In config/initializers/brick.rb appropriate entries would look something like:
                         end
       versioned_views = {} # Track which views have already been done for each api_root
       ::Brick.relations.each do |k, v|
+        next if k.is_a?(Symbol)
+
         if (schema_name = v.fetch(:schema, nil))
           schema_prefix = "#{schema_name}."
         end

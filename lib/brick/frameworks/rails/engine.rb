@@ -344,7 +344,7 @@ function linkSchemas() {
                                  s[r.name[0..-9]] = nil if r.name.end_with?('Resource')
                                end
                     ::Brick.relations.each do |k, v|
-                      unless existing.key?(class_name = v[:class_name]) || Brick.config.exclude_tables.include?(k) ||
+                      unless k.is_a?(Symbol) || existing.key?(class_name = v[:class_name]) || Brick.config.exclude_tables.include?(k) ||
                              class_name.blank? || class_name.include?('::')
                         Object.const_get("#{class_name}Resource")
                       end
@@ -464,7 +464,7 @@ window.addEventListener(\"popstate\", linkSchemas);
               alias _brick_routes routes
               def routes(*args)
                 ::Brick.relations.each do |k, v|
-                  next if k == 'active_admin_comments'
+                  next if k.is_a?(Symbol) || k == 'active_admin_comments'
 
                   begin
                     if (class_name = Object.const_get(v.fetch(:class_name, nil)))
@@ -518,7 +518,7 @@ window.addEventListener(\"popstate\", linkSchemas);
             def fetch_models
               # Auto-create Brick models
               ::Brick.relations.each do |k, v|
-                next if k == 'active_admin_comments'
+                next if k.is_a?(Symbol) || k == 'active_admin_comments'
 
                 begin
                   v[:class_name].constantize
@@ -554,7 +554,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                 (::Brick.config.json_columns['motor_audits'] ||= []) << 'audited_changes' if mar_tables.include?('motor_audits')
                 (::Brick.config.json_columns['motor_configs'] ||= []) << 'value' if mar_tables.include?('motor_configs')
                 ::Brick.relations.each do |k, v|
-                  next if mar_tables.include?(k) || k == 'motor_audits'
+                  next if k.is_a?(Symbol) || mar_tables.include?(k) || k == 'motor_audits'
 
                   v[:class_name].constantize
                 end
@@ -773,7 +773,7 @@ window.addEventListener(\"popstate\", linkSchemas);
               # environment or whatever, then get either the controllers or routes list instead
               prefix = "#{::Brick.config.path_prefix}/" if ::Brick.config.path_prefix
               table_options = ::Brick.relations.each_with_object({}) do |rel, s|
-                                next if ::Brick.config.exclude_tables.include?(rel.first)
+                                next if rel.first.is_a?(Symbol) || ::Brick.config.exclude_tables.include?(rel.first)
 
                                 tbl_parts = rel.first.split('.')
                                 if (aps = rel.last.fetch(:auto_prefixed_schema, nil))

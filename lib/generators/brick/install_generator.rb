@@ -35,6 +35,8 @@ module Brick
           end
         end
         possible_additional_references = relations.each_with_object(Hash.new { |h, k| h[k] = [] }) do |relation, s|
+          next if relation.first.is_a?(Symbol)
+
           this_tnp = tnps&.keys&.find { |tnp| relation.first.start_with?(tnp) }
           model_filename = "app/models/#{ActiveSupport::Inflector.singularize(relation.first)}.rb"
           relation.last[:cols].each do |col, type|
