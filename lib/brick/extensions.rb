@@ -2754,7 +2754,14 @@ end.class_exec do
                   relation[:ukeys][r['key'] || "#{relation_name}.#{col_name}"] ||= []
                   # key = (relation[:ukeys] = Hash.new { |h, k| h[k] = [] }) if key.is_a?(Array)
                   # key[r['key']]
+                else
+                  if r['data_type'] == 'uuid'
+                    # && r['column_name'] == ::Brick.ar_base.primary_key
+                    # binding.pry
+                    relation[:pkey][r['key'] || relation_name] ||= []
+                  end
                 end
+          # binding.pry if key && r['data_type'] == 'uuid'
           key << col_name if key
           cols = relation[:cols] # relation.fetch(:cols) { relation[:cols] = [] }
           cols[col_name] = [r['data_type'], r['max_length'], measures&.include?(col_name), r['is_nullable'] == 'NO']
