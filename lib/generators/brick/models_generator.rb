@@ -28,11 +28,13 @@ module Brick
       existing_models = ActiveRecord::Base.descendants.reject do |m|
         m.abstract_class? || !m.table_exists? || ::Brick.relations.key?(m.table_name)
       end
-      models = ::Brick.relations.keys.map do |tbl|
+      models = ::Brick.relations.keys.each_with_object([]) do |tbl, s|
+        next if tbl.is_a?(Symbol)
+
         tbl_parts = tbl.split('.')
         tbl_parts.shift if [::Brick.default_schema, 'public'].include?(tbl_parts.first)
         tbl_parts[-1] = tbl_parts[-1].singularize
-        tbl_parts.join('/').camelize
+        s << tbl_parts.join('/').camelize
       end - existing_models.map(&:name)
       models.sort! do |a, b| # Sort first to separate namespaced stuff from the rest, then alphabetically
         is_a_namespaced = a.include?('::')

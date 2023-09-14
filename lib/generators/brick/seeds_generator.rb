@@ -31,7 +31,7 @@ module Brick
       models = (existing_models.values +
                 # ... then add models which can be auto-built by Brick
                 ::Brick.relations.reject do |k, v|
-                  (v.key?(:isView) && v[:isView] == true) || existing_models.key?(k)
+                  k.is_a?(Symbol) || (v.key?(:isView) && v[:isView] == true) || existing_models.key?(k)
                 end.map { |k, v| SeedModel.new(k, v[:class_name].constantize, true) }
                ).sort { |a, b| a.to_s <=> b.to_s }
       if models.empty?

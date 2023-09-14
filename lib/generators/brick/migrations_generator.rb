@@ -18,7 +18,7 @@ module Brick
       ::Brick.mode = :on
       ActiveRecord::Base.establish_connection
 
-      if (tables = ::Brick.relations.reject { |k, v| v.key?(:isView) && v[:isView] == true }.map(&:first).sort).empty?
+      if (tables = ::Brick.relations.reject { |k, v| k.is_a?(Symbol) || v.key?(:isView) && v[:isView] == true }.map(&:first).sort).empty?
         puts "No tables found in database #{ActiveRecord::Base.connection.current_database}."
         return
       end
