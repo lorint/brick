@@ -1309,6 +1309,11 @@ end
             (possible.instance_of?(Class) && possible == self)) && # Are we simply searching for ourselves?
            # Skip when what we found as `possible` is not related to the base class of an STI model
            (!sti_base || possible.is_a?(sti_base))
+          # if possible.is_a?(ActiveRecord::Base) && !possible.abstract_class? && (pk = possible.primary_key) &&
+          #    !(relation = relations.fetch(possible.table_name, nil))&.fetch(:pks, nil)
+          #   binding.pry
+          #   x = 5
+          # end
           return possible
         end
       end
@@ -2598,11 +2603,11 @@ end.class_exec do
     if (relations = ::Brick.relations).empty?
       ::Brick.remove_instance_variable(:@_additional_references_loaded) if ::Brick.instance_variable_defined?(:@_additional_references_loaded)
       # Very first thing, load inflections since we'll be using .pluralize and .singularize on table and model names
-      if File.exist?(inflections = ::Rails.root.join('config/initializers/inflections.rb'))
+      if File.exist?(inflections = ::Rails.root&.join('config/initializers/inflections.rb') || '')
         load inflections
       end
       # Now the Brick initializer since there may be important schema things configured
-      if !::Brick.initializer_loaded && File.exist?(brick_initializer = ::Rails.root.join('config/initializers/brick.rb'))
+      if !::Brick.initializer_loaded && File.exist?(brick_initializer = ::Rails.root&.join('config/initializers/brick.rb') || '')
         ::Brick.initializer_loaded = load brick_initializer
 
         # After loading the initializer, add compatibility for ActiveStorage and ActionText if those haven't already been

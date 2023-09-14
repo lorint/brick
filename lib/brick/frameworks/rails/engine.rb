@@ -204,7 +204,7 @@ function linkSchemas() {
   <polygon style=\"fill:#894747;\" points=\"58,31.559 19,52 19,35 58,15.831\"/>
 </g>
 </svg>
-".html_safe
+"
 
       # paths['app/models'] << 'lib/brick/frameworks/active_record/models'
       config.brick = ActiveSupport::OrderedOptions.new
@@ -399,7 +399,7 @@ window.addEventListener(\"popstate\", linkSchemas);
               end
               def to_s
                 @_name.to_s.html_safe + @vc.instance_variable_get(:@__vc_helpers)&.link_to_brick(nil,
-                  BRICK_SVG,
+                  BRICK_SVG.html_safe,
                   { title: "#{@_name} in Brick" }
                 )
               end
@@ -486,7 +486,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                          rescue
                          end
                 h2((@title + link_to_brick(nil,
-                  BRICK_SVG, # This would do well to be sized a bit smaller
+                  BRICK_SVG.html_safe, # This would do well to be sized a bit smaller
                   { title: "#{@_name} in Brick" }
                 )).html_safe)
               else
@@ -607,7 +607,7 @@ window.addEventListener(\"popstate\", linkSchemas);
               alias :_brick_lookup_context :lookup_context
               def lookup_context(*args)
                 ret = _brick_lookup_context(*args)
-                @_lookup_context.instance_variable_set(:@_brick_req_params, params)
+                @_lookup_context.instance_variable_set(:@_brick_req_params, params) if request
                 ret
               end
             end
@@ -1531,7 +1531,7 @@ end %>#{"
 <table id=\"resourceName\"><td><h1><%= page_title %></h1></td>
 <% if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) %>
   <td><%= link_to_brick(
-      ::Brick::Rails::AVO_SVG,
+      ::Brick::Rails::AVO_SVG.html_safe,
       { show_proc: Proc.new do |obj, relation|
                      path_helper = \"resources_#\{relation.fetch(:auto_prefixed_schema, nil)}#\{obj.class.base_class.model_name.singular_route_key}_path\".to_sym
                      ::Avo.railtie_routes_url_helpers.send(path_helper, obj) if ::Avo.railtie_routes_url_helpers.respond_to?(path_helper)
@@ -1543,7 +1543,7 @@ end %>#{"
    if Object.const_defined?('ActiveAdmin')
      ActiveAdmin.application.namespaces.names.each do |ns| %>
 <td><%= link_to_brick(
-   ::Brick::Rails::AA_PNG,
+   ::Brick::Rails::AA_PNG.html_safe,
    { show_proc: Proc.new do |aa_model, relation|
                   path_helper = \"#\{ns}_#\{relation.fetch(:auto_prefixed_schema, nil)}#\{rk = aa_model.model_name.singular_route_key}_path\".to_sym
                   send(path_helper, obj) if respond_to?(path_helper)

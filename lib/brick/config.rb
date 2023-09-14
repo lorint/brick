@@ -21,10 +21,11 @@ module Brick
     end
 
     def mode
+      rails_env = Object.const_defined?('Rails') && ::Rails.env
       @mutex.synchronize do
         case @brick_mode
         when nil, :development
-          (::Rails.env == 'development' || ENV.key?('BRICK')) ? :on : nil
+          (rails_env == 'development' || ENV.key?('BRICK')) ? :on : nil
         when :diag_env
           ENV.key?('BRICK') ? :on : nil
         else
