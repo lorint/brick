@@ -34,7 +34,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.176        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.177        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -217,14 +217,13 @@ alias names for those tables in the WHERE clause:
 Post Load (1.6ms)  SELECT "posts".* FROM "posts" INNER JOIN "user_posts" ON "user_posts"."post_id" = "posts"."id" INNER JOIN "users" ON "users"."id" = "user_posts"."user_id" WHERE "users"."id" = $1 AND "user_posts"."liked" = $2 ORDER BY "posts"."id" ASC  [["id", 5], ["liked", true]]
 ```
 
-As well, some aspects of the Zeitwerk autoloader get enhanced so that everything operates more consistently when classes are nested in multiple modules.  Here is a [video demonstrating default snags and how Brick fixes them](https://user-images.githubusercontent.com/5301131/235632564-95f28f7e-854c-417c-b00e-078c4fe8e7f3.mp4).  More background about this specific example can be found in [this Reddit post](https://www.reddit.com/r/rails/comments/134o6nr/why_does_pryzeitwerk_have_issues_loading/).
-
-The Brick notices when some other gems are present and makes use of them -- most notably
-**[composite_primary_keys](https://github.com/composite-primary-keys/composite_primary_keys)** which allows very tricky databases to function.
+The Brick notices when some other gems are present and makes use of them.  For instance, if your
+database uses composite primary keys and you are using Rails 7.0 or older, you'll want to add
+the **[composite_primary_keys](https://github.com/composite-primary-keys/composite_primary_keys)** gem so that belongs_to and has_many associations will function.
 (Try out the [Adventureworks](https://github.com/lorint/AdventureWorks-for-Postgres) sample database to see this in action.) Already when tables and columns are not named in accordance
-with Rails' conventions, The Brick does quite a bit to accommodate.  But to get
-multiple-column primary and foreign keys to work, then **composite_primary_keys** is
-required.  Just bundle it in and The Brick will leverage this gem.
+with Rails' conventions, The Brick does quite a bit to accommodate.  But to get primary and
+foreign keys with multiple columns to work then either use Rails 7.1 or newer, or add the
+**composite_primary_keys** gem.
 
 Brick adds **CSV** and **Google Sheets** export links when it sees that the **[duty_free](https://github.com/lorint/duty_free)** gem is present.
 
@@ -277,7 +276,7 @@ to use uuids with MySQL or Sqlite databases.
     ```
     gem 'brick'
     ```
-2. To test things, configure database.yml to use any popular adapter of your choosing -- Postgres, MySQL, Oracle, Microsoft SQL Server, or Sqlite3, and point to an existing relational database.  Then from within `bin/rails c` attempt to reference a model by what its normal name might be.  For instance, if you have a `plants` table then just type `Plant.count` and see that automatically a model is built out on-the-fly and the count for this `plants` table is shown.  If you similarly have `products` that relates to `categories` with a foreign key then notice that by referencing `Category` the gem builds out a model which has a **has_many** association called :products.  Without writing any code these associations are all wired up as long as you have proper foreign keys in place.
+2. To test things, configure database.yml to use any popular adapter of your choosing -- Postgres, MySQL, Trilogy, Oracle, Microsoft SQL Server, or Sqlite3, and point to an existing relational database.  Then from within `bin/rails c` attempt to reference a model by what its normal name might be.  For instance, if you have a `plants` table then just type `Plant.count` and see that automatically a model is built out on-the-fly and the count for this `plants` table is shown.  If you similarly have `products` that relates to `categories` with a foreign key then notice that by referencing `Category` the gem builds out a model which has a **has_many** association called :products.  Without writing any code these associations are all wired up as long as you have proper foreign keys in place.
 
 Even if your table and column names do not follow Rails' conventions, everything still works
 because as models are built out then `self.table_name = ` and `self.primary_key = ` entries are
@@ -293,7 +292,7 @@ starting up:
 ```
 Lorins-Macbook:example_oracle lorin$ bin/rails s
 => Booting Puma
-=> Rails 7.0.5 application starting in development
+=> Rails 7.1.0 application starting in development
 => Run `rails server --help` for more startup options
 
 Classes that can be built from tables:  Path:
@@ -397,14 +396,18 @@ here for the lowermost four models associated to BusinessEntity:
 
 ![sample ERD for BusinessEntity](./docs/erd2.png)
 
-(The above diagrams can be seen by installing the Adventureworks sample and navigating to http://localhost:3000/person/businessentities?_brick_erd=1 and http://localhost:3000/sales/salesorderheaders?_brick_erd=1.)
+(The above diagrams can be seen by installing the Adventureworks sample, adding this to your **initializers/brick.rb** file:
+```
+::Brick.metadata_columns = ['rowguid', 'modifieddate']
+```
+and then by navigating to http://localhost:3000/person/businessentities?_brick_erd=1 and http://localhost:3000/sales/salesorderheaders?_brick_erd=1.)
 
 ### 1.d. Exposing an API
 
 A [video walkthrough](https://github.com/lorint/brick/blob/master/docs/api.md) is now available!
 
 **The Brick** will automatically create API endpoints when it sees that `::Brick.api_roots=` has been
-set with at least one path.  Further, OpanAPI 3.0 compatible documentation becomes available when the
+set with at least one path.  Further, OpenAPI 3.0 compatible documentation becomes available when the
 **[rswag-ui gem](https://github.com/rswag/rswag)** has been configured.  With that gem bundled into
 your project, configuration for RSwag UI can be automatically put into place by running
 `rails g rswag:ui:install`, which performs these two actions:
@@ -541,7 +544,7 @@ When running this against a truly LARGE database, with say millions of rows, con
 resulting `db/seeds.rb` file could end up being hundreds of megabytes, or even many gigabytes
 in size!  Could feel like it's crashed, but then look in the `db` folder to see if there's a
 growing file there, and perhaps it's just still clipping along.  If you let the thing run,
-(and you have enough disk space), then it should generally complete and be fully functional.
+and you have enough disk space, then it should complete and be fully functional.
 
 ## Issues
 
@@ -633,10 +636,10 @@ mysql -uroot
 
 And inside this console now create two users with various permissions (these databases do not need to yet exist).  Trade out "my_username" with your real username, such as "sally@localhost".
 
-    CREATE USER my_username@localhost IDENTIFIED BY '';
-    GRANT ALL PRIVILEGES ON brick_test.* TO my_username@localhost;
-    GRANT ALL PRIVILEGES ON brick_foo.* TO my_username@localhost;
-    GRANT ALL PRIVILEGES ON brick_bar.* TO my_username@localhost;
+    CREATE USER "my_username@localhost" IDENTIFIED BY '';
+    GRANT ALL PRIVILEGES ON brick_test.* TO "my_username@localhost";
+    GRANT ALL PRIVILEGES ON brick_foo.* TO "my_username@localhost";
+    GRANT ALL PRIVILEGES ON brick_bar.* TO "my_username@localhost";
 
     And then create the user "brick" who can only connect locally:
     CREATE USER brick@localhost IDENTIFIED BY '';

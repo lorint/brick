@@ -1489,7 +1489,8 @@ end
                            decipher = OpenSSL::Cipher::AES256.new(:CBC).decrypt
                            decipher.iv = "\xB4,\r2\x19\xF5\xFE/\aR\x1A\x8A\xCFV\v\x8C"
                            decipher.key = Digest::SHA256.hexdigest(::Brick.config.license).scan(/../).map { |x| x.hex }.pack('c*')
-                           decipher.update(File.binread("/Users/aga/brick/lib/brick/frameworks/rails/crosstab.brk"))[16..-1]
+                           brick_path = Gem::Specification.find_by_name('brick').gem_dir
+                           decipher.update(File.binread("#{brick_path}/lib/brick/frameworks/rails/crosstab.brk"))[16..-1]
                          else
                            'Crosstab Charting not yet activated -- enter a valid license key in brick.rb'
                          end

@@ -1553,9 +1553,13 @@ class Object
                                                               end))
       end
       hmts = nil
+      if (schema_module || Object).const_defined?((chosen_name = (inheritable_name || model_name)).to_sym)
+        possible = (schema_module || Object).const_get(chosen_name)
+        return possible unless possible == schema_module
+      end
       code = +"class #{full_name} < #{base_model.name}\n"
       built_model = Class.new(base_model) do |new_model_class|
-        (schema_module || Object).const_set((chosen_name = (inheritable_name || model_name)).to_sym, new_model_class)
+        (schema_module || Object).const_set(chosen_name, new_model_class)
         @_brick_relation = relation
         if inheritable_name
           new_model_class.define_singleton_method :inherited do |subclass|
@@ -3100,7 +3104,8 @@ module Brick
         missing << fk[1] unless relations.key?(fk[1])
         missing << primary_table unless is_class || relations.key?(primary_table)
         unless missing.empty?
-          tables = relations.reject { |_k, v| v.fetch(:isView, nil) }.keys.sort
+          tables = relations.reject { |_k, v| v.is_a?(Hash) && v.fetch(:isView, nil) }.keys
+                            .select { |table_name| table_name.is_a?(String) }.sort
           puts "Brick: Additional reference #{fk.inspect} refers to non-existent #{'table'.pluralize(missing.length)} #{missing.join(' and ')}. (Available tables include #{tables.join(', ')}.)"
           return
         end
