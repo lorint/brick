@@ -89,7 +89,7 @@ end
 # is first established), and then automatically creates models, controllers, views,
 # and routes based on those available relations.
 require 'brick/config'
-if Gem::Specification.all_names.any? { |g| g.start_with?('rails-') && g[6..-1] =~ /^([0-9]|\.)+$/ }
+if Gem::Specification.all_names.any? { |g| g.start_with?('rails-') && g[6..-1] =~ /^([0-9]|\.)+(?:|rc1|beta1)$/ }
   require 'rails'
   require 'brick/frameworks/rails'
 end
