@@ -117,10 +117,26 @@ if Object.const_defined?('ActionPack') && !ActionPack.respond_to?(:version)
 end
 if Bundler.locked_gems&.dependencies.key?('action_view')
   require 'action_view' # Needed for Rails <= 4.0
-  if Object.const_defined?('ActionView') && !ActionView.respond_to?(:version)
-    module ActionView
+  module ::ActionView
+    if Object.const_defined?('ActionView') && !ActionView.respond_to?(:version)
       def self.version
         ActionPack.version
+      end
+    end
+    if self.version < ::Gem::Version.new('5.2')
+      module Helpers
+        module TextHelper
+          # Older versions of #pluralize lack the all-important .to_s
+          def pluralize(count, singular, plural_arg = nil, plural: plural_arg, locale: I18n.locale)
+            word = if (count == 1 || count.to_s =~ /^1(\.0+)?$/)
+              singular
+            else
+              plural || singular.pluralize(locale)
+            end
+
+            "#{count || 0} #{word}"
+          end
+        end
       end
     end
   end
