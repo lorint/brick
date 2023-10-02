@@ -2026,6 +2026,28 @@ if ActiveRecord.version < ::Gem::Version.new('6.0') && ruby_version >= ::Gem::Ve
     end
   end
 
+  # AR >= 5.0 on Ruby >= 3.0
+  ::ActiveRecord::Type::AdapterSpecificRegistry.class_exec do
+    alias :_brick_add_modifier :add_modifier
+    def add_modifier(*args, **kwargs)
+      kwargs.merge!(args.pop) if args.length > 2 && args.last.is_a?(Hash)
+      _brick_add_modifier(*args, **kwargs)
+    end
+  end
+
+  # AR >= 5.0 on Ruby >= 3.0
+  arca = ::ActiveRecord::ConnectionAdapters
+  require 'active_record/connection_adapters/postgresql/column'
+  if arca.const_defined?('PostgreSQLColumn')
+    arca::PostgreSQLColumn.class_exec do
+      alias :_brick_initialize :initialize
+      def initialize(*args, **kwargs)
+        kwargs.merge!(args.pop) if args.last.is_a?(Hash)
+        _brick_initialize(*args, **kwargs)
+      end
+    end
+  end
+
   require 'active_model'
   begin
     require 'active_model/type'
