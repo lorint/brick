@@ -1089,6 +1089,15 @@ In config/initializers/brick.rb appropriate entries would look something like:
           get("/#{controller_prefix}brick_status", to: 'brick_gem#status', as: status_as.to_s)
         end
 
+        # ::Brick.config.add_schema &&
+        if (schema_as = "#{controller_prefix.tr('/', '_')}brick_schema".to_sym)
+          (
+            !(schema_route = instance_variable_get(:@set).named_routes.find { |route| route.first == schema_as }&.last) ||
+            !schema_route.ast.to_s.include?("/#{controller_prefix}brick_schema/")
+          )
+          post("/#{controller_prefix}brick_schema", to: 'brick_gem#schema_create', as: schema_as.to_s)
+        end
+
         if ::Brick.config.add_orphans && (orphans_as = "#{controller_prefix.tr('/', '_')}brick_orphans".to_sym)
           (
             !(orphans_route = instance_variable_get(:@set).named_routes.find { |route| route.first == orphans_as }&.last) ||
