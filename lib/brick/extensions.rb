@@ -1911,6 +1911,16 @@ class Object
             instance_variable_set(:@resources, ::Brick.get_status_of_resources)
             add_csp_hash
           end
+          self.define_method :schema_create do
+            if (base_class = (model = params['modelName']&.constantize).base_class) &&
+               base_class.column_names.exclude?(col_name = params['colName'])
+              ActiveRecord::Base.connection.add_column(base_class.table_name.to_sym, col_name, (col_type = params['colType']).to_sym)
+              base_class.reset_column_information
+              ::Brick.relations[base_class.table_name]&.fetch(:cols, nil)&.[]=(col_name, [col_type, nil, false, false])
+              # instance_variable_set(:@schema, ::Brick.find_schema(::Brick.set_db_schema(params).first))
+              add_csp_hash
+            end
+          end
           self.define_method :orphans do
             instance_variable_set(:@orphans, ::Brick.find_orphans(::Brick.set_db_schema(params).first))
             add_csp_hash

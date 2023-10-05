@@ -793,7 +793,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                               end.html_safe
               table_options << "<option value=\"#{prefix}brick_status\">(Status)</option>".html_safe if ::Brick.config.add_status
               table_options << "<option value=\"#{prefix}brick_orphans\">(Orphans)</option>".html_safe if is_orphans
-              table_options << "<option value=\"#{prefix}brick_orphans\">(Crosstab)</option>".html_safe if is_crosstab
+              table_options << "<option value=\"#{prefix}brick_crosstab\">(Crosstab)</option>".html_safe if is_crosstab
               css = +"<style>
 #titleSticky {
   position: sticky;
@@ -1063,6 +1063,8 @@ document.querySelectorAll(\"input[type=submit][data-confirm]\").forEach(function
 }
 function doFetch(method, payload, success) {
   payload.authenticity_token = <%= session[:_csrf_token].inspect.html_safe %>;
+  var action = payload._brick_action || location.href;
+  delete payload._brick_action;
   if (!success) {
     success = function (p) {p.text().then(function (response) {
       var result = JSON.parse(response).result;
@@ -1071,7 +1073,7 @@ function doFetch(method, payload, success) {
   }
   var options = {method: method, headers: {\"Content-Type\": \"application/json\"}};
   if (payload) options.body = JSON.stringify(payload);
-  return fetch(location.href, options).then(success);
+  return fetch(action, options).then(success);
 }
 
 // Cause descriptive text to use the same font as the resource 
@@ -1088,7 +1090,8 @@ if (window.brickFontFamily) {
    end %>"
 
               erd_markup = if @_brick_model
-                             "<div id=\"mermaidErd\" class=\"mermaid\">
+                             "<div id=\"mermaidErd\">
+  <div id=\"mermaidDiagram\" class=\"mermaid\">
 erDiagram
 <% def sidelinks(shown_classes, klass)
      links = []
@@ -1168,6 +1171,40 @@ erDiagram
  # callback < %= cb_k % > erdClick
  @_brick_monetized_attributes = model.respond_to?(:monetized_attributes) ? model.monetized_attributes.values : {}
  %>
+  </div>#{
+ add_column = nil
+ # Make into a server control with a javascript snippet
+ # Have post back go to a common "brick_schema" endpoint, this one for add_column
+"
+  <table style=\"position: relative; z-index: 2; border: 2px solid blue;\"><tr>
+    <td rowspan=\"2\">Add<br>Column</td>
+    <td style=\"padding-bottom: 0px\">Type</td><td style=\"padding-bottom: 0px\">Name</td>
+    <td rowspan=\"2\"><input type=\"button\" id=\"btnAddCol\" value=\"+\"></td>
+  </tr><tr><td style=\"padding-top: 0px\">
+    <select id=\"ddlColType\">
+   <option value=\"string\">String</option>
+   <option value=\"text\">Text</option>
+   <option value=\"integer\">Integer</option>
+   <option value=\"bool\">Boolean</option>
+ </select></td>
+ <td style=\"padding-top: 0px\"><input id=\"txtColName\"></td>
+ </tr></table>
+ <script>
+ var btnAddCol = document.getElementById(\"btnAddCol\");
+ btnAddCol.addEventListener(\"click\", function () {
+   var txtColName = document.getElementById(\"txtColName\");
+   var ddlColType = document.getElementById(\"ddlColType\");
+   doFetch(\"POST\", {modelName: \"#{@_brick_model.name}\",
+                      colName: txtColName.value, colType: ddlColType.value,
+                      _brick_action: \"/#{prefix}brick_schema\"},
+     function () { // If it returns successfully, do a page refresh
+       location.href = location.href;
+     }
+   );
+ });
+ </script>
+" unless add_column == false}
+
 </div>
 "
                            end
