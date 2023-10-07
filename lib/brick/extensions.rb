@@ -2591,7 +2591,7 @@ end.class_exec do
         if arca::AbstractAdapter.private_instance_methods.include?(:with_raw_connection)
           db_statements.define_method(:begin_db_transaction) do
             log("begin immediate transaction", "TRANSACTION") do
-              with_raw_connection(allow_retry: true, uses_transaction: false) do |conn|
+              with_raw_connection(allow_retry: true, materialize_transactions: false) do |conn|
                 conn.transaction(:immediate)
               end
             end

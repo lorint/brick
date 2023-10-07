@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'brick'
 require 'rails/generators'
 require 'fancy_gets'
 
