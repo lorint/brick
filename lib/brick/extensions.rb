@@ -1545,8 +1545,7 @@ class Object
         is_sti = true
       else
         # Class for auto-generated models to inherit from
-        base_model = (::Brick.config.models_inherit_from ||= (app.config.brick.fetch(:models_inherit_from, nil) ||
-                                                              begin
+        base_model = (::Brick.config.models_inherit_from ||= (begin
                                                                 ::ApplicationRecord
                                                               rescue StandardError => ex
                                                                 ::ActiveRecord::Base
@@ -1795,14 +1794,19 @@ class Object
         singular_table_parts.shift
       end
       options[:class_name] = "::#{assoc[:primary_class]&.name || singular_table_parts.map(&:camelize).join('::')}" if need_class_name
-      # Work around a bug in CPK where self-referencing belongs_to associations double up their foreign keys
       if need_fk # Funky foreign key?
-        options[:foreign_key] = if assoc[:fk].is_a?(Array)
-                                  assoc_fk = assoc[:fk].uniq
-                                  assoc_fk.length < 2 ? assoc_fk.first : assoc_fk
-                                else
-                                  assoc[:fk].to_sym
-                                end
+        options_fk_key = :foreign_key
+        if assoc[:fk].is_a?(Array)
+          # #uniq works around a bug in CPK where self-referencing belongs_to associations double up their foreign keys
+          if (assoc_fk = assoc[:fk].uniq).length > 1
+            options_fk_key = :query_constraints if ActiveRecord.version >= ::Gem::Version.new('7.1')
+            options[options_fk_key] = assoc_fk
+          else
+            options[options_fk_key] = assoc_fk.first
+          end
+        else
+          options[options_fk_key] = assoc[:fk].to_sym
+        end
       end
       if inverse_assoc_name && (need_class_name || need_fk || need_inverse_of) &&
          (klass = options[:class_name]&.constantize) && (ian = inverse_assoc_name.tr('.', '_').to_sym) &&
@@ -2596,7 +2600,7 @@ end.class_exec do
         if arca::AbstractAdapter.private_instance_methods.include?(:with_raw_connection)
           db_statements.define_method(:begin_db_transaction) do
             log("begin immediate transaction", "TRANSACTION") do
-              with_raw_connection(allow_retry: true, uses_transaction: false) do |conn|
+              with_raw_connection(allow_retry: true, materialize_transactions: false) do |conn|
                 conn.transaction(:immediate)
               end
             end

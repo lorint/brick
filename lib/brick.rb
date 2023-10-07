@@ -282,7 +282,8 @@ module Brick
               next
             end
           else
-            if !a.options.key?(:as) && a.klass.column_names.exclude?(a.foreign_key.to_s)
+            this_fks = this_fk.is_a?(Array) ? this_fk : [this_fk.to_s]
+            if !a.options.key?(:as) && (this_fks - a.klass.column_names).length.positive?
               options = ", #{a.options.map { |k, v| "#{k.inspect} => #{v.inspect}" }.join(', ')}" if a.options.present?
               puts "WARNING:  Model #{model.name} has this association:
             has_many :#{a.name}#{options}
