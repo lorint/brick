@@ -84,6 +84,9 @@ GEM
       rspec-mocks (~> 3.9.0)
       rspec-support (~> 3.9.0)
     rspec-support (3.9.4)
+    rswag-ui (2.11.0)
+      actionpack (>= 3.1, < 7.2)
+      railties (>= 3.1, < 7.2)
     sprockets (2.2.3)
       hike (~> 1.2)
       multi_json (~> 1.0)
@@ -109,6 +112,7 @@ DEPENDENCIES
   pry-byebug (~> 3.7.0)
   rake (~> 13.0)
   rspec-rails (~> 3.9)
+  rswag-ui
   sqlite3 (< 1.4)
   test-unit
 
