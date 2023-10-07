@@ -1,5 +1,5 @@
 PATH
-  remote: .
+  remote: ..
   specs:
     brick (1.0.181)
       activerecord (>= 3.1.1)
@@ -171,6 +171,7 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
+  activerecord (~> 7.1)
   appraisal (~> 2.2)
   brick!
   ffaker (~> 2.11)
@@ -184,9 +185,6 @@ DEPENDENCIES
   rubocop (~> 0.93)
   rubocop-rspec (~> 1.42.0)
   sqlite3 (~> 1.4)
-
-RUBY VERSION
-   ruby 2.7.8p225
 
 BUNDLED WITH
    1.17.3

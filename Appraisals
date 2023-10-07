@@ -11,6 +11,7 @@
 
 appraise 'ar-3.0' do
   gem 'activerecord', '~> 3.0'
+  gem 'rswag-ui'
 
   gem 'database_cleaner', '~> 1.6'
   gem 'ffaker', '~> 2.11'
@@ -27,6 +28,7 @@ end
 
 appraise 'ar-3.1' do
   gem 'activerecord', '~> 3.1'
+  gem 'rswag-ui'
 
   gem 'database_cleaner', '~> 1.6'
   gem 'ffaker', '~> 2.11'
@@ -43,6 +45,7 @@ end
 
 appraise 'ar-3.2' do
   gem 'activerecord', '~> 3.2'
+  gem 'rswag-ui'
 
   gem 'database_cleaner', '~> 1.6'
   gem 'ffaker', '~> 2.11'
@@ -59,6 +62,7 @@ end
 
 appraise 'ar-4.0' do
   gem 'activerecord', '~> 4.0'
+  gem 'rswag-ui'
 
   gem 'database_cleaner', '~> 1.6'
   gem 'ffaker', '~> 2.11'
@@ -74,6 +78,7 @@ end
 
 appraise 'ar-4.1' do
   gem 'activerecord', '~> 4.1.0'
+  gem 'rswag-ui'
 
   gem 'database_cleaner', '~> 1.6'
   gem 'ffaker', '~> 2.11'
@@ -89,6 +94,7 @@ end
 
 appraise 'ar-4.2' do
   gem 'activerecord', '~> 4.2'
+  gem 'rswag-ui'
 
   gem 'database_cleaner', '~> 1.6'
   gem 'ffaker', '~> 2.11'
@@ -104,28 +110,34 @@ end
 
 appraise 'ar-5.0' do
   gem 'activerecord', '~> 5.0'
+  gem 'rswag-ui'
 
   gem 'sqlite3', '< 1.4'
 end
 
 appraise 'ar-5.1' do
   gem 'activerecord', '~> 5.1'
+  gem 'rswag-ui'
 end
 
 appraise 'ar-5.2' do
   gem 'activerecord', '~> 5.2'
+  gem 'rswag-ui'
 end
 
 appraise 'ar-6.0' do
   gem 'activerecord', '~> 6.0'
+  gem 'rswag-ui'
 end
 
 appraise 'ar-6.1' do
   gem 'activerecord', '~> 6.1'
+  gem 'rswag-ui'
 end
 
 appraise 'ar-7.0' do
   gem 'activerecord', '~> 7.0'
+  gem 'rswag-ui'
 end
 
 appraise 'ar-7.1' do

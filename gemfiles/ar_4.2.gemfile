@@ -3,6 +3,7 @@
 source 'https://rubygems.org'
 
 gem 'activerecord', '~> 4.2'
+gem 'rswag-ui'
 
 gem 'database_cleaner', '~> 1.6'
 gem 'ffaker', '~> 2.11'
