@@ -910,7 +910,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
 
         object_name = k.split('.').last # Take off any first schema part
 
-        full_schema_prefix = if (aps = v.fetch(:auto_prefixed_schema, nil))
+        full_schema_prefix = if (full_aps = aps = v.fetch(:auto_prefixed_schema, nil))
                                 aps = aps[0..-2] if aps[-1] == '_'
                                 (schema_prefix&.dup || +'') << "#{aps}."
                               else
@@ -925,7 +925,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
           else
             table_class_length = class_name.length if class_name.length > table_class_length
             tables
-          end << [class_name, aps, k.tr('.', '/')]
+          end << [class_name, aps, k.tr('.', '/')[full_aps&.length || 0 .. -1]]
         end
 
         options = {}

@@ -1766,7 +1766,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
             gErd.addEventListener(\"click\",
               function (evt) {
                 location.href = changeout(changeout(
-                  changeout(location.href, '_brick_order', null), // Remove any ordering
+                  changeout(location.href, \"_brick_order\", null), // Remove any ordering
                 -1, cbs[this.id].replace(/^[\/]+/, \"\")), \"_brick_erd\", \"1\");
               }
             );
@@ -1774,6 +1774,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
         }}
       });
       mermaid.contentLoaded();
+      window.history.replaceState({}, \"\", changeout(location.href, \"_brick_erd\", \"1\"));
       // Add <span> at the end
       var span = document.createElement(\"SPAN\");
       span.className = \"exclude\";
@@ -1782,7 +1783,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
         e.stopPropagation();
         imgErd.style.display = \"table-cell\";
         mermaidErd.style.display = \"none\";
-        window.history.pushState({}, '', changeout(location.href, '_brick_erd', null));
+        window.history.replaceState({}, \"\", changeout(location.href, \"_brick_erd\", null));
       });
       mermaidErd.appendChild(span);
     }
