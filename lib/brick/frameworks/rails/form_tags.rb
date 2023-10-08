@@ -1,7 +1,7 @@
 module Brick::Rails::FormTags
   # Our super speedy grid
-  def brick_grid(relation = nil, bt_descrip = nil, sequence = nil, inclusions = nil, exclusions = nil,
-                 cols = {}, poly_cols = nil, bts = {}, hms_keys = [], hms_cols = {},
+  def brick_grid(relation = nil, sequence = nil, inclusions = nil, exclusions = nil,
+                 cols = {}, bt_descrip: nil, poly_cols: nil, bts: {}, hms_keys: [], hms_cols: {},
                  show_header: nil, show_row_count: nil, show_erd_button: nil, show_new_button: nil, show_avo_button: nil, show_aa_button: nil)
     # When a relation is not provided, first see if one exists which matches the controller name
     unless (relation ||= instance_variable_get("@#{controller_name}".to_sym))

@@ -115,7 +115,7 @@ if Object.const_defined?('ActionPack') && !ActionPack.respond_to?(:version)
     end
   end
 end
-if Bundler.locked_gems&.dependencies.key?('action_view')
+if Object.const_defined?('Bundler') && Bundler.locked_gems&.dependencies.key?('action_view')
   require 'action_view' # Needed for Rails <= 4.0
   module ::ActionView
     if Object.const_defined?('ActionView') && !ActionView.respond_to?(:version)

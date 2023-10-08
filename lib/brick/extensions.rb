@@ -1189,7 +1189,7 @@ if Object.const_defined?('ActionView')
         # not let Brick have any fun.  So just call this right before any wildcard routes, and
         # you'll be in business!
         def mount_brick_routes
-          add_brick_routes unless ::Brick.routes_done
+          add_brick_routes if !::Brick.routes_done && respond_to?(:add_brick_routes)
         end
       end
     end

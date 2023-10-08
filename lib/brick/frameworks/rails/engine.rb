@@ -1367,12 +1367,6 @@ end
 #{erd_markup}
 
 <%= # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
-    cols = {#{hms_keys = []
-              hms_headers.map do |hm|
-                hms_keys << (assoc_name = (assoc = hm.first).name.to_s)
-                "#{assoc_name.inspect} => [#{(assoc.options[:through] && !assoc.through_reflection).inspect}, #{assoc.klass.name}, #{hm[1].inspect}, #{hm[2].inspect}]"
-              end.join(', ')}}
-
     # If the resource is missing, has the user simply created an inappropriately pluralised name for a table?
     @#{table_name} ||= if (dym_list = instance_variables.reject do |entry|
                              entry.to_s.start_with?('@_') ||
@@ -1392,6 +1386,13 @@ end
                          end
                        end
 
+    # Starts as being just has_many columns, and will be augmented later with all the other columns
+    cols = {#{hms_keys = []
+              hms_headers.map do |hm|
+                hms_keys << (assoc_name = (assoc = hm.first).name.to_s)
+                "#{assoc_name.inspect} => [#{(assoc.options[:through] && !assoc.through_reflection).inspect}, #{assoc.klass.name}, #{hm[1].inspect}, #{hm[2].inspect}]"
+              end.join(', ')}}
+
     # %%% Why in the Canvas LMS app does ActionView::Helpers get cleared / reloaded, or otherwise lose access to #brick_grid ???
     # Possible fix if somewhere we can implement the #include with:
     # (ActiveSupport.const_defined?('Reloader') ? ActiveSupport : ActionDispatch)::Reloader.to_prepare do ... end
@@ -1399,8 +1400,8 @@ end
     # Rails.application.reloader.to_prepare do ... end
     self.class.class_exec { include ::Brick::Rails::FormTags } unless respond_to?(:brick_grid)
     # Write out the mega-grid
-    brick_grid(@#{table_name}, @_brick_bt_descrip, @_brick_sequence, @_brick_incl, @_brick_excl,
-               cols, poly_cols, bts, #{hms_keys.inspect}, {#{hms_columns.join(', ')}}) %>
+    brick_grid(@#{table_name}, @_brick_sequence, @_brick_incl, @_brick_excl,
+               cols, bt_descrip: @_brick_bt_descrip, poly_cols: poly_cols, bts: bts, hms_keys: #{hms_keys.inspect}, hms_cols: {#{hms_columns.join(', ')}}) %>
 
 #{"<hr><%= link_to(\"New #{new_path_name = "new_#{path_obj_name}_path"
                            obj_name}\", #{new_path_name}, { class: '__brick' }) if respond_to?(:#{new_path_name}) %>" unless @_brick_model.is_view?}
@@ -1766,7 +1767,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
             gErd.addEventListener(\"click\",
               function (evt) {
                 location.href = changeout(changeout(
-                  changeout(location.href, '_brick_order', null), // Remove any ordering
+                  changeout(location.href, \"_brick_order\", null), // Remove any ordering
                 -1, cbs[this.id].replace(/^[\/]+/, \"\")), \"_brick_erd\", \"1\");
               }
             );
@@ -1774,6 +1775,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
         }}
       });
       mermaid.contentLoaded();
+      window.history.replaceState({}, \"\", changeout(location.href, \"_brick_erd\", \"1\"));
       // Add <span> at the end
       var span = document.createElement(\"SPAN\");
       span.className = \"exclude\";
@@ -1782,7 +1784,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
         e.stopPropagation();
         imgErd.style.display = \"table-cell\";
         mermaidErd.style.display = \"none\";
-        window.history.pushState({}, '', changeout(location.href, '_brick_erd', null));
+        window.history.replaceState({}, \"\", changeout(location.href, \"_brick_erd\", null));
       });
       mermaidErd.appendChild(span);
     }
