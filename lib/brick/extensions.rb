@@ -1610,9 +1610,14 @@ class Object
           if has_pk
             code << "  # Primary key: #{_brick_primary_key.join(', ')}\n" unless _brick_primary_key == ['id']
           elsif our_pks&.present?
-            if our_pks.length > 1 && respond_to?(:'primary_keys=') # Using the composite_primary_keys gem?
-              new_model_class.primary_keys = our_pks
-              code << "  self.primary_keys = #{our_pks.map(&:to_sym).inspect}\n"
+            pk_mutator = if respond_to?(:'primary_keys=')
+                           'primary_keys=' # Using the composite_primary_keys gem
+                         elsif ActiveRecord.version >= Gem::Version.new('7.1')
+                           'primary_key=' # Rails 7.1+?
+                         end
+            if our_pks.length > 1 && pk_mutator
+              new_model_class.send(pk_mutator, our_pks)
+              code << "  self.#{pk_mutator[0..-2]} = #{our_pks.map(&:to_sym).inspect}\n"
             else
               new_model_class.primary_key = (pk_sym = our_pks.first.to_sym)
               code << "  self.primary_key = #{pk_sym.inspect}\n"

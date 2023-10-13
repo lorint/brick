@@ -158,7 +158,7 @@ module Brick::Rails::FormTags
                                       pk.map { |pk_part| obj.send(pk_part.to_sym) }), { class: 'big-arrow' })}</td>\n" if pk.present?
       sequence.each_with_index do |col_name, idx|
         val = obj.attributes[col_name]
-        bt = bts[col_name]
+        bt = bts[col_name] || composite_bt_names[col_name]
         out << '<td'
         (classes ||= []) << 'col-sticky' if idx < nfc
         (classes ||= []) << 'dimmed' unless cols.key?(col_name) || (cust_col = cust_cols[col_name]) ||
@@ -166,7 +166,7 @@ module Brick::Rails::FormTags
         (classes ||= []) << 'right' if val.is_a?(Numeric) && !bt
         out << " class=\"#{classes.join(' ')}\"" if classes&.present?
         out << '>'
-        if (bt || composite_bt_names[col_name])
+        if bt
           if bt[2] && obj.respond_to?(poly_id_col = "#{bt.first}_id") # Polymorphic?
             if (poly_id = obj.send(poly_id_col))
               bt_class = obj.send(klass.brick_foreign_type(bt.first))

@@ -203,23 +203,25 @@ module Brick
       end
 
       model_cols = model.columns_hash
-      pk_type = if (mpk = model.primary_key).is_a?(Array)
-                  # Composite keys should really use:  model.primary_key.map { |pk_part| model_cols[pk_part].type }
-                  model_cols[mpk.first].type
-                else
-                  mpk && model_cols[mpk].type
-                end
       bts, hms = model.reflect_on_all_associations.each_with_object([{}, {}]) do |a, s|
-        # %%% The time will come when we will support type checking of composite foreign keys!
-        # binding.pry if a.foreign_key.is_a?(Array)
         if a.belongs_to? && !a.polymorphic? && ::Brick.config.polymorphics.fetch(full_assoc_name = "#{model.table_name}.#{a.name}", nil)
           puts "Based on inclusion in ::Brick.polymorphics, marking association #{full_assoc_name} as being polymorphic."
           a.options[:polymorphic] = true
         end
-        unless a.polymorphic? || (!a.belongs_to? && (through = a.options[:through])) ||
-               (a.klass && ::Brick.config.exclude_tables.exclude?(a.klass.table_name) &&
-                 (!a.belongs_to? || (same_type = (fk_type = model_cols[a.foreign_key]&.type) == pk_type))
-               )
+        if !a.polymorphic? && (a.belongs_to? || (through = a.options[:through])) &&
+           !(a.klass && ::Brick.config.exclude_tables.exclude?(a.klass.table_name) &&
+              (!a.belongs_to? ||
+                ((fk_type = a.foreign_key.is_a?(Array) ? a.foreign_key.map { |fk_part| model_cols[fk_part.to_s].type } : model_cols[a.foreign_key.to_s].type) &&
+                 (primary_cols = a.klass.columns_hash) &&
+                 (pk_type = a.klass.primary_key.is_a?(Array) ? a.klass.primary_key.map { |pk_part| primary_cols[pk_part.to_s].type } : primary_cols[a.klass.primary_key].type) &&
+                 (same_type = (pk_type == fk_type))
+                )
+              )
+            )
+        # unless a.polymorphic? || (!a.belongs_to? && (through = a.options[:through])) ||
+        #        (a.klass && ::Brick.config.exclude_tables.exclude?(a.klass.table_name) &&
+        #          (!a.belongs_to? || (same_type = (fk_type = model_cols[a.foreign_key.to_s]&.type) == pk_type))
+        #        )
           if same_type == false # We really do want to test specifically for false here, and not nil!
             puts "WARNING:
   Foreign key column #{a.klass.table_name}.#{a.foreign_key} is #{fk_type}, but the primary key it relates to, #{a.active_record.table_name}.#{a.active_record.primary_key}, is #{pk_type}.
