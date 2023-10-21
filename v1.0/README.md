@@ -292,7 +292,7 @@ starting up:
 ```
 Lorins-Macbook:example_oracle lorin$ bin/rails s
 => Booting Puma
-=> Rails 7.1.0 application starting in development
+=> Rails 7.1.1 application starting in development
 => Run `rails server --help` for more startup options
 
 Classes that can be built from tables:  Path:

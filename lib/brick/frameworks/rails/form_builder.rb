@@ -48,7 +48,9 @@ module Brick::Rails::FormBuilder
                    col&.type
                  end
       case (col_type ||= col&.sql_type)
-      when :string, :text, :citext
+      when :string, :text, :citext,
+           :enum # Support for the activerecord-mysql-enum gem
+        spit_out_text_field = nil
         if ::Brick::Rails::FormBuilder.is_bcrypt?(val) # || .readonly?
           is_revert = false
           out << ::Brick::Rails::FormBuilder.hide_bcrypt(val, nil, 1000)
@@ -57,13 +59,20 @@ module Brick::Rails::FormBuilder
             enum_html_options = attr.kind_of?(Enumerize::Multiple) ? html_options.merge({ multiple: true, size: opts.length + 1 }) : html_options
             out << self.select(method.to_sym, [["(No #{method} chosen)", '^^^brick_NULL^^^']] + opts, { value: val || '^^^brick_NULL^^^' }, enum_html_options)
           else
-            out << self.text_field(method.to_sym, html_options)
+            spit_out_text_field = true
+          end
+        elsif col_type == :enum
+          if col.respond_to?(:limit) && col.limit.present?
+            out << self.select(method.to_sym, [["(No #{method} chosen)", '^^^brick_NULL^^^']] + col.limit, { value: val.to_s || '^^^brick_NULL^^^' }, html_options)
+          else
+            spit_out_text_field = true
           end
         else
           template.instance_variable_set(:@_text_fields_present, true)
           out << self.hidden_field(method.to_sym, html_options)
           out << "<trix-editor input=\"#{self.field_id(method)}\"></trix-editor>"
         end
+        out << self.text_field(method.to_sym, html_options) if spit_out_text_field
       when :boolean
         out << self.check_box(method.to_sym)
       when :integer, :decimal, :float
