@@ -2026,15 +2026,17 @@ end
 
 # Keyword arguments updates for Rails <= 5.2.x and Ruby >= 3.0
 if ActiveRecord.version < ::Gem::Version.new('6.0') && ruby_version >= ::Gem::Version.new('3.0')
-  admsm = ActionDispatch::MiddlewareStack::Middleware
-  admsm.class_exec do
-    # redefine #build
-    def build(app, **kwargs)
-      if args.length > 1 && args.last.is_a?(Hash)
-        kwargs.merge!(args.pop)
+  if Object.const_defined?('ActionDispatch')
+    admsm = ActionDispatch::MiddlewareStack::Middleware
+    admsm.class_exec do
+      # redefine #build
+      def build(app, **kwargs)
+        if args.length > 1 && args.last.is_a?(Hash)
+          kwargs.merge!(args.pop)
+        end
+        # binding.pry if klass == ActionDispatch::Static # ActionDispatch::Reloader
+        klass.new(app, *args, **kwargs, &block)
       end
-      # binding.pry if klass == ActionDispatch::Static # ActionDispatch::Reloader
-      klass.new(app, *args, **kwargs, &block)
     end
   end
 
@@ -2086,16 +2088,18 @@ if ActiveRecord.version < ::Gem::Version.new('6.0') && ruby_version >= ::Gem::Ve
     end
   end
 
-  module ActionController::RequestForgeryProtection
-  private
+  if Object.const_defined?('ActionController')
+    module ActionController::RequestForgeryProtection
+    private
 
-    # Creates the authenticity token for the current request.
-    def form_authenticity_token(*args, form_options: {}) # :doc:
-      if method(:masked_authenticity_token).arity == 1
-        masked_authenticity_token(session) # AR <= 4.2 doesn't use form_options
-      else
-        form_options.merge!(args.pop) if args.last.is_a?(Hash)
-        masked_authenticity_token(session, form_options: form_options)
+      # Creates the authenticity token for the current request.
+      def form_authenticity_token(*args, form_options: {}) # :doc:
+        if method(:masked_authenticity_token).arity == 1
+          masked_authenticity_token(session) # AR <= 4.2 doesn't use form_options
+        else
+          form_options.merge!(args.pop) if args.last.is_a?(Hash)
+          masked_authenticity_token(session, form_options: form_options)
+        end
       end
     end
   end

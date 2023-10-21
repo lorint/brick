@@ -151,7 +151,7 @@ module Brick
       puts "\n*** Created seeds for #{done.length} models in db/seeds.rb ***"
       if (stuck_sorted = stuck_counts.to_a.sort { |a, b| b.last <=> a.last }).length.positive?
         puts "-----------------------------------------"
-        puts "Unable to create migrations for #{stuck_sorted.length} tables#{
+        puts "Unable to create seeds for #{stuck_sorted.length} tables#{
           ".  Here's the top 5 blockers" if stuck_sorted.length > 5
         }:"
         pp stuck_sorted[0..4]
