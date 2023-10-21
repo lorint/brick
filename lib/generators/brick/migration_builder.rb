@@ -26,11 +26,16 @@ module Brick
                   'SDO_GEOMETRY' => 'geometry',
                   # MSSQL data types
                   'int' => 'integer',
+                  'char' => 'string',
+                  'varchar' => 'string',
                   'nvarchar' => 'string',
                   'nchar' => 'string',
                   'datetime2' => 'timestamp',
                   'bit' => 'boolean',
                   'varbinary' => 'binary',
+                  'tinyint' => 'integer', # %%% Need to put in "limit: 2"
+                  'year' => 'date',
+                  'set' => 'string',
                   # Sqlite data types
                   'TEXT' => 'text',
                   '' => 'string',

@@ -48,10 +48,14 @@ if ::Gem::Version.new(RUBY_VERSION) >= ::Gem::Version.new('2.7')
     end
   end
 
-  unless ActiveRecord.const_defined?(:NoDatabaseError) # Generic version of NoDatabaseError for Rails <= 4.0
+  unless ActiveRecord.const_defined?(:NoDatabaseError)
     require 'active_model'
+    require 'active_record/deprecator' if ActiveRecord.version >= Gem::Version.new('7.1.0')
     require 'active_record/errors'
-    class ::ActiveRecord::NoDatabaseError < ::ActiveRecord::StatementInvalid
+    # Generic version of NoDatabaseError for Rails <= 4.0
+    unless ActiveRecord.const_defined?(:NoDatabaseError)
+      class ::ActiveRecord::NoDatabaseError < ::ActiveRecord::StatementInvalid
+      end
     end
   end
 

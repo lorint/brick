@@ -1966,7 +1966,7 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
               def viable_models
                 return _brick_viable_models if ::RailsAdmin::Config.class_variables.include?(:@@system_models)
 
-                brick_models = ::Brick.relations.map { |_k, v| v[:class_name] }
+                brick_models = ::Brick.relations.each_with_object([]) { |rel, s| s << rel.last[:class_name] unless rel.first.is_a?(Symbol) }
 
                 # The original from RailsAdmin (now aliased as _brick_viable_models) loads all classes
                 # in the whole project. This Brick approach is a little more tame.
@@ -1999,7 +1999,7 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
           end
 
           RailsAdmin.config do |config|
-            ::Brick.relations.select { |_k, v| v.key?(:isView) }.each do |_k, relation|
+            ::Brick.relations.select { |_k, v| v.is_a?(Hash) && v.key?(:isView) }.each do |_k, relation|
               config.model(relation[:class_name]) do # new_model_class
                 list do
                   sort_by (sort_col = relation[:cols].first.first)
