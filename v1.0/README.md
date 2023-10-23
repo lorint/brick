@@ -34,7 +34,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.183        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.185        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -518,6 +518,43 @@ If you'd like to have a set of migration files built out from an existing databa
 First a table picker comes up where you choose which table(s) you wish to build migrations for -- by default all the tables are chosen. (Use the arrow keys and spacebar to select and deselect items in the list), then press ENTER and new migration files for each individual table in your database are built out either in db/migrate, or if that folder already has .rb files then the destination becomes tmp/brick_migrations.
 
 After successful file generation, the `schema_migrations` table is updated to have appropriate numerical `version` entries, one for each file which was generated.  This is so that after generating, you don't end up seeing the "Migrations are pending" error later.
+
+If you have a circular reference that prevents Brick from completing the creation of migrations normally,
+you will see warning messages similar to this:
+
+```
+Can't do customer because:
+  store
+Can't do inventory because:
+  store
+Can't do payment because:
+  rental, customer, staff
+Can't do rental because:
+  staff, inventory, customer
+Can't do staff because:
+  store
+Can't do store because:
+  manager_staff
+
+*** Created 10 migration files under db/migrate ***
+-----------------------------------------
+Unable to create migrations for 6 tables.  Here's the top 5 blockers:
+[["store", 3], ["staff", 3], ["customer", 2], ["rental", 1], ["inventory", 1]]
+```
+
+(This example is what you get with the Sakila database, which has this kind of circular reference.)
+
+In cases such as this you can use a special hint in the brick.rb initializer to act as if one or more
+foreign keys are not present while running Brick generators.  (Specifically this setting affects
+brick:migrations and brick:seeds.)  Here is an example of a deferral which will allow the Sakila
+database to complete normally, fully avoiding the litany of "Can't do ___ because" errors shown above:
+
+```
+Brick.defer_references_for_generation = [['staff', 'store_id', 'store']]
+```
+
+You will often have to either know the foreign key structure pretty well or experiment with deferring
+foreign keys to find out the most specific ones to defer in order for these generators to work.
 
 ### 1.h. Autogenerate Seeds File
 

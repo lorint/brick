@@ -164,6 +164,15 @@ module Brick
       @mutex.synchronize { @additional_references = references }
     end
 
+    # References to disregard when auto-building migrations, models, and seeds
+    def defer_references_for_generation
+      @mutex.synchronize { @defer_references_for_generation }
+    end
+
+    def defer_references_for_generation=(drfg)
+      @mutex.synchronize { @defer_references_for_generation = drfg }
+    end
+
     # Custom columns to add to a table, minimally defined with a name and DSL string
     def custom_columns
       @mutex.synchronize { @custom_columns }
