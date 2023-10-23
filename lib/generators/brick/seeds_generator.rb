@@ -66,8 +66,12 @@ module Brick
                         tbl = seed_model.table_name
                         snag_fks = []
                         snags = ::Brick.relations.fetch(tbl, nil)&.fetch(:fks, nil)&.select do |_k, v|
-                          v[:is_bt] && !v[:polymorphic] &&
-                          tbl != v[:inverse_table] && # Ignore self-referencing associations (stuff like "parent_id")
+                          # Skip any foreign keys which should be deferred ...
+                          !Brick.drfgs[tbl]&.any? do |drfg|
+                            drfg[0] == v.fetch(:fk, nil) && drfg[1] == v.fetch(:inverse_table, nil)
+                          end &&
+                          v[:is_bt] && !v[:polymorphic] && # ... and polymorphics ...
+                          tbl != v[:inverse_table] && # ... and self-referencing associations (stuff like "parent_id")
                           !done.any? { |done_seed_model| done_seed_model.table_name == v[:inverse_table] } &&
                           ::Brick.config.ignore_migration_fks.exclude?(snag_fk = "#{tbl}.#{v[:fk]}") &&
                           snag_fks << snag_fk

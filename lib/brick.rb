@@ -477,6 +477,21 @@ module Brick
       end
     end
 
+    # References to disregard when auto-building migrations, models, and seeds
+    # @api public
+    def defer_references_for_generation=(drfg)
+      if drfg
+        drfg = [drfg] unless drfg.empty? || drfg.first.is_a?(Array)
+        Brick.config.defer_references_for_generation = drfg
+      end
+    end
+
+    def drfgs
+      (::Brick.config.defer_references_for_generation || []).each_with_object({}) do |drfg, s|
+        s[drfg.first] = [drfg[1..-1]]
+      end
+    end
+
     # Custom columns to add to a table, minimally defined with a name and DSL string.
     # @api public
     def custom_columns=(cust_cols)
