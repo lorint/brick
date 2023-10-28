@@ -2049,9 +2049,10 @@ class Object
             _schema, @_is_show_schema_list = ::Brick.set_db_schema(params || api_params)
 
             if is_openapi
-              api_name = Rswag::Ui.config.config_object[:urls].find do |api_url|
-                api_url[:url] == request.path
-              end&.fetch(:name, 'API documentation')
+              doc_endpoints = (Object.const_defined?('Rswag::Ui') &&
+                               (::Rswag::Ui.config.config_object[:urls])) ||
+                              ::Brick.instance_variable_get(:@swagger_endpoints)
+              api_name = doc_endpoints&.find { |api_url| api_url[:url] == request.path }&.fetch(:name, 'API documentation')
               current_api_ver = current_api_root.split('/').last&.[](1..-1).to_i
               json = { 'openapi': '3.0.1', 'info': { 'title': api_name, 'version': request_ver },
                        'servers': [

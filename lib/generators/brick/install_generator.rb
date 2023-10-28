@@ -190,6 +190,10 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   #   config.swagger_endpoint '/api-docs/v1/swagger.json', 'API V1 Docs'
   # end
 
+  # # To establish OpenAPI 3.0 documentation endpoints without use of Rswag, such as if you want to use fancier
+  # # tooling such as Scalar API or similar, the Brick also allows you to establish endpoints directly:
+  # ::Brick.swagger_endpoint '/api-docs/v1/swagger.json', 'API V1 Docs'
+
   # # By default models are auto-created for database views, and set to be read-only.  This can be skipped.
   # Brick.skip_database_views = true
 

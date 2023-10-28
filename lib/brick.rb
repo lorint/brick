@@ -326,6 +326,12 @@ module Brick
       true
     end
 
+    # Add a swagger endpoint in the same kind of way that RSwag UI does
+    def swagger_endpoint(url, name)
+      @swagger_endpoints ||= []
+      @swagger_endpoints << { url: url, name: name }
+    end
+
     def is_geography?(val)
       val.length < 31 && (val.length - 6) % 8 == 0 && val[0..5].bytes == [230, 16, 0, 0, 1, 12]
     end
@@ -1135,39 +1141,49 @@ In config/initializers/brick.rb appropriate entries would look something like:
         get("/#{controller_prefix}brick_crosstab/data", to: 'brick_gem#crosstab_data')
       end
 
-      if Object.const_defined?('Rswag::Ui')
-        rswag_path = routeset_to_use.routes.find { |r| r.app.app == Rswag::Ui::Engine }&.instance_variable_get(:@path_formatter)&.instance_variable_get(:@parts)&.join
-        first_endpoint_parts = nil
-        (doc_endpoints = Rswag::Ui.config.config_object[:urls])&.each do |doc_endpoint|
+      if ((rswag_ui_present = Object.const_defined?('Rswag::Ui')) &&
+          (rswag_path = routeset_to_use.routes.find { |r| r.app.app == ::Rswag::Ui::Engine }
+                                              &.instance_variable_get(:@path_formatter)
+                                              &.instance_variable_get(:@parts)&.join) &&
+          (doc_endpoints = ::Rswag::Ui.config.config_object[:urls])) ||
+         (doc_endpoints = ::Brick.instance_variable_get(:@swagger_endpoints))
+        last_endpoint_parts = nil
+        doc_endpoints.each do |doc_endpoint|
           puts "Mounting OpenApi 3.0 documentation endpoint for \"#{doc_endpoint[:name]}\" on #{doc_endpoint[:url]}" unless ::Brick.routes_done
           send(:get, doc_endpoint[:url], { to: 'brick_openapi#index' })
           endpoint_parts = doc_endpoint[:url]&.split('/')
-          first_endpoint_parts ||= endpoint_parts
+          last_endpoint_parts = endpoint_parts
         end
       end
       return if ::Brick.routes_done
 
-      if Object.const_defined?('Rswag::Ui')
-        if doc_endpoints.present?
-          if rswag_path && first_endpoint_parts
-            puts "API documentation now available when navigating to:  /#{first_endpoint_parts&.find(&:present?)}/index.html"
+      if doc_endpoints.present?
+        if rswag_ui_present
+          if rswag_path
+            puts "API documentation now available when navigating to:  /#{last_endpoint_parts&.find(&:present?)}/index.html"
           else
             puts "In order to make documentation available you can put this into your routes.rb:"
-            puts "  mount Rswag::Ui::Engine => '/#{first_endpoint_parts&.find(&:present?) || 'api-docs'}'"
+            puts "  mount Rswag::Ui::Engine => '/#{last_endpoint_parts&.find(&:present?) || 'api-docs'}'"
           end
         else
-          sample_path = rswag_path || '/api-docs'
+          puts "Having this exposed, one easy way to leverage this to create HTML-based API documentation is to use Scalar.
+It will jump to life when you put these two lines into a view template or other HTML resource:
+  <script id=\"api-reference\" data-url=\"#{last_endpoint_parts.join('/')}\"></script>
+  <script src=\"https://cdn.jsdelivr.net/@scalar/api-reference\"></script>
+Alternatively you can add the rswag-ui gem."
+        end
+      elsif rswag_ui_present
+        sample_path = rswag_path || '/api-docs'
+        puts
+        puts "Brick:  rswag-ui gem detected -- to make OpenAPI 3.0 documentation available from a path such as  '#{sample_path}/v1/swagger.json',"
+        puts '        put code such as this in an initializer:'
+        puts '  Rswag::Ui.configure do |config|'
+        puts "    config.swagger_endpoint '#{sample_path}/v1/swagger.json', 'API V1 Docs'"
+        puts '  end'
+        unless rswag_path
           puts
-          puts "Brick:  rswag-ui gem detected -- to make OpenAPI 3.0 documentation available from a path such as  '#{sample_path}/v1/swagger.json',"
-          puts '        put code such as this in an initializer:'
-          puts '  Rswag::Ui.configure do |config|'
-          puts "    config.swagger_endpoint '#{sample_path}/v1/swagger.json', 'API V1 Docs'"
-          puts '  end'
-          unless rswag_path
-            puts
-            puts '        and put this into your routes.rb:'
-            puts "  mount Rswag::Ui::Engine => '/api-docs'"
-          end
+          puts '        and put this into your routes.rb:'
+          puts "  mount Rswag::Ui::Engine => '/api-docs'"
         end
       end
 
