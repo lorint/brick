@@ -89,7 +89,7 @@ end
 # is first established), and then automatically creates models, controllers, views,
 # and routes based on those available relations.
 require 'brick/config'
-if Gem::Specification.all_names.any? { |g| g.start_with?('rails-') && g[6..-1] =~ /^([0-9]|\.)+(?:|rc1|rc2|beta1)$/ }
+if Gem::Dependency.new('rails').matching_specs.present?
   require 'rails'
   require 'brick/frameworks/rails'
 end
@@ -213,12 +213,19 @@ module Brick
         if (through = a.options[:through]) && !a.through_reflection
           puts "WARNING:  In model #{model.name}, unable to utilise:  has_many #{a.name}, through: #{through.inspect}"
         end
+        primary_klass = if a.belongs_to?
+                          a.polymorphic? ? nil : a.klass
+                        else
+                          a.active_record
+                        end
+        a_pk = a.options.fetch(:primary_key, nil)&.to_s ||
+               primary_klass&.primary_key # Was:  a.klass.primary_key
         if !a.polymorphic? && (a.belongs_to? || (through && a.through_reflection)) &&
            !(a.klass && ::Brick.config.exclude_tables.exclude?(a.klass.table_name) &&
               (!a.belongs_to? ||
                 ((fk_type = a.foreign_key.is_a?(Array) ? a.foreign_key.map { |fk_part| model_cols[fk_part.to_s].type } : model_cols[a.foreign_key.to_s].type) &&
-                 (primary_cols = a.klass.columns_hash) &&
-                 (pk_type = a.klass.primary_key.is_a?(Array) ? a.klass.primary_key.map { |pk_part| primary_cols[pk_part.to_s].type } : primary_cols[a.klass.primary_key].type) &&
+                 (primary_cols = primary_klass.columns_hash) &&
+                 (pk_type = a_pk.is_a?(Array) ? a_pk.map { |pk_part| primary_cols[pk_part.to_s].type } : primary_cols[a_pk].type) &&
                  (same_type = (pk_type == fk_type))
                 )
               )
@@ -229,7 +236,7 @@ module Brick
         #        )
           if same_type == false # We really do want to test specifically for false here, and not nil!
             puts "WARNING:
-  Foreign key column #{a.klass.table_name}.#{a.foreign_key} is #{fk_type}, but the primary key it relates to, #{a.active_record.table_name}.#{a.active_record.primary_key}, is #{pk_type}.
+  Foreign key column #{a.klass.table_name}.#{a.foreign_key} is #{fk_type}, but the primary key it relates to, #{primary_klass.table_name}.#{a_pk}, is #{pk_type}.
   These columns should both be of the same type."
           end
           next
@@ -1796,7 +1803,7 @@ end
 
 # By default the awesome_nested_set gem from CollectiveIdea does not prefix the ORDER BY column with its table name.
 # You can see this snag in action in the popular Spree project -- check out the Taxonomy model.  Here is a fix:
-if Gem::Specification.all_names.find { |g| g.start_with?('awesome_nested_set-') }
+if Gem::Dependency.new('awesome_nested_set').matching_specs.present?
   require 'awesome_nested_set/columns'
   ::CollectiveIdea::Acts::NestedSet::Columns.class_exec do
     alias _brick_order_column_name order_column_name
@@ -1939,7 +1946,7 @@ module ActiveRecord
         # %%% Pretty much have to flat-out replace this guy (I think anyway)
         # Good with Rails 5.2.4 through 7.1 on this
         # Ransack gem includes Polyamorous which replaces #build in a different way (which we handle below)
-        unless Gem::Specification.all_names.any? { |g| g.start_with?('ransack-') }
+        if Gem::Dependency.new('ransack').matching_specs.empty?
           def build(associations, base_klass, root = nil, path = '')
             root ||= associations
             associations.map do |name, right|
@@ -1995,7 +2002,7 @@ module ActiveRecord
 end
 
 # Now the Ransack Polyamorous version of #build
-if Gem::Specification.all_names.any? { |g| g.start_with?('ransack-') }
+if Gem::Dependency.new('ransack').matching_specs.present?
   require "polyamorous/activerecord_#{::ActiveRecord::VERSION::STRING[0, 3]}_ruby_2/join_dependency"
   module Polyamorous::JoinDependencyExtensions
     def build(associations, base_klass, root = nil, path = '')

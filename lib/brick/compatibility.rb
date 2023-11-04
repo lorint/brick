@@ -160,7 +160,7 @@ if ActiveRecord.version < ::Gem::Version.new('5.0') && ::Gem::Version.new(RUBY_V
   if ::Gem::Version.new(RUBY_VERSION) >= ::Gem::Version.new('3.1')
     # @@schemes fix for global_id gem < 1.0
     URI.class_variable_set(:@@schemes, {}) unless URI.class_variables.include?(:@@schemes)
-    if Gem::Specification.all_names.find { |g| g.start_with?('puma-') }
+    if Gem::Dependency.new('puma').matching_specs.present?
       require 'rack/handler/puma'
       module Rack::Handler::Puma
         class << self

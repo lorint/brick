@@ -96,38 +96,60 @@ module ActiveRecord
                 end
         columns_hash.keys.map(&:to_sym) + (rtans || [])
       end
-    end
 
-    def self._brick_primary_key(relation = nil)
-      return @_brick_primary_key if instance_variable_defined?(:@_brick_primary_key)
-
-      pk = begin
-             primary_key.is_a?(String) ? [primary_key] : primary_key.dup || []
-           rescue
-             []
-           end
-      pk.map! { |pk_part| pk_part =~ /^[A-Z0-9_]+$/ ? pk_part.downcase : pk_part } unless connection.adapter_name == 'MySQL2'
-      # Just return [] if we're missing any part of the primary key.  (PK is usually just "id")
-      if relation && pk.present?
-        @_brick_primary_key ||= pk.any? { |pk_part| !relation[:cols].key?(pk_part) } ? [] : pk
-      else # No definitive key yet, so return what we can without setting the instance variable
-        pk
+      def _br_quoted_name(name)
+        if name == '*'
+          name
+        elsif is_mysql
+          "`#{name.gsub('.', '`.`')}`"
+        elsif is_postgres || is_mssql
+          "\"#{name.gsub('.', '"."')}\""
+        else
+          name
+        end
       end
-    end
 
-    # Used to show a little prettier name for an object
-    def self.brick_get_dsl
-      # If there's no DSL yet specified, just try to find the first usable column on this model
-      unless (dsl = ::Brick.config.model_descrips[name])
-        skip_columns = _brick_get_fks + (::Brick.config.metadata_columns || []) + [primary_key]
-        dsl = if (descrip_col = columns.find { |c| [:boolean, :binary, :xml].exclude?(c.type) && skip_columns.exclude?(c.name) })
-                "[#{descrip_col.name}]"
-              elsif (pk_parts = self.primary_key.is_a?(Array) ? self.primary_key : [self.primary_key])
-                "#{name} ##{pk_parts.map { |pk_part| "[#{pk_part}]" }.join(', ')}"
-              end
-        ::Brick.config.model_descrips[name] = dsl
+      def is_postgres
+        @is_postgres ||= connection.adapter_name == 'PostgreSQL'
       end
-      dsl
+      def is_mysql
+        @is_mysql ||= ['Mysql2', 'Trilogy'].include?(connection.adapter_name)
+      end
+      def is_mssql
+        @is_mssql ||= connection.adapter_name == 'SQLServer'
+      end
+
+      def _brick_primary_key(relation = nil)
+        return @_brick_primary_key if instance_variable_defined?(:@_brick_primary_key)
+
+        pk = begin
+              primary_key.is_a?(String) ? [primary_key] : primary_key.dup || []
+            rescue
+              []
+            end
+        pk.map! { |pk_part| pk_part =~ /^[A-Z0-9_]+$/ ? pk_part.downcase : pk_part } unless connection.adapter_name == 'MySQL2'
+        # Just return [] if we're missing any part of the primary key.  (PK is usually just "id")
+        if relation && pk.present?
+          @_brick_primary_key ||= pk.any? { |pk_part| !relation[:cols].key?(pk_part) } ? [] : pk
+        else # No definitive key yet, so return what we can without setting the instance variable
+          pk
+        end
+      end
+
+      # Used to show a little prettier name for an object
+      def brick_get_dsl
+        # If there's no DSL yet specified, just try to find the first usable column on this model
+        unless (dsl = ::Brick.config.model_descrips[name])
+          skip_columns = _brick_get_fks + (::Brick.config.metadata_columns || []) + [primary_key]
+          dsl = if (descrip_col = columns.find { |c| [:boolean, :binary, :xml].exclude?(c.type) && skip_columns.exclude?(c.name) })
+                  "[#{descrip_col.name}]"
+                elsif (pk_parts = self.primary_key.is_a?(Array) ? self.primary_key : [self.primary_key])
+                  "#{name} ##{pk_parts.map { |pk_part| "[#{pk_part}]" }.join(', ')}"
+                end
+          ::Brick.config.model_descrips[name] = dsl
+        end
+        dsl
+      end
     end
 
     def self.brick_parse_dsl(join_array = nil, prefix = [], translations = {}, is_polymorphic = false, dsl = nil, emit_dsl = false)
@@ -420,15 +442,18 @@ module ActiveRecord
     end
 
     def self._brick_calculate_ordering(ordering, is_do_txt = true)
-      quoted_table_name = table_name.split('.').map { |x| "\"#{x}\"" }.join('.')
       order_by_txt = [] if is_do_txt
       ordering = [ordering] if ordering && !ordering.is_a?(Array)
       order_by = ordering&.each_with_object([]) do |ord_part, s| # %%% If a term is also used as an eqi-condition in the WHERE clause, it can be omitted from ORDER BY
                    case ord_part
                    when String
-                     ord_expr = ord_part.gsub('^^^', quoted_table_name)
-                     order_by_txt&.<<("Arel.sql(#{ord_expr})")
-                     s << Arel.sql(ord_expr)
+                     if ord_part.index('^^^')
+                       ord_expr = ord_part.gsub('^^^', _br_quoted_name(table_name))
+                       s << Arel.sql(ord_expr)
+                     else
+                       s << Arel.sql(_br_quoted_name(ord_part))
+                     end
+                     order_by_txt&.<<("Arel.sql(#{ord_expr.inspect})")
                    else # Expecting only Symbol
                      ord_part = ord_part.to_s
                      if ord_part[0] == '-' # First char '-' means descending order
@@ -438,15 +463,14 @@ module ActiveRecord
                      if ord_part[0] == '~' # Char '~' means order NULLs as highest values instead of lowest
                        ord_part.slice!(0)
                        # (Unfortunately SQLServer does not support NULLS FIRST / NULLS LAST, so leave them out.)
-                       is_nulls_switch = case ActiveRecord::Base.connection.adapter_name
-                                         when 'PostgreSQL', 'OracleEnhanced', 'SQLite'
-                                           :pg
-                                         when 'Mysql2', 'Trilogy'
+                       is_nulls_switch = if is_mysql
                                            :mysql
+                                         else # PostgreSQL, OracleEnhanced, SQLite
+                                           :pg
                                          end
                      end
                      if _br_hm_counts.key?(ord_part_sym = ord_part.to_sym)
-                       ord_part = +"\"b_r_#{ord_part}_ct\""
+                       ord_part = _br_quoted_name("b_r_#{ord_part}_ct")
                      elsif _br_bt_descrip.key?(ord_part_sym)
                        ord_part = _br_bt_descrip.fetch(ord_part_sym, nil)&.first&.last&.first&.last&.dup
                      elsif !_br_cust_cols.key?(ord_part_sym) && !column_names.include?(ord_part)
@@ -1079,28 +1103,6 @@ Might want to add this in your brick.rb:
 
     def shift_or_first(ary)
       ary.length > 1 ? ary.shift : ary.first
-    end
-
-    def _br_quoted_name(name)
-      if name == '*'
-        name
-      elsif is_mysql
-        "`#{name.gsub('.', '`.`')}`"
-      elsif is_postgres || is_mssql
-        "\"#{(name).gsub('.', '"."')}\""
-      else
-        name
-      end
-    end
-
-    def is_postgres
-      @is_postgres ||= ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-    end
-    def is_mysql
-      @is_mysql ||= ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name)
-    end
-    def is_mssql
-      @is_mssql ||= ActiveRecord::Base.connection.adapter_name == 'SQLServer'
     end
   end
 
