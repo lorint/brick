@@ -79,7 +79,7 @@ appraise 'ar-4.1' do
   gem 'ffaker', '~> 2.11'
   gem 'generator_spec', '~> 0.9.4'
   gem 'memory_profiler', '~> 0.9.14'
-  gem 'mysql2', '< 0.5.2' if Gem::Specification.all_names.find { |g| g.start_with?('mysql2-') }
+  gem 'mysql2', '< 0.5.2' if Gem::Dependency.new('mysql2').matching_specs.present?
   gem 'pg', '>= 0.18', '< 1.0'
   gem 'pry-byebug', '~> 3.7.0'
   gem 'rake', '~> 13.0'

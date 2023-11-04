@@ -1,7 +1,5 @@
 module Brick
   module MigrationBuilder
-    include FancyGets
-
     # Many SQL types are the same as their migration data type name:
     #   text, integer, bigint, date, boolean, decimal, float
     # These however are not:
@@ -48,6 +46,7 @@ module Brick
     # (Still need to find what "inet" and "json" data types map to.)
 
     class << self
+      include FancyGets
       def check_folder(is_insert_versions = true, is_delete_versions = false)
         versions_to_delete_or_append = nil
         if Dir.exist?(mig_path = ActiveRecord::Migrator.migrations_paths.first || "#{::Rails.root}/db/migrate")
