@@ -730,12 +730,12 @@ module ActiveRecord
               cc_part_idx -= 1
             end
           end
-          selects << "#{tbl_name}.#{cc_part.last} AS #{col_alias}"
+          selects << "#{_br_quoted_name(tbl_name)}.#{_br_quoted_name(cc_part.last)} AS #{_br_quoted_name(col_alias)}"
           cc_part << col_alias
         end
         # Add a key column unless we've already got it
         if key_alias && !used_col_aliases.key?(key_alias)
-          selects << "#{key_tbl_name}.#{dest_pk} AS #{key_alias}"
+          selects << "#{_br_quoted_name(key_tbl_name)}.#{_br_quoted_name(dest_pk)} AS #{_br_quoted_name(key_alias)}"
           used_col_aliases[key_alias] = nil
         end
         cc[2] = key_alias ? [key_klass, key_alias] : nil
@@ -1019,7 +1019,7 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
         selects, where_values_hash, nil, translations: translations, join_array: join_array,
         cust_col_override: { '_br' => (descrip_cols = [pieces, my_dsl]) }
       )
-      order_values = "#{klass.table_name}.#{klass.primary_key}"
+      order_values = "#{_br_quoted_name(klass.table_name)}.#{_br_quoted_name(klass.primary_key)}"
       [self.select(selects), descrip_cols]
     end
 
@@ -1508,7 +1508,8 @@ class Object
           schema_name = ::Brick.apartment_default_tenant
         end
         # Maybe, just maybe there's a database table that will satisfy this need
-        if (matching = [table_name, singular_table_name, plural_class_name, model_name, table_name.titleize].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
+        matching = ::Brick.table_name_lookup&.fetch(class_name, nil)
+        if (matching ||= [table_name, singular_table_name, plural_class_name, model_name, table_name.titleize].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
           build_model_worker(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching)
         end
       end
@@ -1714,7 +1715,7 @@ class Object
               # options[:class_name] = hm.first[:inverse_table].singularize.camelize
               # options[:foreign_key] = hm.first[:fk].to_sym
               far_assoc = relations[hm.first[:inverse_table]][:fks].find { |_k, v| v[:assoc_name] == hm[1] }
-              options[:class_name] = far_assoc.last[:inverse_table].singularize.camelize
+              options[:class_name] = ::Brick.namify(far_assoc.last[:inverse_table], :underscore).camelize
               options[:foreign_key] = far_assoc.last[:fk].to_sym
             end
             options[:source] ||= hm[1].to_sym unless hmt_name.singularize == hm[1]
@@ -1801,7 +1802,9 @@ class Object
          ::Brick.config.schema_behavior[:multitenant] && singular_table_parts.first == 'public'
         singular_table_parts.shift
       end
-      options[:class_name] = "::#{assoc[:primary_class]&.name || singular_table_parts.map(&:camelize).join('::')}" if need_class_name
+      options[:class_name] = "::#{assoc[:primary_class]&.name ||
+                                  singular_table_parts.map { |p| ::Brick.namify(p, :underscore).camelize}.join('::')
+                                 }" if need_class_name
       if need_fk # Funky foreign key?
         options_fk_key = :foreign_key
         if assoc[:fk].is_a?(Array)
@@ -2156,7 +2159,7 @@ class Object
 
             # %%% Allow params to define which columns to use for order_by
             # Overriding the default by providing a querystring param?
-            order_by = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
+            order_by = params['_brick_order']&.split(',')&.map(&:to_s) || Object.send(:default_ordering, table_name, pk)
 
             ar_relation = ActiveRecord.version < Gem::Version.new('4') ? real_model.preload : real_model.all
             params['_brick_is_api'] = true if (is_api = request.format == :js || current_api_root)
@@ -2550,10 +2553,14 @@ class Object
                                   [new_alt_name, true]
                                 else
                                   assoc_name = ::Brick.namify(hm_assoc[:inverse_table]).pluralize
-                                  if (needs_class = assoc_name.include?('.')) # If there is a schema name present, use a downcased version for the :has_many
-                                    assoc_parts = assoc_name.split('.')
+                                  assoc_parts = assoc_name.split('.')
+                                  if (needs_class = assoc_parts.length > 1) # If there is a schema name present, use a downcased version for the :has_many
                                     assoc_parts[0].downcase! if assoc_parts[0] =~ /^[A-Z0-9_]+$/
                                     assoc_name = assoc_parts.join('.')
+                                  else
+                                    class_name_parts = ::Brick.namify(hm_assoc[:inverse_table], :underscore).split('.')
+                                    real_name = class_name_parts.map(&:camelize).join('::')
+                                    needs_class = (real_name != hm_assoc[:inverse_table].camelize)
                                   end
                                   # hm_assoc[:assoc_name] = assoc_name
                                   [assoc_name, needs_class]
@@ -2977,6 +2984,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       kcus = nil # Allow this large item to be garbage collected
     end
 
+    table_name_lookup = (::Brick.table_name_lookup ||= {})
     relations.each do |k, v|
       next if k.is_a?(Symbol)
 
@@ -2998,7 +3006,9 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
                      v[:resource] = rel_name.last
                      [singular]
                    end
-      v[:class_name] = (schema_names + name_parts).map(&:camelize).join('::')
+      v[:class_name] = (schema_names + name_parts).map { |p| ::Brick.namify(p, :underscore).camelize }.join('::')
+      # Track anything that's out-of-the-ordinary
+      table_name_lookup[v[:class_name]] = k unless v[:class_name].underscore.pluralize == k
     end
     ::Brick.load_additional_references if ::Brick.initializer_loaded
 

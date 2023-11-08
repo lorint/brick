@@ -636,7 +636,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                   resource_parts[-1] = class_name # Make sure the last part, defining the class name, is singular
                   begin
                     resource_parts.shift if resource_parts.first == ::Brick.config.path_prefix
-                    if (model = Object.const_get(resource_parts.map(&:camelize).join('::')))&.is_a?(Class) && (
+                    if (model = Object.const_get(resource_parts.map { |p| ::Brick.namify(p, :underscore).camelize }.join('::')))&.is_a?(Class) && (
                          ['index', 'show'].include?(find_args.first) || # Everything has index and show
                          # Only CUD stuff has create / update / destroy
                          (!model.is_view? && ['new', 'create', 'edit', 'update', 'destroy'].include?(find_args.first))

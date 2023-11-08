@@ -467,7 +467,7 @@ function onImagesLoaded(event) {
           if bt.length < 4
             bt << (option_detail = [["(No #{bt_name} chosen)", '^^^brick_NULL^^^']])
             # %%% Accommodate composite keys for obj.pk at the end here
-            collection, descrip_cols = bt_class&.order(Arel.sql("#{bt_class.table_name}.#{obj_pk = bt_class.primary_key}"))&.brick_list
+            collection, descrip_cols = bt_class&.order(Arel.sql("#{bt_class._br_quoted_name(bt_class.table_name)}.#{bt_class._br_quoted_name(obj_pk = bt_class.primary_key)}"))&.brick_list
             collection&.brick_(:each) do |obj|
               option_detail << [
                 obj.brick_descrip(
