@@ -220,8 +220,8 @@ module Brick
                         end
         a_pk = a.options.fetch(:primary_key, nil)&.to_s ||
                primary_klass&.primary_key # Was:  a.klass.primary_key
-        if !a.polymorphic? && (a.belongs_to? || (through && a.through_reflection)) &&
-           !(a.klass && ::Brick.config.exclude_tables.exclude?(a.klass.table_name) &&
+        if !a.polymorphic? && (a.belongs_to? || (through && (thr = a.through_reflection))) &&
+           !((kls = thr&.klass || a.klass) && ::Brick.config.exclude_tables.exclude?(kls.table_name) &&
               (!a.belongs_to? ||
                 ((fk_type = a.foreign_key.is_a?(Array) ? a.foreign_key.map { |fk_part| model_cols[fk_part.to_s].type } : model_cols[a.foreign_key.to_s].type) &&
                  (primary_cols = primary_klass.columns_hash) &&
