@@ -738,8 +738,11 @@ window.addEventListener(\"popstate\", linkSchemas);
                       hms_columns << hm_entry
                     end
                   when 'show', 'new', 'update'
+                    predicates = nil
                     hm_stuff << if hm_fk_name
-                                  if hm_assoc.klass.column_names.include?(hm_fk_name.to_s) ||
+                                  if (hm_fk_name.is_a?(Array) && # Composite key?
+                                      hm_fk_name.all? { |hm_fk_part| hm_assoc.klass.column_names.include?(hm_fk_part) }) ||
+                                     hm_assoc.klass.column_names.include?(hm_fk_name.to_s) ||
                                      (hm_fk_name.is_a?(String) && hm_fk_name.include?('.')) # HMT?  (Could do a better check for this)
                                     predicates = path_keys(hm_assoc, hm_fk_name, pk).map do |k, v|
                                                    if v == '[sti_type]'
@@ -1638,7 +1641,7 @@ end
                  end
       s << "<table id=\"#{hm_name}\" class=\"shadow\">
         <tr><th>#{hm[1]}#{' poly' if hm[0].options[:as]} #{hm[3]}
-          <% if respond_to?(:new_#{partial_new_path_name = hm.first.klass._brick_index(:singular)}_path) %>
+          <% if predicates && respond_to?(:new_#{partial_new_path_name = hm.first.klass._brick_index(:singular)}_path) %>
           <span class = \"add-hm-related\"><%=
             pk_val = (obj_pk = model.primary_key).is_a?(String) ? obj.send(obj_pk) : obj_pk.map { |pk_part| obj.send(pk_part) }
             pk_val_arr = [pk_val] unless pk_val.is_a?(Array)

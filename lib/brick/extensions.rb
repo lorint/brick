@@ -98,6 +98,7 @@ module ActiveRecord
       end
 
       def _br_quoted_name(name)
+        name = name.join('.') if name.is_a?(Array)
         if name == '*'
           name
         elsif is_mysql
