@@ -10,6 +10,7 @@ module Brick
   # Auto-generates migration files
   class MigrationsGenerator < ::Rails::Generators::Base
     include ::Brick::MigrationBuilder
+    include FancyGets
 
     desc 'Auto-generates migration files for an existing database.'
 
