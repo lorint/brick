@@ -2889,24 +2889,32 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       #   end
       # end
       # schema = ::Brick.default_schema # Reset back for this next round of fun
+      kcus = nil
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'Mysql2', 'Trilogy', 'SQLServer'
-        sql = "SELECT kcu1.CONSTRAINT_SCHEMA, kcu1.TABLE_NAME, kcu1.COLUMN_NAME,
-            kcu2.CONSTRAINT_SCHEMA AS primary_schema, kcu2.TABLE_NAME AS primary_table, kcu1.CONSTRAINT_NAME AS CONSTRAINT_SCHEMA_FK
+        # All KCUs -- use this to virtually JOIN against fk_references in Ruby code
+        sql = "SELECT CONSTRAINT_CATALOG, CONSTRAINT_SCHEMA, CONSTRAINT_NAME, ORDINAL_POSITION,
+                      TABLE_NAME, COLUMN_NAME
+              FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE#{"
+              WHERE CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }"
+        kcus = ActiveRecord::Base.execute_sql(sql).each_with_object({}) do |v, s|
+                 key = "#{v['constraint_name']}.#{v['constraint_schema']}.#{v['constraint_catalog']}.#{v['ordinal_position']}"
+                 key << ".#{v['table_name']}.#{v['column_name']}" unless is_postgres || is_mssql
+                 s[key] = [v['constraint_schema'], v['table_name']]
+               end
+
+        sql = "SELECT kcu.CONSTRAINT_SCHEMA, kcu.TABLE_NAME, kcu.COLUMN_NAME,
+            #{# These will get filled in with real values (effectively doing the JOIN in Ruby)
+              is_postgres || is_mssql ? 'NULL as primary_schema, NULL as primary_table' :
+                                        'kcu.REFERENCED_TABLE_NAME, kcu.REFERENCED_COLUMN_NAME'},
+            kcu.CONSTRAINT_NAME AS CONSTRAINT_SCHEMA_FK,
+            rc.UNIQUE_CONSTRAINT_NAME, rc.UNIQUE_CONSTRAINT_SCHEMA, rc.UNIQUE_CONSTRAINT_CATALOG, kcu.ORDINAL_POSITION
           FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS rc
-            INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu1
-              ON kcu1.CONSTRAINT_CATALOG = rc.CONSTRAINT_CATALOG
-              AND kcu1.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
-              AND kcu1.CONSTRAINT_NAME = rc.CONSTRAINT_NAME
-            INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu2
-              ON kcu2.CONSTRAINT_CATALOG = rc.UNIQUE_CONSTRAINT_CATALOG
-              AND kcu2.CONSTRAINT_SCHEMA = rc.UNIQUE_CONSTRAINT_SCHEMA
-              AND kcu2.CONSTRAINT_NAME = rc.UNIQUE_CONSTRAINT_NAME#{"
-              AND kcu2.TABLE_NAME = kcu1.REFERENCED_TABLE_NAME
-              AND kcu2.COLUMN_NAME = kcu1.REFERENCED_COLUMN_NAME" unless is_postgres || is_mssql }
-              AND kcu2.ORDINAL_POSITION = kcu1.ORDINAL_POSITION#{"
-          WHERE kcu1.CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }"
-          # AND kcu2.TABLE_NAME = ?;", Apartment::Tenant.current, table_name
+            INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu
+              ON kcu.CONSTRAINT_CATALOG = rc.CONSTRAINT_CATALOG
+              AND kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
+              AND kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME#{"
+          WHERE kcu.CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }"
         fk_references = ActiveRecord::Base.execute_sql(sql)
       when 'SQLite'
         sql = "SELECT NULL AS constraint_schema, m.name, fkl.\"from\", NULL AS primary_schema, fkl.\"table\", m.name || '_' || fkl.\"from\" AS constraint_name
@@ -2937,6 +2945,11 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       ::Brick.default_schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       fk_references&.each do |fk|
         fk = fk.values unless fk.is_a?(Array)
+        # Virtually JOIN against fk_references in order to change out the primary schema and primary table
+        if (kcu = kcus&.fetch("#{fk[6]}.#{fk[7]}.#{fk[8]}.#{fk[9]}", nil))
+          fk[3] = kcu[0]
+          fk[4] = kcu[1]
+        end
         # Multitenancy makes things a little more general overall, except for non-tenanted tables
         if ::Brick.is_apartment_excluded_table(::Brick.namify(fk[1]))
           fk[0] = ::Brick.apartment_default_tenant
@@ -2961,6 +2974,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         end
         ::Brick._add_bt_and_hm(fk, relations)
       end
+      kcus = nil # Allow this large item to be garbage collected
     end
 
     relations.each do |k, v|
