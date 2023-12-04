@@ -948,13 +948,14 @@ In config/initializers/brick.rb appropriate entries would look something like:
         object_name = k.split('.').last # Take off any first schema part
 
         full_schema_prefix = if (full_aps = aps = v.fetch(:auto_prefixed_schema, nil))
-                                aps = aps[0..-2] if aps[-1] == '_'
-                                (schema_prefix&.dup || +'') << "#{aps}."
-                              else
-                                schema_prefix
-                              end
+                               aps = aps[0..-2] if aps[-1] == '_'
+                               (schema_prefix&.dup || +'') << "#{aps}."
+                             else
+                               schema_prefix
+                             end
 
         # Track routes being built
+        resource_name = v.fetch(:resource, nil) || k
         if (class_name = v.fetch(:class_name, nil))
           if v.key?(:isView)
             view_class_length = class_name.length if class_name.length > view_class_length
@@ -962,7 +963,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
           else
             table_class_length = class_name.length if class_name.length > table_class_length
             tables
-          end << [class_name, aps, k.tr('.', '/')[full_aps&.length || 0 .. -1]]
+          end << [class_name, aps, resource_name.tr('.', '/')[full_aps&.length || 0 .. -1]]
         end
 
         options = {}
@@ -973,7 +974,7 @@ In config/initializers/brick.rb appropriate entries would look something like:
         prefixes << [aps, v[:class_name]&.split('::')[-2]&.underscore] if aps
         prefixes << schema_name if schema_name
         prefixes << path_prefix if path_prefix
-        brick_namespace_create.call(prefixes, v[:resource], options)
+        brick_namespace_create.call(prefixes, resource_name, options)
         sti_subclasses.fetch(class_name, nil)&.each do |sc| # Add any STI subclass routes for this relation
           brick_namespace_create.call(prefixes, sc.underscore.tr('/', '_').pluralize, options)
         end

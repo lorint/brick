@@ -329,27 +329,10 @@ module ActiveRecord
     end
 
     # Providing a relation object allows auto-modules built from table name prefixes to work
-    def self._brick_index(mode = nil, separator = '_', relation = nil)
+    def self._brick_index(mode = nil, separator = nil, relation = nil)
       return if abstract_class?
 
-      tbl_parts = ((mode == :singular) ? table_name.singularize : table_name).split('.')
-      tbl_parts.shift if ::Brick.apartment_multitenant && tbl_parts.length > 1 && tbl_parts.first == ::Brick.apartment_default_tenant
-      if (aps = relation&.fetch(:auto_prefixed_schema, nil)) && tbl_parts.last.start_with?(aps)
-        last_part = tbl_parts.last[aps.length..-1]
-        aps = aps[0..-2] if aps[-1] == '_'
-        tbl_parts[-1] = aps
-        tbl_parts << last_part
-      end
-      path_prefix = []
-      if ::Brick.config.path_prefix
-        tbl_parts.unshift(::Brick.config.path_prefix)
-        path_prefix << ::Brick.config.path_prefix
-      end
-      index = tbl_parts.map(&:underscore).join(separator)
-      # Rails applies an _index suffix to that route when the resource name isn't something plural
-      index << '_index' if mode != :singular && separator == '_' &&
-                           index == (path_prefix + [name&.underscore&.tr('/', '_') || '_']).join(separator)
-      index
+      ::Brick._brick_index(table_name, mode, separator, relation)
     end
 
     def self.brick_import_template
@@ -686,7 +669,7 @@ module ActiveRecord
       (cust_col_override || klass._br_cust_cols).each do |k, cc|
         if rel_dupe.respond_to?(k) # Name already taken?
           # %%% Use ensure_unique here in this kind of fashion:
-          # cnstr_name = ensure_unique(+"(brick) #{for_tbl}_#{pri_tbl}", bts, hms)
+          # cnstr_name = ensure_unique(+"(brick) #{for_tbl}_#{pri_tbl}", nil, bts, hms)
           # binding.pry
           next
         end
@@ -1715,7 +1698,8 @@ class Object
               # options[:class_name] = hm.first[:inverse_table].singularize.camelize
               # options[:foreign_key] = hm.first[:fk].to_sym
               far_assoc = relations[hm.first[:inverse_table]][:fks].find { |_k, v| v[:assoc_name] == hm[1] }
-              options[:class_name] = ::Brick.namify(far_assoc.last[:inverse_table], :underscore).camelize
+              # Was:  ::Brick.namify(far_assoc.last[:inverse_table], :underscore).camelize
+              options[:class_name] = relations[far_assoc.last[:inverse_table]][:class_name]
               options[:foreign_key] = far_assoc.last[:fk].to_sym
             end
             options[:source] ||= hm[1].to_sym unless hmt_name.singularize == hm[1]
@@ -1802,9 +1786,9 @@ class Object
          ::Brick.config.schema_behavior[:multitenant] && singular_table_parts.first == 'public'
         singular_table_parts.shift
       end
-      options[:class_name] = "::#{assoc[:primary_class]&.name ||
-                                  singular_table_parts.map { |p| ::Brick.namify(p, :underscore).camelize}.join('::')
-                                 }" if need_class_name
+      if need_class_name
+        options[:class_name] = "::#{assoc[:primary_class]&.name || ::Brick.relations[inverse_table][:class_name]}"
+      end
       if need_fk # Funky foreign key?
         options_fk_key = :foreign_key
         if assoc[:fk].is_a?(Array)
@@ -2559,6 +2543,8 @@ class Object
                                     assoc_name = assoc_parts.join('.')
                                   else
                                     class_name_parts = ::Brick.namify(hm_assoc[:inverse_table], :underscore).split('.')
+                                    last_idx = class_name_parts.length - 1
+                                    class_name_parts[last_idx] = class_name_parts[last_idx].singularize
                                     real_name = class_name_parts.map(&:camelize).join('::')
                                     needs_class = (real_name != hm_assoc[:inverse_table].camelize)
                                   end
@@ -3000,13 +2986,44 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
                                     &.find { |k1, _v1| singular.start_with?(k1) && singular.length > k1.length }
                       ).present?
                      v[:auto_prefixed_schema] = tnp.first
-                     v[:resource] = rel_name.last[(tnp_length = tnp.first.length)..-1]
-                     [tnp.last, singular[tnp_length..-1]]
+                     # v[:resource] = rel_name.last[tnp.first.length..-1]
+                     [tnp.last, singular[tnp.first.length..-1]]
                    else
-                     v[:resource] = rel_name.last
+                     # v[:resource] = rel_name.last
                      [singular]
                    end
-      v[:class_name] = (schema_names + name_parts).map { |p| ::Brick.namify(p, :underscore).camelize }.join('::')
+      proposed_name_parts = (schema_names + name_parts).map { |p| ::Brick.namify(p, :underscore).camelize }
+      # Find out if the proposed name leads to a module or class that already exists and is not an AR class
+      colliding_thing = nil
+      loop do
+        klass = Object
+        proposed_name_parts.each do |part|
+          if klass.const_defined?(part)
+            klass = klass.const_get(part)
+          else
+            klass = nil
+            break
+          end
+        end
+        break if !klass || (klass < ActiveRecord::Base) # Break if all good -- no conflicts
+
+        # Find a unique name since there's already something that's non-AR with that same name
+        last_idx = proposed_name_parts.length - 1
+        proposed_name_parts[last_idx] = ::Brick.ensure_unique(proposed_name_parts[last_idx], 'X')
+        colliding_thing ||= klass
+      end
+      v[:class_name] = proposed_name_parts.join('::')
+      # Was:  v[:resource] = v[:class_name].underscore.tr('/', '.').pluralize
+      v[:resource] = proposed_name_parts.last.underscore.pluralize
+      if colliding_thing
+        message_start = if colliding_thing.is_a?(Module) && Object.const_defined?(:Rails) &&
+                           colliding_thing.constants.find { |c| colliding_thing.const_get(c) < Rails::Application }
+                          "The module for the Rails application itself, \"#{colliding_thing.name}\","
+                        else
+                          "Non-AR #{colliding_thing.class.name.downcase} \"#{colliding_thing.name}\""
+                        end
+        puts "WARNING:  #{message_start} already exists.\n  Will set up to auto-create model #{v[:class_name]} for table #{k}."
+      end
       # Track anything that's out-of-the-ordinary
       table_name_lookup[v[:class_name]] = k unless v[:class_name].underscore.pluralize == k
     end
@@ -3151,7 +3168,7 @@ module Brick
         # For any appended references (those that come from config), arrive upon a definitely unique constraint name
         pri_tbl = is_class ? fk[4][:class].underscore : pri_tbl
         pri_tbl = "#{bt_assoc_name}_#{pri_tbl}" if pri_tbl&.singularize != bt_assoc_name
-        cnstr_name = ensure_unique(+"(brick) #{for_tbl}_#{pri_tbl}", bts, hms)
+        cnstr_name = ensure_unique(+"(brick) #{for_tbl}_#{pri_tbl}", nil, bts, hms)
         missing = []
         missing << fk[1] unless relations.key?(fk[1])
         missing << primary_table unless is_class || relations.key?(primary_table)
@@ -3285,15 +3302,17 @@ module Brick
       end
     end
 
-    def ensure_unique(name, *sources)
+    def ensure_unique(name, delimiter, *sources)
       base = name
-      if (added_num = name.slice!(/_(\d+)$/))
+      delimiter ||= '_'
+      # By default ends up building this regex:  /_(\d+)$/
+      if (added_num = name.slice!(Regexp.new("#{delimiter}(\d+)$")))
         added_num = added_num[1..-1].to_i
       else
         added_num = 1
       end
       while (
-        name = "#{base}_#{added_num += 1}"
+        name = "#{base}#{delimiter}#{added_num += 1}"
         sources.each_with_object(nil) do |v, s|
           s || case v
                when Hash
@@ -3369,6 +3388,32 @@ module Brick
           end
         end
       end
+    end
+
+    def _brick_index(tbl_name, mode = nil, separator = nil, relation = nil)
+      separator ||= '_'
+      res_name = tbl_name.split('.')[0..-2].first
+      res_name << '.' if res_name
+      (res_name ||= +'') << (relation || ::Brick.relations[tbl_name])&.fetch(:resource, nil)
+
+      res_parts = ((mode == :singular) ? res_name.singularize : res_name).split('.')
+      res_parts.shift if ::Brick.apartment_multitenant && res_parts.length > 1 && res_parts.first == ::Brick.apartment_default_tenant
+      if (aps = relation&.fetch(:auto_prefixed_schema, nil)) && res_parts.last.start_with?(aps)
+        last_part = res_parts.last[aps.length..-1]
+        aps = aps[0..-2] if aps[-1] == '_'
+        res_parts[-1] = aps
+        res_parts << last_part
+      end
+      path_prefix = []
+      if ::Brick.config.path_prefix
+        res_parts.unshift(::Brick.config.path_prefix)
+        path_prefix << ::Brick.config.path_prefix
+      end
+      index = res_parts.map(&:underscore).join(separator)
+      # Rails applies an _index suffix to that route when the resource name isn't something plural
+      index << '_index' if mode != :singular && separator == '_' &&
+                           index == (path_prefix + [name&.underscore&.tr('/', '_') || '_']).join(separator)
+      index
     end
 
     def find_col_renaming(api_ver_path, relation_name)

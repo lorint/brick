@@ -774,9 +774,13 @@ window.addEventListener(\"popstate\", linkSchemas);
               end
               # %%% If we are not auto-creating controllers (or routes) then omit by default, and if enabled anyway, such as in a development
               # environment or whatever, then get either the controllers or routes list instead
-              prefix = "#{::Brick.config.path_prefix}/" if ::Brick.config.path_prefix
-              table_options = ::Brick.relations.each_with_object({}) do |rel, s|
-                                next if rel.first.is_a?(Symbol) || ::Brick.config.exclude_tables.include?(rel.first)
+              table_options = ::Brick.relations.sort do |a, b|
+                                a[0] = '' if a[0].is_a?(Symbol)
+                                b[0] = '' if b[0].is_a?(Symbol)
+                                a.first <=> b.first
+                              end.each_with_object(+'') do |rel, s|
+                                next if rel.first.blank? || rel.last[:cols].empty? ||
+                                        ::Brick.config.exclude_tables.include?(rel.first)
 
                                 tbl_parts = rel.first.split('.')
                                 if (aps = rel.last.fetch(:auto_prefixed_schema, nil))
@@ -784,16 +788,13 @@ window.addEventListener(\"popstate\", linkSchemas);
                                   aps = aps[0..-2] if aps[-1] == '_'
                                   tbl_parts[-2] = aps
                                 end
-                                if tbl_parts.first == apartment_default_schema
-                                  tbl_parts.shift
-                                end
+                                tbl_parts.shift if tbl_parts.first == apartment_default_schema
                                 # %%% When table_name_prefixes are use then during rendering empty non-TNP
                                 # entries get added at some point when an attempt is made to find the table.
                                 # Will have to hunt that down at some point.
-                                s[tbl_parts.join('.')] = nil unless rel.last[:cols].empty?
-                              end.keys.sort.each_with_object(+'') do |v, s|
-                                s << "<option value=\"#{prefix}#{v.underscore.gsub('.', '/')}\">#{v}</option>"
+                                s << "<option value=\"#{::Brick._brick_index(rel.first, nil, '/')}\">#{rel.first}</option>"
                               end.html_safe
+              prefix = "#{::Brick.config.path_prefix}/" if ::Brick.config.path_prefix
               table_options << "<option value=\"#{prefix}brick_status\">(Status)</option>".html_safe if ::Brick.config.add_status
               table_options << "<option value=\"#{prefix}brick_orphans\">(Orphans)</option>".html_safe if is_orphans
               table_options << "<option value=\"#{prefix}brick_crosstab\">(Crosstab)</option>".html_safe if is_crosstab
