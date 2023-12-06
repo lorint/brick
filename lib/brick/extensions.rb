@@ -2961,7 +2961,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       end
       ::Brick.is_oracle = true if ActiveRecord::Base.connection.adapter_name == 'OracleEnhanced'
       # ::Brick.default_schema ||= schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
-      ::Brick.default_schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+      ::Brick.default_schema ||= 'public' if is_postgres
       fk_references&.each do |fk|
         fk = fk.values unless fk.is_a?(Array)
         # Virtually JOIN against fk_references in order to change out the primary schema and primary table
@@ -3054,6 +3054,28 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       table_name_lookup[v[:class_name]] = k unless v[:class_name].underscore.pluralize == k
     end
     ::Brick.load_additional_references if ::Brick.initializer_loaded
+
+    if is_postgres
+      ActiveRecord::Base.execute_sql("-- inherited and partitioned tables counts
+      SELECT parent.relname,
+        ((SUM(child.reltuples::float) / greatest(SUM(child.relpages), 1))) *
+        (SUM(pg_relation_size(child.oid))::float / (current_setting('block_size')::float))::integer AS rowcount
+      FROM pg_inherits
+        INNER JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+        INNER JOIN pg_class child ON pg_inherits.inhrelid = child.oid
+      GROUP BY parent.relname, child.reltuples, child.relpages, child.oid
+
+      UNION ALL
+
+      -- table count
+      SELECT relname,
+        (reltuples::float / greatest(relpages, 1)) *
+          (pg_relation_size(pg_class.oid)::float / (current_setting('block_size')::float))::integer AS rowcount
+      FROM pg_class
+      GROUP BY relname, reltuples, relpages, oid").each do |tblcount|
+        relations.fetch(tblcount['relname'], nil)&.[]=(:rowcount, tblcount['rowcount'].round)
+      end
+    end
 
     if orig_schema && (orig_schema = (orig_schema - ['pg_catalog', 'pg_toast', 'heroku_ext']).first)
       puts "Now switching back to \"#{orig_schema}\" schema."
