@@ -151,7 +151,7 @@ module Brick::Rails::FormTags
     #     ActiveRecord::StatementTimeout in Warehouse::ColdRoomTemperatures_Archive#index
     #     TinyTds::Error: Adaptive Server connection timed out
     #     (After restarting the server it worked fine again.)
-    rowCount = 0
+    row_count = 0
     relation.each do |obj|
       out << "<tr>\n"
       out << "<td class=\"col-sticky\">#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym,
@@ -252,13 +252,16 @@ module Brick::Rails::FormTags
         out << '</td>'
       end
       out << '</tr>'
-      rowCount += 1
+      row_count += 1
+    end
+    if (total_row_count = ::Brick.relations[table_name].fetch(:rowcount, nil))
+      total_row_count = total_row_count > row_count ? " (out of #{total_row_count})" : nil
     end
     out << "  </tbody>
 </table>
 <script>
   var rowCount = document.getElementById(\"rowCount\");
-  if (rowCount) rowCount.innerHTML = \"#{pluralize(rowCount, "row")} &nbsp;\";
+  if (rowCount) rowCount.innerHTML = \"#{pluralize(row_count, "row")}#{total_row_count} &nbsp;\";
 </script>
 "
 

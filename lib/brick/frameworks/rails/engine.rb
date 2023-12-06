@@ -792,7 +792,10 @@ window.addEventListener(\"popstate\", linkSchemas);
                                 # %%% When table_name_prefixes are use then during rendering empty non-TNP
                                 # entries get added at some point when an attempt is made to find the table.
                                 # Will have to hunt that down at some point.
-                                s << "<option value=\"#{::Brick._brick_index(rel.first, nil, '/')}\">#{rel.first}</option>"
+                                if (rowcount = rel.last.fetch(:rowcount, nil))
+                                  rowcount = rowcount > 0 ? " (#{rowcount})" : nil
+                                end
+                                s << "<option value=\"#{::Brick._brick_index(rel.first, nil, '/')}\">#{rel.first}#{rowcount}</option>"
                               end.html_safe
               prefix = "#{::Brick.config.path_prefix}/" if ::Brick.config.path_prefix
               table_options << "<option value=\"#{prefix}brick_status\">(Status)</option>".html_safe if ::Brick.config.add_status
@@ -1477,7 +1480,7 @@ end
   %>
   <tr>
   <td><%= begin
-            kls = Object.const_get(::Brick.relations.fetch(r[0], nil)&.fetch(:class_name, nil))
+            kls = Object.const_get((rel = ::Brick.relations.fetch(r[0], nil))&.fetch(:class_name, nil))
           rescue
           end
           if kls.is_a?(Class) && (path_helper = respond_to?(bi_path = \"#\{kls._brick_index}_path\".to_sym) ? bi_path : nil)
@@ -1490,7 +1493,10 @@ end
          else
            ' class=\"dimmed\"'
          end&.html_safe %>><%= # Table
-          r[1] %></td>
+         if (rowcount = rel&.fetch(:rowcount, nil))
+           rowcount = (rowcount > 0 ? \" (#\{rowcount})\" : nil)
+         end
+         \"#\{r[1]}#\{rowcount}\" %></td>
   <td<%= lines = r[2]&.map { |line| \"#\{line.first}:#\{line.last}\" }
          ' class=\"dimmed\"'.html_safe unless r[2] %>><%= # Migration
           lines&.join('<br>')&.html_safe %></td>
