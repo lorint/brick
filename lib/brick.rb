@@ -619,6 +619,10 @@ module Brick
       Brick.config.license = key
     end
 
+    def omit_empty_tables_in_dropdown=(setting)
+      Brick.config.omit_empty_tables_in_dropdown = setting
+    end
+
     def always_load_fields=(field_set)
       Brick.config.always_load_fields = field_set
     end

@@ -774,7 +774,12 @@ window.addEventListener(\"popstate\", linkSchemas);
               end
               # %%% If we are not auto-creating controllers (or routes) then omit by default, and if enabled anyway, such as in a development
               # environment or whatever, then get either the controllers or routes list instead
-              table_options = ::Brick.relations.sort do |a, b|
+              table_rels = if ::Brick.config.omit_empty_tables_in_dropdown
+                             ::Brick.relations.reject { |k, v| k.is_a?(Symbol) || v[:rowcount] == 0 }
+                           else
+                             ::Brick.relations
+                           end
+              table_options = table_rels.sort do |a, b|
                                 a[0] = '' if a[0].is_a?(Symbol)
                                 b[0] = '' if b[0].is_a?(Symbol)
                                 a.first <=> b.first

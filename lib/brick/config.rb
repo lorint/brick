@@ -399,6 +399,14 @@ module Brick
       @mutex.synchronize { @not_nullables = columns }
     end
 
+    def omit_empty_tables_in_dropdown
+      @mutex.synchronize { @omit_empty_tables_in_dropdown }
+    end
+
+    def omit_empty_tables_in_dropdown=(field_set)
+      @mutex.synchronize { @omit_empty_tables_in_dropdown = field_set }
+    end
+
     def always_load_fields
       @mutex.synchronize { @always_load_fields || {} }
     end
