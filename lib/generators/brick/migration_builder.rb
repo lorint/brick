@@ -89,7 +89,13 @@ module Brick
         [mig_path, is_insert_versions, is_delete_versions]
       end
 
-      def generate_migrations(chosen, mig_path, is_insert_versions, is_delete_versions, relations = ::Brick.relations)
+      def generate_migrations(chosen, mig_path, is_insert_versions, is_delete_versions,
+                              relations = ::Brick.relations, do_fks_last: nil, do_schema_migrations: true)
+        if do_fks_last.nil?
+          puts 'Would you like for the foreign keys to be built inline inside of each migration file, or as a final migration?'
+          do_fks_last = (gets_list(list: ['Inline', 'Separate final migration for all FKs']).start_with?('Separate'))
+        end
+
         is_sqlite = ActiveRecord::Base.connection.adapter_name == 'SQLite'
         key_type = ((is_sqlite || ActiveRecord.version < ::Gem::Version.new('5.1')) ? 'integer' : 'bigint')
         is_4x_rails = ActiveRecord.version < ::Gem::Version.new('5.0')
@@ -112,6 +118,7 @@ module Brick
         # Start by making migrations for fringe tables (those with no foreign keys).
         # Continue layer by layer, creating migrations for tables that reference ones already done, until
         # no more migrations can be created.  (At that point hopefully all tables are accounted for.)
+        after_fks = [] # Track foreign keys to add after table creation
         while (fringe = chosen.reject do |tbl|
                           snag_fks = []
                           snags = relations.fetch(tbl, nil)&.fetch(:fks, nil)&.select do |_k, v|
@@ -131,166 +138,58 @@ module Brick
                           end
                         end).present?
           fringe.each do |tbl|
-            next unless (relation = relations.fetch(tbl, nil))&.fetch(:cols, nil)&.present?
-
-            pkey_cols = (rpk = relation[:pkey].values.flatten) & (arpk = [::Brick.ar_base.primary_key].flatten.sort)
-            # In case things aren't as standard
-            if pkey_cols.empty?
-              pkey_cols = if rpk.empty? && relation[:cols][arpk.first]&.first == key_type
-                            arpk
-                          elsif rpk.first
-                            rpk
-                          end
-            end
-            schema = if (tbl_parts = tbl.split('.')).length > 1
-                      if tbl_parts.first == (::Brick.default_schema || 'public')
-                        tbl_parts.shift
-                        nil
-                      else
-                        tbl_parts.first
-                      end
-                    end
-            unless schema.blank? || built_schemas.key?(schema)
-              mig = +"  def change\n    create_schema(:#{schema}) unless schema_exists?(:#{schema})\n  end\n"
-              migration_file_write(mig_path, "create_db_schema_#{schema.underscore}", current_mig_time += 1.minute, ar_version, mig)
-              built_schemas[schema] = nil
-            end
-
-            # %%% For the moment we're skipping polymorphics
-            fkey_cols = relation[:fks].values.select { |assoc| assoc[:is_bt] && !assoc[:polymorphic] }
-            # If the primary key is also used as a foreign key, will need to do  id: false  and then build out
-            # a column definition which includes :primary_key -- %%% also using a data type of bigserial or serial
-            # if this one has come in as bigint or integer.
-            pk_is_also_fk = fkey_cols.any? { |assoc| pkey_cols&.first == assoc[:fk] } ? pkey_cols&.first : nil
-            # Support missing primary key (by adding:  , id: false)
-            id_option = if pk_is_also_fk || !pkey_cols&.present?
-                          needs_serial_col = true
-                          +', id: false'
-                        elsif ((pkey_col_first = (col_def = relation[:cols][pkey_cols&.first])&.first) &&
-                              (pkey_col_first = SQL_TYPES[pkey_col_first] || SQL_TYPES[col_def&.[](0..1)] ||
-                                                SQL_TYPES.find { |r| r.first.is_a?(Regexp) && pkey_col_first =~ r.first }&.last ||
-                                                pkey_col_first
-                              ) != key_type
-                              )
-                          case pkey_col_first
-                          when 'integer'
-                            +', id: :serial'
-                          when 'bigint'
-                            +', id: :bigserial'
-                          else
-                            +", id: :#{pkey_col_first}" # Something like:  id: :integer, primary_key: :businessentityid
-                          end +
-                            (pkey_cols.first ? ", primary_key: :#{pkey_cols.first}" : '')
-                        end
-            if !id_option && pkey_cols.sort != arpk
-              id_option = +", primary_key: :#{pkey_cols.first}"
-            end
-            if !is_4x_rails && (comment = relation&.fetch(:description, nil))&.present?
-              (id_option ||= +'') << ", comment: #{comment.inspect}"
-            end
-            # Find the ActiveRecord class in order to see if the columns have comments
-            unless is_4x_rails
-              klass = begin
-                        tbl.tr('.', '/').singularize.camelize.constantize
-                      rescue StandardError
-                      end
-              if klass
-                unless ActiveRecord::Migration.table_exists?(klass.table_name)
-                  puts "WARNING: Unable to locate table #{klass.table_name} (for #{klass.name})."
-                  klass = nil
-                end
-              end
-            end
-            # Refer to this table name as a symbol or dotted string as appropriate
-            tbl_code = tbl_parts.length == 1 ? ":#{tbl_parts.first}" : "'#{tbl}'"
-            mig = +"  def change\n    return unless reverting? || !table_exists?(#{tbl_code})\n\n"
-            mig << "    create_table #{tbl_code}#{id_option} do |t|\n"
-            possible_ts = [] # Track possible generic timestamps
-            add_fks = [] # Track foreign keys to add after table creation
-            relation[:cols].each do |col, col_type|
-              sql_type = SQL_TYPES[col_type.first] || SQL_TYPES[col_type[0..1]] ||
-                        SQL_TYPES.find { |r| r.first.is_a?(Regexp) && col_type.first =~ r.first }&.last ||
-                        col_type.first
-              suffix = col_type[3] || pkey_cols&.include?(col) ? +', null: false' : +''
-              suffix << ', array: true' if (col_type.first == 'ARRAY')
-              if !is_4x_rails && klass && (comment = klass.columns_hash.fetch(col, nil)&.comment)&.present?
-                suffix << ", comment: #{comment.inspect}"
-              end
-              # Determine if this column is used as part of a foreign key
-              if (fk = fkey_cols.find { |assoc| col == assoc[:fk] })
-                to_table = fk[:inverse_table].split('.')
-                to_table = to_table.length == 1 ? ":#{to_table.first}" : "'#{fk[:inverse_table]}'"
-                if needs_serial_col && pkey_cols&.include?(col) && (new_serial_type = {'integer' => 'serial', 'bigint' => 'bigserial'}[sql_type])
-                  sql_type = new_serial_type
-                  needs_serial_col = false
-                end
-                if fk[:fk] != "#{fk[:assoc_name].singularize}_id" # Need to do our own foreign_key tricks, not use references?
-                  column = fk[:fk]
-                  mig << emit_column(sql_type, column, suffix)
-                  add_fks << [to_table, column, relations[fk[:inverse_table]]]
-                else
-                  suffix << ", type: :#{sql_type}" unless sql_type == key_type
-                  # Will the resulting default index name be longer than what Postgres allows?  (63 characters)
-                  if (idx_name = ActiveRecord::Base.connection.index_name(tbl, {column: col})).length > 63
-                    # Try to find a shorter name that hasn't been used yet
-                    unless indexes.key?(shorter = idx_name[0..62]) ||
-                          indexes.key?(shorter = idx_name.tr('_', '')[0..62]) ||
-                          indexes.key?(shorter = idx_name.tr('aeio', '')[0..62])
-                      puts "Unable to easily find unique name for index #{idx_name} that is shorter than 64 characters,"
-                      puts "so have resorted to this GUID-based identifier: #{shorter = "#{tbl[0..25]}_#{::SecureRandom.uuid}"}."
-                    end
-                    suffix << ", index: { name: '#{shorter || idx_name}' }"
-                    indexes[shorter || idx_name] = nil
-                  end
-                  primary_key = nil
-                  begin
-                    primary_key = relations[fk[:inverse_table]][:class_name]&.constantize&.primary_key
-                  rescue NameError => e
-                    primary_key = ::Brick.ar_base.primary_key
-                  end
-                  mig << "      t.references :#{fk[:assoc_name]}#{suffix}, foreign_key: { to_table: #{to_table}#{", primary_key: :#{primary_key}" if primary_key != ::Brick.ar_base.primary_key} }\n"
-                end
-              else
-                next if !id_option&.end_with?('id: false') && pkey_cols&.include?(col)
-
-                # See if there are generic timestamps
-                if sql_type == 'timestamp' && ['created_at','updated_at'].include?(col)
-                  possible_ts << [col, !col_type[3]]
-                else
-                  mig << emit_column(sql_type, col, suffix)
-                end
-              end
-            end
-            if possible_ts.length == 2 && # Both created_at and updated_at
-              # Rails 5 and later timestamps default to NOT NULL
-              (possible_ts.first.last == is_4x_rails && possible_ts.last.last == is_4x_rails)
-              mig << "\n      t.timestamps\n"
-            else # Just one or the other, or a nullability mismatch
-              possible_ts.each { |ts| emit_column('timestamp', ts.first, nil) }
-            end
-            mig << "    end\n"
-            if pk_is_also_fk
-              mig << "    reversible do |dir|\n"
-              mig << "      dir.up { execute('ALTER TABLE #{tbl} ADD PRIMARY KEY (#{pk_is_also_fk})') }\n"
-              mig << "    end\n"
-            end
-            add_fks.each do |add_fk|
-              is_commented = false
-              # add_fk[2] holds the inverse relation
-              unless (pk = add_fk[2][:pkey].values.flatten&.first)
-                is_commented = true
-                mig << "    # (Unable to create relationship because primary key is missing on table #{add_fk[0]})\n"
-                # No official PK, but if coincidentally there's a column of the same name, take a chance on it
-                pk = (add_fk[2][:cols].key?(add_fk[1]) && add_fk[1]) || '???'
-              end
-              #                                                                 to_table               column
-              mig << "    #{'# ' if is_commented}add_foreign_key #{tbl_code}, #{add_fk[0]}, column: :#{add_fk[1]}, primary_key: :#{pk}\n"
-            end
-            mig << "  end\n"
-            versions_to_create << migration_file_write(mig_path, "create_#{tbl_parts.map(&:underscore).join('_')}", current_mig_time += 1.minute, ar_version, mig)
+            mig = gen_migration_columns(relations, tbl, (tbl_parts = tbl.split('.')), (add_fks = []),
+                                        key_type, is_4x_rails, ar_version, do_fks_last)
+            after_fks.concat(add_fks) if do_fks_last
+            versions_to_create << migration_file_write(mig_path, ::Brick._brick_index("create_#{tbl}"), current_mig_time += 1.minute, ar_version, mig)
           end
           done.concat(fringe)
           chosen -= done
+        end
+
+        if do_fks_last
+          # Write out any more tables that haven't been done yet
+          chosen.each do |tbl|
+            mig = gen_migration_columns(relations, tbl, (tbl_parts = tbl.split('.')), (add_fks = []),
+                                        key_type, is_4x_rails, ar_version, do_fks_last)
+            after_fks.concat(add_fks)
+            migration_file_write(mig_path, ::Brick._brick_index("create_#{tbl}"), current_mig_time += 1.minute, ar_version, mig)
+          end
+          done.concat(chosen)
+          chosen.clear
+
+          # Add a final migration to create all the foreign keys
+          mig = +"  def change\n"
+          after_fks.each do |add_fk|
+            next unless add_fk[2] # add_fk[2] holds the inverse relation
+
+            unless (pk = add_fk[2][:pkey].values.flatten&.first)
+              # No official PK, but if coincidentally there's a column of the same name, take a chance on it
+              pk = (add_fk[2][:cols].key?(add_fk[1]) && add_fk[1]) || '???'
+            end
+            mig << "    add_foreign_key #{add_fk[3]}, " # The tbl_code
+            #         to_table               column
+            mig << "#{add_fk[0]}, column: :#{add_fk[1]}, primary_key: :#{pk}\n"
+          end
+          if after_fks.length > 500
+            minutes = (after_fks.length + 1000) / 1500
+            mig << "    if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'\n"
+            mig << "      puts 'NOTE:  It could take around #{minutes} #{'minute'.pluralize(minutes)} on a FAST machine for Postgres to do all the final processing for these foreign keys.  Please be patient!'\n"
+
+            mig << "      # Vacuum takes only about ten seconds when all the tables are empty,
+      # and about 2 minutes when the tables are fairly full.
+      execute('COMMIT')
+      execute('VACUUM FULL')
+      execute('BEGIN TRANSACTION')
+    end\n"
+          end
+
+          mig << +"  end\n"
+          migration_file_write(mig_path, 'create_brick_fks.rbx', current_mig_time += 1.minute, ar_version, mig)
+          puts "Have written out a final migration called 'create_brick_fks.rbx' which creates #{after_fks.length} foreign keys.
+  This file extension (.rbx) will cause it not to run yet when you do a 'rails db:migrate'.
+  The idea here is to do all data loading first, and then rename that migration file back
+  into having a .rb extension, and run a final db:migrate to put the foreign keys in place."
         end
 
         stuck_counts = Hash.new { |h, k| h[k] = 0 }
@@ -310,7 +209,7 @@ module Brick
             ".  Here's the top 5 blockers" if stuck_sorted.length > 5
           }:"
           pp stuck_sorted[0..4]
-        else # Successful, and now we can update the schema_migrations table accordingly
+        elsif do_schema_migrations # Successful, and now we can update the schema_migrations table accordingly
           unless ActiveRecord::Migration.table_exists?(ActiveRecord::Base.schema_migrations_table_name)
             ActiveRecord::SchemaMigration.create_table
           end
@@ -333,13 +232,178 @@ module Brick
 
     private
 
+      def gen_migration_columns(relations, tbl, tbl_parts, add_fks,
+                                key_type, is_4x_rails, ar_version, do_fks_last)
+        return unless (relation = relations.fetch(tbl, nil))&.fetch(:cols, nil)&.present?
+
+        mig = +''
+        pkey_cols = (rpk = relation[:pkey].values.flatten) & (arpk = [::Brick.ar_base.primary_key].flatten.sort)
+        # In case things aren't as standard
+        if pkey_cols.empty?
+          pkey_cols = if rpk.empty? && relation[:cols][arpk.first]&.first == key_type
+                        arpk
+                      elsif rpk.first
+                        rpk
+                      end
+        end
+        schema = if tbl_parts.length > 1
+                   if tbl_parts.first == (::Brick.default_schema || 'public')
+                     tbl_parts.shift
+                     nil
+                   else
+                     tbl_parts.first
+                   end
+                 end
+        unless schema.blank? || built_schemas.key?(schema)
+          mig = +"  def change\n    create_schema(:#{schema}) unless schema_exists?(:#{schema})\n  end\n"
+          migration_file_write(mig_path, "create_db_schema_#{schema.underscore}", current_mig_time += 1.minute, ar_version, mig)
+          built_schemas[schema] = nil
+        end
+
+        # %%% For the moment we're skipping polymorphics
+        fkey_cols = relation[:fks].values.select { |assoc| assoc[:is_bt] && !assoc[:polymorphic] }
+        # If the primary key is also used as a foreign key, will need to do  id: false  and then build out
+        # a column definition which includes :primary_key -- %%% also using a data type of bigserial or serial
+        # if this one has come in as bigint or integer.
+        pk_is_also_fk = fkey_cols.any? { |assoc| pkey_cols&.first == assoc[:fk] } ? pkey_cols&.first : nil
+        id_option = if pk_is_also_fk || !pkey_cols&.present?
+                      needs_serial_col = true
+                      +', id: false' # Support missing primary key (by adding:  , id: false)
+                    elsif ((pkey_col_first = (col_def = relation[:cols][pkey_cols&.first])&.first) &&
+                          (pkey_col_first = SQL_TYPES[pkey_col_first] || SQL_TYPES[col_def&.[](0..1)] ||
+                                            SQL_TYPES.find { |r| r.first.is_a?(Regexp) && pkey_col_first =~ r.first }&.last ||
+                                            pkey_col_first
+                          ) != key_type
+                          )
+                      case pkey_col_first
+                      when 'integer'
+                        +', id: :serial'
+                      when 'bigint'
+                        +', id: :bigserial'
+                      else
+                        +", id: :#{pkey_col_first}" # Something like:  id: :integer, primary_key: :businessentityid
+                      end +
+                        (pkey_cols.first ? ", primary_key: :#{pkey_cols.first}" : '')
+                    end
+        if !id_option && pkey_cols.sort != arpk
+          id_option = +", primary_key: :#{pkey_cols.first}"
+        end
+        if !is_4x_rails && (comment = relation&.fetch(:description, nil))&.present?
+          (id_option ||= +'') << ", comment: #{comment.inspect}"
+        end
+        # Find the ActiveRecord class in order to see if the columns have comments
+        unless is_4x_rails
+          klass = begin
+                    tbl.tr('.', '/').singularize.camelize.constantize
+                  rescue StandardError
+                  end
+          if klass
+            unless ActiveRecord::Migration.table_exists?(klass.table_name)
+              puts "WARNING: Unable to locate table #{klass.table_name} (for #{klass.name})."
+              klass = nil
+            end
+          end
+        end
+        # Refer to this table name as a symbol or dotted string as appropriate
+        tbl_code = tbl_parts.length == 1 ? ":#{tbl_parts.first}" : "'#{tbl}'"
+        mig = +"  def change\n    return unless reverting? || !table_exists?(#{tbl_code})\n\n"
+        mig << "    create_table #{tbl_code}#{id_option} do |t|\n"
+        possible_ts = [] # Track possible generic timestamps
+        relation[:cols].each do |col, col_type|
+          sql_type = SQL_TYPES[col_type.first] || SQL_TYPES[col_type[0..1]] ||
+                     SQL_TYPES.find { |r| r.first.is_a?(Regexp) && col_type.first =~ r.first }&.last ||
+                     col_type.first
+          suffix = col_type[3] || pkey_cols&.include?(col) ? +', null: false' : +''
+          suffix << ', array: true' if (col_type.first == 'ARRAY')
+          if !is_4x_rails && klass && (comment = klass.columns_hash.fetch(col, nil)&.comment)&.present?
+            suffix << ", comment: #{comment.inspect}"
+          end
+          # Determine if this column is used as part of a foreign key
+          if (fk = fkey_cols.find { |assoc| col == assoc[:fk] })
+            to_table = fk[:inverse_table].split('.')
+            to_table = to_table.length == 1 ? ":#{to_table.first}" : "'#{fk[:inverse_table]}'"
+            if needs_serial_col && pkey_cols&.include?(col) && (new_serial_type = {'integer' => 'serial', 'bigint' => 'bigserial'}[sql_type])
+              sql_type = new_serial_type
+              needs_serial_col = false
+            end
+            if do_fks_last || (fk[:fk] != "#{fk[:assoc_name].singularize}_id") # Need to do our own foreign_key tricks, not use references?
+              column = fk[:fk]
+              mig << emit_column(sql_type, column, suffix)
+              add_fks << [to_table, column, relations[fk[:inverse_table]], tbl_code]
+            else
+              suffix << ", type: :#{sql_type}" unless sql_type == key_type
+              # Will the resulting default index name be longer than what Postgres allows?  (63 characters)
+              if (idx_name = ActiveRecord::Base.connection.index_name(tbl, {column: col})).length > 63
+                # Try to find a shorter name that hasn't been used yet
+                unless indexes.key?(shorter = idx_name[0..62]) ||
+                      indexes.key?(shorter = idx_name.tr('_', '')[0..62]) ||
+                      indexes.key?(shorter = idx_name.tr('aeio', '')[0..62])
+                  puts "Unable to easily find unique name for index #{idx_name} that is shorter than 64 characters,"
+                  puts "so have resorted to this GUID-based identifier: #{shorter = "#{tbl[0..25]}_#{::SecureRandom.uuid}"}."
+                end
+                suffix << ", index: { name: '#{shorter || idx_name}' }"
+                indexes[shorter || idx_name] = nil
+              end
+              next if do_fks_last
+
+              primary_key = nil
+              begin
+                primary_key = relations[fk[:inverse_table]][:class_name]&.constantize&.primary_key
+              rescue NameError => e
+                primary_key = ::Brick.ar_base.primary_key
+              end
+              fk_stuff = ", foreign_key: { to_table: #{to_table}#{", primary_key: :#{primary_key}" if primary_key != ::Brick.ar_base.primary_key} }"
+              mig << "      t.references :#{fk[:assoc_name]}#{suffix}#{fk_stuff}\n"
+            end
+          else
+            next if !id_option&.end_with?('id: false') && pkey_cols&.include?(col)
+
+            # See if there are generic timestamps
+            if sql_type == 'timestamp' && ['created_at','updated_at'].include?(col)
+              possible_ts << [col, !col_type[3]]
+            else
+              mig << emit_column(sql_type, col, suffix)
+            end
+          end
+        end
+        if possible_ts.length == 2 && # Both created_at and updated_at
+          # Rails 5 and later timestamps default to NOT NULL
+          (possible_ts.first.last == is_4x_rails && possible_ts.last.last == is_4x_rails)
+          mig << "\n      t.timestamps\n"
+        else # Just one or the other, or a nullability mismatch
+          possible_ts.each { |ts| emit_column('timestamp', ts.first, nil) }
+        end
+        mig << "    end\n"
+        if pk_is_also_fk
+          mig << "    reversible do |dir|\n"
+          mig << "      dir.up { execute('ALTER TABLE #{tbl} ADD PRIMARY KEY (#{pk_is_also_fk})') }\n"
+          mig << "    end\n"
+        end
+        add_fks.each do |add_fk|
+          next unless add_fk[2]
+
+          is_commented = false
+          # add_fk[2] holds the inverse relation
+          unless (pk = add_fk[2][:pkey]&.values&.flatten&.first)
+            is_commented = true
+            mig << "    # (Unable to create relationship because primary key is missing on table #{add_fk[0]})\n"
+            # No official PK, but if coincidentally there's a column of the same name, take a chance on it
+            pk = (add_fk[2][:cols].key?(add_fk[1]) && add_fk[1]) || '???'
+          end
+          mig << "    #{'# ' if do_fks_last}#{'# ' if is_commented}add_foreign_key #{tbl_code}, "
+          #         to_table               column
+          mig << "#{add_fk[0]}, column: :#{add_fk[1]}, primary_key: :#{pk}\n"
+        end
+        mig << "  end\n"
+      end
+
       def emit_column(type, name, suffix)
         "      t.#{type.start_with?('numeric') ? 'decimal' : type} :#{name}#{suffix}\n"
       end
 
       def migration_file_write(mig_path, name, current_mig_time, ar_version, mig)
-        File.open("#{mig_path}/#{version = current_mig_time.strftime('%Y%m%d%H%M00')}_#{name}.rb", "w") do |f|
-          f.write "class #{name.camelize} < ActiveRecord::Migration#{ar_version}\n"
+        File.open("#{mig_path}/#{version = current_mig_time.strftime('%Y%m%d%H%M00')}_#{name}#{'.rb' unless name.index('.')}", "w") do |f|
+          f.write "class #{name.split('.').first.camelize} < ActiveRecord::Migration#{ar_version}\n"
           f.write mig
           f.write "end\n"
         end

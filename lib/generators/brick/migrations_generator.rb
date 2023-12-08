@@ -26,6 +26,7 @@ module Brick
       end
 
       mig_path, is_insert_versions, is_delete_versions = ::Brick::MigrationBuilder.check_folder
+      return unless mig_path
 
       # Generate a list of tables that can be chosen
       chosen = gets_list(list: tables, chosen: tables.dup)
