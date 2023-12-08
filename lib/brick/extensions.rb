@@ -789,6 +789,7 @@ module ActiveRecord
 
       # Add derived table JOIN for the has_many counts
       nix = []
+      previous = []
       klass._br_hm_counts.each do |k, hm|
         count_column = if hm.options[:through]
                          # Build the chain of JOINs going to the final destination HMT table
@@ -815,7 +816,7 @@ module ActiveRecord
                            through_sources.push(this_hm = src_ref.active_record.reflect_on_association(thr))
                          end
                          through_sources.push(src_ref) unless src_ref.belongs_to?
-                         from_clause = +"#{through_sources.first.table_name} br_t0"
+                         from_clause = +"#{_br_quoted_name(through_sources.first.table_name)} br_t0"
                          fk_col = through_sources.shift.foreign_key
 
                          idx = 0
@@ -883,7 +884,7 @@ module ActiveRecord
           next
         end
 
-        tbl_alias = "b_r_#{hm.name}"
+        tbl_alias = unique63("b_r_#{hm.name}", previous)
         on_clause = []
         hm_selects = if fk_col.is_a?(Array) # Composite key?
                        fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl.table_name}.#{pri_key[idx]}" }
@@ -1087,6 +1088,19 @@ Might want to add this in your brick.rb:
 
     def shift_or_first(ary)
       ary.length > 1 ? ary.shift : ary.first
+    end
+
+    def unique63(name, previous)
+      name = name[0..62] if name.length > 63
+      unique_num = 1
+      loop do
+        break unless previous.include?(name)
+
+        unique_suffix = "_#{unique_num += 1}"
+        name = "#{name[0..name.length - unique_suffix.length - 1]}#{unique_suffix}"
+      end
+      previous << name
+      name
     end
   end
 
@@ -2891,9 +2905,9 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
               FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE#{"
               WHERE CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }"
         kcus = ActiveRecord::Base.execute_sql(sql).each_with_object({}) do |v, s|
-                 key = "#{v['constraint_name']}.#{v['constraint_schema']}.#{v['constraint_catalog']}.#{v['ordinal_position']}"
-                 key << ".#{v['table_name']}.#{v['column_name']}" unless is_postgres || is_mssql
-                 s[key] = [v['constraint_schema'], v['table_name']]
+                 key = "#{v.fetch('constraint_name', v[2])}.#{v.fetch('constraint_schema', v[1])}.#{v.fetch('constraint_catalog', v[0])}.#{v.fetch('ordinal_position', v[3])}"
+                 key << ".#{v.fetch('table_name', v[4])}.#{v.fetch('column_name', v[5])}" unless is_postgres || is_mssql
+                 s[key] = [v.fetch('constraint_schema', v[1]), v.fetch('table_name', v[4])]
                end
 
         sql = "SELECT kcu.CONSTRAINT_SCHEMA, kcu.TABLE_NAME, kcu.COLUMN_NAME,
@@ -3392,9 +3406,9 @@ module Brick
 
     def _brick_index(tbl_name, mode = nil, separator = nil, relation = nil)
       separator ||= '_'
-      res_name = tbl_name.split('.')[0..-2].first
+      res_name = (tbl_name_parts = tbl_name.split('.'))[0..-2].first
       res_name << '.' if res_name
-      (res_name ||= +'') << (relation || ::Brick.relations[tbl_name])&.fetch(:resource, nil)
+      (res_name ||= +'') << (relation || ::Brick.relations.fetch(tbl_name, nil)&.fetch(:resource, nil) || tbl_name_parts.last)
 
       res_parts = ((mode == :singular) ? res_name.singularize : res_name).split('.')
       res_parts.shift if ::Brick.apartment_multitenant && res_parts.length > 1 && res_parts.first == ::Brick.apartment_default_tenant
