@@ -148,7 +148,8 @@ module Brick::Rails::FormBuilder
       '(hidden)'
     else
       if val.is_a?(String)
-        val = val.dup.force_encoding('UTF-8').strip
+        return ::Brick::Rails.display_binary(val) unless (val_utf8 = val.dup.force_encoding('UTF-8')).valid_encoding?
+        val = val_utf8.strip
         return CGI.escapeHTML(val) if is_xml
   
         if val.length > max_len
