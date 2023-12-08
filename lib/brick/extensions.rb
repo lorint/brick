@@ -3458,6 +3458,7 @@ module Brick
         path_prefix << ::Brick.config.path_prefix
       end
       index = res_parts.map(&:underscore).join(separator)
+      index = index.tr('_', 'x') if separator == 'x'
       # Rails applies an _index suffix to that route when the resource name isn't something plural
       index << '_index' if mode != :singular && separator == '_' &&
                            index == (path_prefix + [name&.underscore&.tr('/', '_') || '_']).join(separator)

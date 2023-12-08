@@ -34,7 +34,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.190        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.192        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -127,7 +127,9 @@ the various "Autogenerate ___ Files" sections.
   - [1.e. Using rails g df_export](#1e-using-rails-g-df-export)
   - [1.f. Autogenerate Model Files](#1f-autogenerate-model-files)
   - [1.g. Autogenerate Migration Files](#1g-autogenerate-migration-files)
-  - [1.h. Autogenerate Seeds File](#1g-autogenerate-seeds-file)
+  - [1.h. Autogenerate Seeds File](#1h-autogenerate-seeds-file)
+  - [1.i. Autogenerate Migration Files from a Salesforce installation](#1i-autogenerate-migration-files-from-a-salesforce-installation)
+  ### 1.i. Autogenerate Migration Files based on a Salesforce WSDL file
 - [2. More Fancy Exports](#2-limiting-what-is-versioned-and-when)
   - [2.a. Simplify Column Names Using Aliases](#2a-simplify-column-names-using-aliases)
   - [2.b. Filtering the Rows to Export](#2b-filtering-the-rows-to-export)
@@ -519,7 +521,8 @@ First a table picker comes up where you choose which table(s) you wish to build 
 
 After successful file generation, the `schema_migrations` table is updated to have appropriate numerical `version` entries, one for each file which was generated.  This is so that after generating, you don't end up seeing the "Migrations are pending" error later.
 
-If you have a circular reference that prevents Brick from completing the creation of migrations normally,
+If you choose to have foreign keys added inline instead of as a final migration, then if you
+have a circular reference that prevents Brick from completing the creation of migrations normally,
 you will see warning messages similar to this:
 
 ```
@@ -544,10 +547,13 @@ Unable to create migrations for 6 tables.  Here's the top 5 blockers:
 
 (This example is what you get with the Sakila database, which has this kind of circular reference.)
 
-In cases such as this you can use a special hint in the brick.rb initializer to act as if one or more
-foreign keys are not present while running Brick generators.  (Specifically this setting affects
-brick:migrations and brick:seeds.)  Here is an example of a deferral which will allow the Sakila
-database to complete normally, fully avoiding the litany of "Can't do ___ because" errors shown above:
+In cases such as this there are a couple options -- you can use a special hint in the brick.rb
+initializer to act as if one or more foreign keys are not present while running Brick generators,
+or you can choose to create all foreign keys as a final migration at the end.
+
+Using the hint in brick.rb will affect both brick:migrations and brick:seeds.  Here is an example
+of a deferral which will allow the Sakila database to complete normally, fully avoiding the
+litany of "Can't do ___ because" errors shown above:
 
 ```
 Brick.defer_references_for_generation = [['staff', 'store_id', 'store']]
@@ -555,6 +561,9 @@ Brick.defer_references_for_generation = [['staff', 'store_id', 'store']]
 
 You will often have to either know the foreign key structure pretty well or experiment with deferring
 foreign keys to find out the most specific ones to defer in order for these generators to work.
+
+For very large databases it could be simpler to just choose the option to have all the foreign
+keys get built as a final migration.
 
 ### 1.h. Autogenerate Seeds File
 
@@ -582,6 +591,31 @@ resulting `db/seeds.rb` file could end up being hundreds of megabytes, or even m
 in size!  Could feel like it's crashed, but then look in the `db` folder to see if there's a
 growing file there, and perhaps it's just still clipping along.  If you let the thing run,
 and you have enough disk space, then it should complete and be fully functional.
+
+### 1.i. Autogenerate Migration Files based on a Salesforce WSDL file
+
+If you'd like to have a set of migration files built out to match the data structure from an
+installation of Salesforce, first obtain the WSDL file, confirm that it has an .xml file
+extension, put it into the root of your Rails project, and then run this generator:
+
+    bin/rails g brick:salesforce_migrations
+
+First a choice is shown to pick an XML file.  This is processed with a SAX parser, so it is
+read very quickly in order to obtain table and column details.  Once processed, table picker
+comes up where you choose which table(s) you wish to build migrations for -- by default all
+the tables defined in the WSDL are chosen. Use the arrow keys and spacebar to select and deselect items in the list, then press ENTER and new migration files for each individual table from Salesforce is built out either in db/migrate, or if that folder already has .rb files then the destination becomes tmp/brick_migrations.
+
+When creating a data structure from Salesforce it is almost certain to have circular references,
+so you will want to choose the option to create all foreign keys as a last migration.
+
+Because many Salesforce installations have a thousand or more tables, it can become fairly taxing
+on your Postgres instance to handle everything.  You will probably need to update postgresql.conf
+and increase **max_locks_per_transaction**.  A value of around 500 can work if you have on
+the order of a thousand or more tables.  Something on that scale would have at least 3000 foreign
+keys in total.
+
+Although the class names and column names do not follow Rails conventions, everything will work,
+and this lets you create a Rails app that fully mirrors a Salesforce installation.
 
 ## Issues
 
@@ -611,7 +645,11 @@ Please use GitHub's [issue tracker](https://github.com/lorint/brick/issues) to r
 (Are there any???)  A few aspects of **The Brick** resemble Django's [inspectdb](http://docs.djangoproject.com/en/dev/ref/django-admin/#inspectdb)
 and Laravel's [RevengeDb](https://github.com/daavelar/reveng-database), and in the Ruby world some
 ages ago a cool guy named Dr Nic created a piece of wizardry he called "[magic_models](https://github.com/voraz/dr-nic-magic-models/tree/master)"
-which would auto-create models in RAM, along with validators.  On the Admin Panel side of the house,
+which would auto-create models in RAM, along with validators.
+
+When I had met DHH at Rails World in 2023, he indicated that aspects of Brick reminded him of the [Java Naked Objects](http://downloads.nakedobjects.net/resources/Pawson%20thesis.pdf) project from 2004.
+
+On the Admin Panel side of the house,
 perhaps [Motor Admin](https://www.getmotoradmin.com/) automates enough things that it comes closest
 to being similar to **The Brick**.  But really nothing I'm aware of matches up to everything here,
 especially considering all the logic around optimising JOINs to make them fast, or auto-creation of
