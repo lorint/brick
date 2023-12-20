@@ -33,6 +33,7 @@ module Brick::Rails::FormTags
     out = +"<div id=\"headerTopContainer\"><table id=\"headerTop\"></table>
 "
     klass = relation.klass
+    rel = ::Brick.relations&.fetch(relation.table_name, nil)
     unless show_header == false
       out << "  <div id=\"headerTopAddNew\">
     <div id=\"headerButtonBox\">
@@ -254,7 +255,7 @@ module Brick::Rails::FormTags
       out << '</tr>'
       row_count += 1
     end
-    if (total_row_count = ::Brick.relations[table_name].fetch(:rowcount, nil))
+    if rel && (total_row_count = rel.fetch(:rowcount, nil))
       total_row_count = total_row_count > row_count ? " (out of #{total_row_count})" : nil
     end
     out << "  </tbody>
