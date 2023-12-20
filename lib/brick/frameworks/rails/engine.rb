@@ -345,7 +345,8 @@ function linkSchemas() {
                                end
                     ::Brick.relations.each do |k, v|
                       unless k.is_a?(Symbol) || existing.key?(class_name = v[:class_name]) || Brick.config.exclude_tables.include?(k) ||
-                             class_name.blank? || class_name.include?('::')
+                             class_name.blank? || class_name.include?('::') ||
+                             ['ActiveAdminComment', 'MotorAlert', 'MotorAlertLock', 'MotorApiConfig', 'MotorAudit', 'MotorConfig', 'MotorDashboard', 'MotorForm', 'MotorNote', 'MotorNoteTag', 'MotorNoteTagTag', 'MotorNotification', 'MotorQuery', 'MotorReminder', 'MotorResource', 'MotorTag', 'MotorTaggableTag'].include?(class_name)
                         Object.const_get("#{class_name}Resource")
                       end
                     end
@@ -787,13 +788,6 @@ window.addEventListener(\"popstate\", linkSchemas);
                                 next if rel.first.blank? || rel.last[:cols].empty? ||
                                         ::Brick.config.exclude_tables.include?(rel.first)
 
-                                tbl_parts = rel.first.split('.')
-                                if (aps = rel.last.fetch(:auto_prefixed_schema, nil))
-                                  tbl_parts << tbl_parts.last[aps.length..-1]
-                                  aps = aps[0..-2] if aps[-1] == '_'
-                                  tbl_parts[-2] = aps
-                                end
-                                tbl_parts.shift if tbl_parts.first == apartment_default_schema
                                 # %%% When table_name_prefixes are use then during rendering empty non-TNP
                                 # entries get added at some point when an attempt is made to find the table.
                                 # Will have to hunt that down at some point.
@@ -939,7 +933,11 @@ tr th a {
 .add-hm-related {
   float: right;
 }
-
+#tblAddCol {
+  position: relative;
+  z-index: 2;
+  border: 2px solid blue;
+}
 tr th, tr td {
   padding: 0.2em 0.5em;
 }
@@ -996,6 +994,12 @@ a.big-arrow {
 }
 .right {
   text-align: right;
+}
+.paddingBottomZero {
+  padding-bottom: 0px;
+}
+.paddingTopZero {
+  padding-top: 0px;
 }
 .orphan {
   color: red;
@@ -1188,18 +1192,18 @@ erDiagram
  # Make into a server control with a javascript snippet
  # Have post back go to a common "brick_schema" endpoint, this one for add_column
 "
-  <table style=\"position: relative; z-index: 2; border: 2px solid blue;\"><tr>
+  <table id=\"tblAddCol\"><tr>
     <td rowspan=\"2\">Add<br>Column</td>
-    <td style=\"padding-bottom: 0px\">Type</td><td style=\"padding-bottom: 0px\">Name</td>
+    <td class=\"paddingBottomZero\">Type</td><td class=\"paddingBottomZero\">Name</td>
     <td rowspan=\"2\"><input type=\"button\" id=\"btnAddCol\" value=\"+\"></td>
-  </tr><tr><td style=\"padding-top: 0px\">
+  </tr><tr><td class=\"paddingTopZero\">
     <select id=\"ddlColType\">
    <option value=\"string\">String</option>
    <option value=\"text\">Text</option>
    <option value=\"integer\">Integer</option>
    <option value=\"bool\">Boolean</option>
  </select></td>
- <td style=\"padding-top: 0px\"><input id=\"txtColName\"></td>
+ <td class=\"paddingTopZero\"><input id=\"txtColName\"></td>
  </tr></table>
  <script>
  var btnAddCol = document.getElementById(\"btnAddCol\");
@@ -1583,7 +1587,8 @@ end %>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><td><h1><%= page_title %></h1></td>
-<% if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) %>
+<% rel = Brick.relations[#{model_name}.table_name]
+   if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) %>
   <td><%= link_to_brick(
       ::Brick::Rails::AVO_SVG.html_safe,
       { show_proc: Proc.new do |obj, relation|
@@ -1599,7 +1604,7 @@ end %>#{"
 <td><%= link_to_brick(
    ::Brick::Rails::AA_PNG.html_safe,
    { show_proc: Proc.new do |aa_model, relation|
-                  path_helper = \"#\{ns}_#\{relation.fetch(:auto_prefixed_schema, nil)}#\{rk = aa_model.model_name.singular_route_key}_path\".to_sym
+                  path_helper = \"#\{ns}_#\{relation.fetch(:auto_prefixed_schema, nil)}#\{aa_model.model_name.singular_route_key}_path\".to_sym
                   send(path_helper, obj) if respond_to?(path_helper)
                 end,
      title: \"#\{page_title} in ActiveAdmin\" }
@@ -1608,7 +1613,7 @@ end %>#{"
    end %>
 </table>
 <%
-if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %>
+if (description = rel&.fetch(:description, nil)) %>
   <span class=\"__brick\"><%= description %></span><br><%
 end
 %><%= link_to \"(See all #\{model_name.pluralize})\", see_all_path, { class: '__brick' } %>
@@ -1939,6 +1944,7 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
         end
 
         if ::Brick.enable_routes?
+          require 'brick/route_mapper'
           ActionDispatch::Routing::RouteSet.class_exec do
             # In order to defer auto-creation of any routes that already exist, calculate Brick routes only after having loaded all others
             prepend ::Brick::RouteSet

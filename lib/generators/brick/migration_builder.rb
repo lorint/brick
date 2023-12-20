@@ -32,7 +32,7 @@ module Brick
                   'bit' => 'boolean',
                   'varbinary' => 'binary',
                   'tinyint' => 'integer', # %%% Need to put in "limit: 2"
-                  'year' => 'date',
+                  'year' => 'integer',
                   'set' => 'string',
                   # Sqlite data types
                   'TEXT' => 'text',
@@ -138,10 +138,10 @@ module Brick
                           end
                         end).present?
           fringe.each do |tbl|
-            mig = gen_migration_columns(relations, tbl, (tbl_parts = tbl.split('.')), (add_fks = []),
+            mig = gen_migration_columns(relations, tbl, (tbl_parts = tbl.split('.')), (add_fks = []), built_schemas, mig_path, current_mig_time,
                                         key_type, is_4x_rails, ar_version, do_fks_last)
             after_fks.concat(add_fks) if do_fks_last
-            versions_to_create << migration_file_write(mig_path, ::Brick._brick_index("create_#{tbl}", nil, 'x'), current_mig_time += 1.minute, ar_version, mig)
+            versions_to_create << migration_file_write(mig_path, "create_#{::Brick._brick_index(tbl, nil, 'x')}", current_mig_time += 1.minute, ar_version, mig)
           end
           done.concat(fringe)
           chosen -= done
@@ -150,10 +150,10 @@ module Brick
         if do_fks_last
           # Write out any more tables that haven't been done yet
           chosen.each do |tbl|
-            mig = gen_migration_columns(relations, tbl, (tbl_parts = tbl.split('.')), (add_fks = []),
+            mig = gen_migration_columns(relations, tbl, (tbl_parts = tbl.split('.')), (add_fks = []), built_schemas, mig_path, current_mig_time,
                                         key_type, is_4x_rails, ar_version, do_fks_last)
             after_fks.concat(add_fks)
-            migration_file_write(mig_path, ::Brick._brick_index("create_#{tbl}", nil, 'x'), current_mig_time += 1.minute, ar_version, mig)
+            migration_file_write(mig_path, "create_#{::Brick._brick_index(tbl, nil, 'x')}", current_mig_time += 1.minute, ar_version, mig)
           end
           done.concat(chosen)
           chosen.clear
@@ -232,7 +232,7 @@ module Brick
 
     private
 
-      def gen_migration_columns(relations, tbl, tbl_parts, add_fks,
+      def gen_migration_columns(relations, tbl, tbl_parts, add_fks, built_schemas, mig_path, current_mig_time,
                                 key_type, is_4x_rails, ar_version, do_fks_last)
         return unless (relation = relations.fetch(tbl, nil))&.fetch(:cols, nil)&.present?
 

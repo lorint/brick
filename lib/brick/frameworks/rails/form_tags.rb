@@ -33,6 +33,7 @@ module Brick::Rails::FormTags
     out = +"<div id=\"headerTopContainer\"><table id=\"headerTop\"></table>
 "
     klass = relation.klass
+    rel = ::Brick.relations&.fetch(relation.table_name, nil)
     unless show_header == false
       out << "  <div id=\"headerTopAddNew\">
     <div id=\"headerButtonBox\">
@@ -64,7 +65,7 @@ module Brick::Rails::FormTags
           <td>#{link_to_brick(
             ::Brick::Rails::AA_PNG.html_safe,
             { index_proc: Proc.new do |aa_model, relation|
-                            path_helper = "#{ns}_#{relation.fetch(:auto_prefixed_schema, nil)}#{rk = aa_model.model_name.route_key}_path".to_sym
+                            path_helper = "#{ns}_#{relation.fetch(:auto_prefixed_schema, nil)}#{aa_model.model_name.route_key}_path".to_sym
                             send(path_helper) if respond_to?(path_helper)
                           end,
               title: "#{klass.name} in ActiveAdmin" }
@@ -128,7 +129,7 @@ module Brick::Rails::FormTags
                options[col[1].inheritance_column] = col[1].name unless col[1] == col[1].base_class
                x_order = " x-order=\"#{col_name}\"" if true
                s << "#{x_order}>#{col[2]} "
-               s << (col.first ? "#{col[3]}" : "#{link_to(col[3], send("#{col[1]._brick_index}_path", options))}")
+               s << (col.first ? col[3].to_s : "#{link_to(col[3], send("#{col[1]._brick_index}_path", options))}")
              elsif cust_cols.key?(col_name) # Custom column
                x_order = " x-order=\"#{col_name}\"" if true
                s << "#{x_order}>#{col_name}"
@@ -254,7 +255,7 @@ module Brick::Rails::FormTags
       out << '</tr>'
       row_count += 1
     end
-    if (total_row_count = ::Brick.relations[table_name].fetch(:rowcount, nil))
+    if rel && (total_row_count = rel.fetch(:rowcount, nil))
       total_row_count = total_row_count > row_count ? " (out of #{total_row_count})" : nil
     end
     out << "  </tbody>
