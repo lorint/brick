@@ -345,7 +345,8 @@ function linkSchemas() {
                                end
                     ::Brick.relations.each do |k, v|
                       unless k.is_a?(Symbol) || existing.key?(class_name = v[:class_name]) || Brick.config.exclude_tables.include?(k) ||
-                             class_name.blank? || class_name.include?('::')
+                             class_name.blank? || class_name.include?('::') ||
+                             ['ActiveAdminComment', 'MotorAlert', 'MotorAlertLock', 'MotorApiConfig', 'MotorAudit', 'MotorConfig', 'MotorDashboard', 'MotorForm', 'MotorNote', 'MotorNoteTag', 'MotorNoteTagTag', 'MotorNotification', 'MotorQuery', 'MotorReminder', 'MotorResource', 'MotorTag', 'MotorTaggableTag'].include?(class_name)
                         Object.const_get("#{class_name}Resource")
                       end
                     end
@@ -1583,7 +1584,8 @@ end %>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><td><h1><%= page_title %></h1></td>
-<% if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) %>
+<% rel = Brick.relations[#{model_name}.table_name]
+   if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) %>
   <td><%= link_to_brick(
       ::Brick::Rails::AVO_SVG.html_safe,
       { show_proc: Proc.new do |obj, relation|
@@ -1608,7 +1610,7 @@ end %>#{"
    end %>
 </table>
 <%
-if (description = (relation = Brick.relations[#{model_name}.table_name])&.fetch(:description, nil)) %>
+if (description = rel&.fetch(:description, nil)) %>
   <span class=\"__brick\"><%= description %></span><br><%
 end
 %><%= link_to \"(See all #\{model_name.pluralize})\", see_all_path, { class: '__brick' } %>
@@ -1939,6 +1941,7 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
         end
 
         if ::Brick.enable_routes?
+          require 'brick/route_mapper'
           ActionDispatch::Routing::RouteSet.class_exec do
             # In order to defer auto-creation of any routes that already exist, calculate Brick routes only after having loaded all others
             prepend ::Brick::RouteSet
