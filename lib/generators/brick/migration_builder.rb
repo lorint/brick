@@ -32,7 +32,7 @@ module Brick
                   'bit' => 'boolean',
                   'varbinary' => 'binary',
                   'tinyint' => 'integer', # %%% Need to put in "limit: 2"
-                  'year' => 'date',
+                  'year' => 'integer',
                   'set' => 'string',
                   # Sqlite data types
                   'TEXT' => 'text',
