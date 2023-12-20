@@ -436,13 +436,9 @@ module ActiveRecord
       order_by = ordering&.each_with_object([]) do |ord_part, s| # %%% If a term is also used as an eqi-condition in the WHERE clause, it can be omitted from ORDER BY
                    case ord_part
                    when String
-                     ord_expr = if ord_part.index('^^^')
-                                  ord_part.gsub('^^^', _br_quoted_name(table_name))
-                                else
-                                  _br_quoted_name(ord_part)
-                                end
+                     ord_expr = _br_quoted_name(ord_part.gsub('^^^', table_name))
                      s << Arel.sql(ord_expr)
-                     order_by_txt&.<<("Arel.sql(#{ord_expr.inspect})")
+                     order_by_txt&.<<(ord_expr.index('.') ? "Arel.sql(#{ord_expr.inspect})" : ord_expr)
                    else # Expecting only Symbol
                      ord_part = ord_part.to_s
                      if ord_part[0] == '-' # First char '-' means descending order
@@ -1362,7 +1358,7 @@ end
                    end
                  rescue NameError # If the const_get for the model has failed...
                    skip_controller = true
-                   # ... then just fall through and allow it to fail when trying to loading the ____Controller class normally.
+                   # ... then just fall through and allow it to fail when trying to load the ____Controller class normally.
                  end
                end
                unless skip_controller
@@ -1747,7 +1743,7 @@ class Object
                 options[:optional] = true if assoc.key?(:optional)
                 if assoc.key?(:polymorphic) ||
                    # If a polymorphic association is missing but could be established then go ahead and put it into place.
-                   relations[assoc[:inverse_table]][:class_name].constantize.reflect_on_all_associations.find { |inv_assoc| !inv_assoc.belongs_to? && inv_assoc.options[:as].to_s == assoc[:assoc_name] }
+                   relations.fetch(assoc[:inverse_table], nil)&.fetch(:class_name, nil)&.constantize&.reflect_on_all_associations&.find { |inv_assoc| !inv_assoc.belongs_to? && inv_assoc.options[:as].to_s == assoc[:assoc_name] }
                   assoc[:polymorphic] ||= true
                   options[:polymorphic] = true
                 else
@@ -1917,7 +1913,7 @@ class Object
                 cspd.select! { |val| val == "'self'" }
                 cspd << style_value
               else
-                cspd << "'sha256-Q8t+pETkz0RtyV4XprwdP+uEkVaFyMnx1mXif0wDoxw='"
+                cspd << "'sha256-0Vb7j3kDGE3oNfwMpRLClTSCUo/q74bvbt3p6kG/gkM='"
               end
               cspd << 'https://cdn.jsdelivr.net'
             end
@@ -2563,12 +2559,8 @@ class Object
                                     assoc_name = assoc_parts.join('.')
                                   else
                                     class_name_parts = ::Brick.namify(hm_assoc[:inverse_table], :underscore).split('.')
-                                    last_idx = class_name_parts.length - 1
-                                    class_name_parts[last_idx] = class_name_parts[last_idx].singularize
-                                    real_name = class_name_parts.map(&:camelize).join('::')
-                                    needs_class = (real_name != hm_assoc[:inverse_table].camelize)
+                                    needs_class = assoc_name.singularize.camelize != class_name_parts.last.singularize.camelize
                                   end
-                                  # hm_assoc[:assoc_name] = assoc_name
                                   [assoc_name, needs_class]
                                 end
       # Already have the HM class around?
@@ -2617,7 +2609,7 @@ end.class_exec do
       #   https://discuss.rubyonrails.org/t/failed-write-transaction-upgrades-in-sqlite3/81480/2
       if ActiveRecord::Base.connection.adapter_name == 'SQLite'
         arca = ::ActiveRecord::ConnectionAdapters
-        db_statements = arca::SQLite3::DatabaseStatements
+        db_statements = arca::SQLite3.const_defined?('DatabaseStatements') ? arca::SQLite3::DatabaseStatements : arca::SQLite3::SchemaStatements
         # Rails 7.1 and later
         if arca::AbstractAdapter.private_instance_methods.include?(:with_raw_connection)
           db_statements.define_method(:begin_db_transaction) do
@@ -2651,6 +2643,10 @@ end.class_exec do
     orig_schema = nil
     if (relations = ::Brick.relations).keys == [:db_name]
       ::Brick.remove_instance_variable(:@_additional_references_loaded) if ::Brick.instance_variable_defined?(:@_additional_references_loaded)
+
+      # --------------------------------------------
+      # 1. Load three initializers early
+      #    (inflectsions.rb, brick.rb, apartment.rb)
       # Very first thing, load inflections since we'll be using .pluralize and .singularize on table and model names
       if File.exist?(inflections = ::Rails.root&.join('config/initializers/inflections.rb') || '')
         load inflections
@@ -2701,6 +2697,8 @@ end.class_exec do
       # Only for Postgres  (Doesn't work in sqlite3 or MySQL)
       # puts ActiveRecord::Base.execute_sql("SELECT current_setting('SEARCH_PATH')").to_a.inspect
 
+      # ---------------------------
+      # 2. Figure out schema things
       is_postgres = nil
       is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer'
       case ActiveRecord::Base.connection.adapter_name
@@ -2773,6 +2771,8 @@ end.class_exec do
 
       ::Brick.db_schemas ||= {}
 
+      # ---------------------
+      # 3. Tables and columns
       # %%% Retrieve internal ActiveRecord table names like this:
       # ActiveRecord::Base.internal_metadata_table_name, ActiveRecord::Base.schema_migrations_table_name
       # For if it's not SQLite -- so this is the Postgres and MySQL version
@@ -2902,15 +2902,21 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       #   end
       # end
       # schema = ::Brick.default_schema # Reset back for this next round of fun
+
+      # ---------------------------------------------
+      # 4. Foreign key info
+      # (done in two parts which get JOINed together in Ruby code)
       kcus = nil
       entry_type = nil
       case ActiveRecord::Base.connection.adapter_name
       when 'PostgreSQL', 'Mysql2', 'Trilogy', 'SQLServer'
-        # All KCUs -- use this to virtually JOIN against fk_references in Ruby code
+        # Part 1 -- all KCUs
         sql = "SELECT CONSTRAINT_CATALOG, CONSTRAINT_SCHEMA, CONSTRAINT_NAME, ORDINAL_POSITION,
                       TABLE_NAME, COLUMN_NAME
               FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE#{"
-              WHERE CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }"
+              WHERE CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }#{"
+              WHERE CONSTRAINT_SCHEMA = '#{ActiveRecord::Base.connection.current_database&.tr("'", "''")}'" if is_mysql
+              }"
         kcus = ActiveRecord::Base.execute_sql(sql).each_with_object({}) do |v, s|
                  if (entry_type ||= v.is_a?(Array) ? :array : :hash) == :hash
                    key = "#{v['constraint_name']}.#{v['constraint_schema']}.#{v['constraint_catalog']}.#{v['ordinal_position']}"
@@ -2923,6 +2929,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
                  end
                end
 
+        # Part 2 -- fk_references
         sql = "SELECT kcu.CONSTRAINT_SCHEMA, kcu.TABLE_NAME, kcu.COLUMN_NAME,
             #{# These will get filled in with real values (effectively doing the JOIN in Ruby)
               is_postgres || is_mssql ? 'NULL as primary_schema, NULL as primary_table' :
@@ -2934,7 +2941,8 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
               ON kcu.CONSTRAINT_CATALOG = rc.CONSTRAINT_CATALOG
               AND kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
               AND kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME#{"
-          WHERE kcu.CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema }"
+          WHERE kcu.CONSTRAINT_SCHEMA = COALESCE(current_setting('SEARCH_PATH'), 'public')" if is_postgres && schema}#{"
+          WHERE kcu.CONSTRAINT_SCHEMA = '#{ActiveRecord::Base.connection.current_database&.tr("'", "''")}'" if is_mysql}"
         fk_references = ActiveRecord::Base.execute_sql(sql)
       when 'SQLite'
         sql = "SELECT NULL AS constraint_schema, m.name, fkl.\"from\", NULL AS primary_schema, fkl.\"table\", m.name || '_' || fkl.\"from\" AS constraint_name
@@ -2965,8 +2973,10 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
       ::Brick.default_schema ||= 'public' if is_postgres
       fk_references&.each do |fk|
         fk = fk.values unless fk.is_a?(Array)
-        # Virtually JOIN against fk_references in order to change out the primary schema and primary table
-        if (kcu = kcus&.fetch("#{fk[6]}.#{fk[7]}.#{fk[8]}.#{fk[9]}", nil))
+        # Virtually JOIN KCUs to fk_references in order to fill in the primary schema and primary table
+        kcu_key = "#{fk[6]}.#{fk[7]}.#{fk[8]}.#{fk[9]}"
+        kcu_key << ".#{fk[3]}.#{fk[4]}" unless is_postgres || is_mssql
+        if (kcu = kcus&.fetch(kcu_key, nil))
           fk[3] = kcu[0]
           fk[4] = kcu[1]
         end
@@ -3057,24 +3067,39 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
     ::Brick.load_additional_references if ::Brick.initializer_loaded
 
     if is_postgres
+      params = []
       ActiveRecord::Base.execute_sql("-- inherited and partitioned tables counts
-      SELECT parent.relname,
+      SELECT n.nspname, parent.relname,
         ((SUM(child.reltuples::float) / greatest(SUM(child.relpages), 1))) *
         (SUM(pg_relation_size(child.oid))::float / (current_setting('block_size')::float))::integer AS rowcount
       FROM pg_inherits
         INNER JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
         INNER JOIN pg_class child ON pg_inherits.inhrelid = child.oid
-      GROUP BY parent.relname, child.reltuples, child.relpages, child.oid
+        INNER JOIN pg_catalog.pg_namespace n ON n.oid = parent.relnamespace#{
+    if schema
+      params << schema
+      "
+      WHERE n.nspname = COALESCE(?, 'public')"
+    end}
+      GROUP BY n.nspname, parent.relname, child.reltuples, child.relpages, child.oid
 
       UNION ALL
 
       -- table count
-      SELECT relname,
-        (reltuples::float / greatest(relpages, 1)) *
+      SELECT n.nspname, pg_class.relname,
+        (pg_class.reltuples::float / greatest(pg_class.relpages, 1)) *
           (pg_relation_size(pg_class.oid)::float / (current_setting('block_size')::float))::integer AS rowcount
       FROM pg_class
-      GROUP BY relname, reltuples, relpages, oid").each do |tblcount|
-        relations.fetch(tblcount['relname'], nil)&.[]=(:rowcount, tblcount['rowcount'].round)
+        INNER JOIN pg_catalog.pg_namespace n ON n.oid = pg_class.relnamespace#{
+    if schema
+      params << schema
+      "
+      WHERE n.nspname = COALESCE(?, 'public')"
+    end}
+      GROUP BY n.nspname, pg_class.relname, pg_class.reltuples, pg_class.relpages, pg_class.oid", params).each do |tblcount|
+        # %%% What is the default schema here?
+        prefix = "#{tblcount['nspname']}." unless tblcount['nspname'] == (schema || 'public')
+        relations.fetch("#{prefix}#{tblcount['relname']}", nil)&.[]=(:rowcount, tblcount['rowcount'].to_i.round)
       end
     end
 
@@ -3443,7 +3468,7 @@ module Brick
       separator ||= '_'
       res_name = (tbl_name_parts = tbl_name.split('.'))[0..-2].first
       res_name << '.' if res_name
-      (res_name ||= +'') << (relation || ::Brick.relations.fetch(tbl_name, nil)&.fetch(:resource, nil) || tbl_name_parts.last)
+      (res_name ||= +'') << (relation || ::Brick.relations.fetch(tbl_name, nil))&.fetch(:resource, nil) || tbl_name_parts.last
 
       res_parts = ((mode == :singular) ? res_name.singularize : res_name).split('.')
       res_parts.shift if ::Brick.apartment_multitenant && res_parts.length > 1 && res_parts.first == ::Brick.apartment_default_tenant
