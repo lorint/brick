@@ -6,12 +6,12 @@ require 'rails/generators/active_record'
 require 'fancy_gets'
 
 module Brick
-  # Auto-generates models, controllers, or views
+  # Auto-generates models
   class ModelsGenerator < ::Rails::Generators::Base
     include FancyGets
     # include ::Rails::Generators::Migration
 
-    desc 'Auto-generates models, controllers, or views.'
+    desc 'Auto-generates models.'
 
     def brick_models
       # %%% If Apartment is active and there's no schema_to_analyse, ask which schema they want
