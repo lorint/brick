@@ -2,7 +2,7 @@ module Brick::Rails::FormTags
   # Our super speedy grid
   def brick_grid(relation = nil, sequence = nil, inclusions = nil, exclusions = nil,
                  cols = {}, bt_descrip: nil, poly_cols: nil, bts: {}, hms_keys: [], hms_cols: {},
-                 show_header: nil, show_row_count: nil, show_erd_button: nil, show_new_button: nil, show_avo_button: nil, show_aa_button: nil)
+                 show_header: nil, show_row_count: nil, show_erd_button: nil, show_in_app_button: nil, show_new_button: nil, show_avo_button: nil, show_aa_button: nil)
     # When a relation is not provided, first see if one exists which matches the controller name
     unless (relation ||= instance_variable_get("@#{controller_name}".to_sym))
       # Failing that, dig through the instance variables with hopes to find something that is an ActiveRecord::Relation
@@ -45,6 +45,14 @@ module Brick::Rails::FormTags
       unless show_erd_button == false
         out << "      <div id=\"imgErd\" title=\"Show ERD\"></div>
 "
+      end
+      if rel && show_in_app_button != false && (in_app = rel.fetch(:existing, nil)&.fetch(:index, nil))
+        begin
+          in_app = send("#{in_app}_path") if in_app.is_a?(Symbol)
+          out << "      <td title=\"Show in app\">#{link_to(::Brick::Rails::IN_APP.html_safe, in_app)}</td>
+"
+        rescue ActionController::UrlGenerationError # Avoid snags like "No route matches {:action=>"index", :controller=>"categories/products"}, missing required keys: [:category_id]"
+        end
       end
       if show_avo_button != false && Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) && klass.name.exclude?('::')
         out << "
