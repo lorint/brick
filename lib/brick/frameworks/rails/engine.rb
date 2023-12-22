@@ -1585,6 +1585,11 @@ end %>#{"
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><td><h1><%= page_title %></h1></td>
 <% rel = Brick.relations[#{model_name}.table_name]
+   if (in_app = rel.fetch(:existing, nil)&.fetch(:show, nil))
+     in_app = send(\"#\{in_app}_path\", #{pk.is_a?(String) ? "obj.#{pk}" : '[' + pk.map { |pk_part| "obj.#{pk_part}" }.join(', ') + ']' }) if in_app.is_a?(Symbol) %>
+     <td><%= link_to(::Brick::Rails::IN_APP.html_safe, in_app) %></td>
+<% end
+
    if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) %>
   <td><%= link_to_brick(
       ::Brick::Rails::AVO_SVG.html_safe,
