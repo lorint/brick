@@ -19,18 +19,24 @@ module Brick
                   # or not a GET request
                   [:index, :show, :new, :edit].exclude?(action = r.defaults[:action].to_sym)
 
-          # c_parts = controller_name.split('/')
-          # while c_parts.length > 0
-          #   c_dotted = c_parts.join('.')
-          #   if (relation = ::Brick.relations[c_dotted]) # Does it match up with an existing Brick table / resource name?
-          #     puts path
-          #     puts "  #{c_dotted}##{r.defaults[:action]}"
-          #     s[c_dotted.tr('.', '/')] = nil
-          #     break
-          #   end
-          #   c_parts.shift
-          # end
-          s[controller_name] = nil
+          # Attempt to backtrack to original
+          c_parts = controller_name.split('/')
+          while c_parts.length > 0
+            c_dotted = c_parts.join('.')
+            if (relation = ::Brick.relations.fetch(c_dotted, nil)) # Does it match up with an existing Brick table / resource name?
+              # puts path
+              # puts "  #{c_dotted}##{r.defaults[:action]}"
+              if (route_name = r.name&.to_sym) != :root
+                relation[:existing][action] = route_name
+              else
+                relation[:existing][action] ||= path
+              end
+              s[c_dotted.tr('.', '/')] = nil
+              break
+            end
+            c_parts.shift
+          end
+          s[controller_name] = nil if c_parts.length.zero?
         end
       end
 
