@@ -1375,7 +1375,7 @@ end %>#{"
   end
   \"<tr><td colspan=\\\"#\{td_count}\\\">Children: #\{child_links.join(' ')}</tr>\".html_safe
 end
-%><%= if (page_num = @#{table_name}._brick_page_num)
+%><%= if (page_num = @#{res_name = table_name.pluralize}._brick_page_num)
            \"<tr><td colspan=\\\"#\{td_count}\\\">Page #\{page_num}</td></tr>\".html_safe
          end %></table>#{template_link}<%
    if description.present? %><span class=\"__brick\"><%=
@@ -1417,19 +1417,19 @@ end
 
 <%= # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
     # If the resource is missing, has the user simply created an inappropriately pluralised name for a table?
-    @#{table_name} ||= if (dym_list = instance_variables.reject do |entry|
+    @#{res_name} ||= if (dym_list = instance_variables.reject do |entry|
                              entry.to_s.start_with?('@_') ||
                              ['@cache_hit', '@marked_for_same_origin_verification', '@view_renderer', '@view_flow', '@output_buffer', '@virtual_path'].include?(entry.to_s)
                            end).present?
-                         msg = +\"Can't find resource \\\"#{table_name}\\\".\"
+                         msg = +\"Can't find resource \\\"#{res_name}\\\".\"
                          # Can't be sure otherwise of what is up, so check DidYouMean and offer a suggestion.
-                         if (dym = DidYouMean::SpellChecker.new(dictionary: dym_list).correct('@#{table_name}')).present?
+                         if (dym = DidYouMean::SpellChecker.new(dictionary: dym_list).correct('@#{res_name}')).present?
                            msg << \"\nIf you meant \\\"#\{found_dym = dym.first[1..-1]}\\\" then to avoid this message add this entry into inflections.rb:\n\"
                            msg << \"  inflect.irregular '#{obj_name}', '#\{found_dym}'\"
                            puts
                            puts \"WARNING:  #\{msg}\"
                            puts
-                           @#{table_name} = instance_variable_get(dym.first.to_sym)
+                           @#{res_name} = instance_variable_get(dym.first.to_sym)
                          else
                            raise ActiveRecord::RecordNotFound.new(msg)
                          end
@@ -1449,7 +1449,7 @@ end
     # Rails.application.reloader.to_prepare do ... end
     self.class.class_exec { include ::Brick::Rails::FormTags } unless respond_to?(:brick_grid)
     # Write out the mega-grid
-    brick_grid(@#{table_name}, @_brick_sequence, @_brick_incl, @_brick_excl,
+    brick_grid(@#{res_name}, @_brick_sequence, @_brick_incl, @_brick_excl,
                cols, bt_descrip: @_brick_bt_descrip, poly_cols: poly_cols, bts: bts, hms_keys: #{hms_keys.inspect}, hms_cols: {#{hms_columns.join(', ')}}) %>
 
 #{"<hr><%= link_to(\"New #{new_path_name = "new_#{path_obj_name}_path"

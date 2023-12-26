@@ -436,12 +436,12 @@ module ActiveRecord
       order_by = ordering&.each_with_object([]) do |ord_part, s| # %%% If a term is also used as an eqi-condition in the WHERE clause, it can be omitted from ORDER BY
                    case ord_part
                    when String
-                     if ord_part.index('^^^')
-                       ord_expr = ord_part.gsub('^^^', _br_quoted_name(table_name))
-                       s << Arel.sql(ord_expr)
-                     else
-                       s << Arel.sql(_br_quoted_name(ord_part))
-                     end
+                     ord_expr = if ord_part.index('^^^')
+                                  ord_part.gsub('^^^', _br_quoted_name(table_name))
+                                else
+                                  _br_quoted_name(ord_part)
+                                end
+                     s << Arel.sql(ord_expr)
                      order_by_txt&.<<("Arel.sql(#{ord_expr.inspect})")
                    else # Expecting only Symbol
                      ord_part = ord_part.to_s
@@ -1860,14 +1860,14 @@ class Object
       end
     end
 
-    def default_ordering(table_name, pk)
+    def default_ordering(table_name, pk, omit_table_name = nil)
       case (order_tbl = ::Brick.config.order[table_name]) && (order_default = order_tbl[:_brick_default])
       when Array
         order_default.map { |od_part| order_tbl[od_part] || od_part }
       when Symbol
         order_tbl[order_default] || order_default
       else
-        pk.map { |part| "#{table_name}.#{part}"} # If it's not a custom ORDER BY, just use the key
+        pk.map { |part| "#{"#{table_name}." unless omit_table_name}#{part}"} # If it's not a custom ORDER BY, just use the key
       end
     end
 
@@ -2035,6 +2035,7 @@ class Object
         end
 
         self.protect_from_forgery unless: -> { self.request.format.js? }
+        plural_table_name = table_name.split('.').last.pluralize
         unless is_avo
           self.define_method :index do
             request_ver = request.path.split('/')[-2]
@@ -2220,7 +2221,7 @@ class Object
                    end
             end
             ar_select = ar_relation.respond_to?(:_select!) ? ar_relation.dup._select!(*selects, *counts) : ar_relation.select(selects + counts)
-            instance_variable_set("@#{table_name.split('.').last}".to_sym, ar_select)
+            instance_variable_set("@#{plural_table_name}".to_sym, ar_select)
             table_name_no_schema = singular_table_name.pluralize
             if namespace && (idx = lookup_context.prefixes.index(table_name_no_schema))
               lookup_context.prefixes[idx] = "#{namespace.name.underscore}/#{lookup_context.prefixes[idx]}"
@@ -2259,10 +2260,10 @@ class Object
             end
           end
 
-          _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk)) if pk
+          _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk, true)) if pk
           code << "  def index\n"
-          code << "    @#{table_name.pluralize} = #{model.name}#{pk&.present? ? ".order(#{order_by_txt.join(', ')})" : '.all'}\n"
-          code << "    @#{table_name.pluralize}.brick_select(params)\n"
+          code << "    @#{plural_table_name} = #{model.name}#{pk&.present? ? ".order(#{order_by_txt.join(', ')})" : '.all'}\n"
+          code << "    @#{plural_table_name}.brick_select(params)\n"
           code << "  end\n"
 
           is_pk_string = nil

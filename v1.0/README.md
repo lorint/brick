@@ -128,7 +128,8 @@ the various "Autogenerate ___ Files" sections.
   - [1.f. Autogenerate Model Files](#1f-autogenerate-model-files)
   - [1.g. Autogenerate Migration Files](#1g-autogenerate-migration-files)
   - [1.h. Autogenerate Seeds File](#1h-autogenerate-seeds-file)
-  - [1.i. Autogenerate Migration Files from a Salesforce installation](#1i-autogenerate-migration-files-from-a-salesforce-installation)
+  - [1.i. Autogenerate Controller Files](#1f-autogenerate-controller-files)
+  - [1.j. Autogenerate Migration Files from a Salesforce installation](#1i-autogenerate-migration-files-from-a-salesforce-installation)
   ### 1.i. Autogenerate Migration Files based on a Salesforce WSDL file
 - [2. More Fancy Exports](#2-limiting-what-is-versioned-and-when)
   - [2.a. Simplify Column Names Using Aliases](#2a-simplify-column-names-using-aliases)
@@ -592,7 +593,17 @@ in size!  Could feel like it's crashed, but then look in the `db` folder to see 
 growing file there, and perhaps it's just still clipping along.  If you let the thing run,
 and you have enough disk space, then it should complete and be fully functional.
 
-### 1.i. Autogenerate Migration Files based on a Salesforce WSDL file
+### 1.i. Autogenerate Controller Files
+
+To create a set of controller files based on existing models, you can run this generator:
+
+    bin/rails g brick:controllers
+
+First a model picker comes up where you choose which model(s) you wish to build controllers for -- by default all existing models are chosen. (Use the arrow keys and spacebar to select and deselect items in the list), then press ENTER and controller files will be written into the app/controllers folder.
+
+Brick also knows how to deal with model namespacing via modules, building out the same controller namespacing with modules as appropriate.
+
+### 1.j. Autogenerate Migration Files based on a Salesforce WSDL file
 
 If you'd like to have a set of migration files built out to match the data structure from an
 installation of Salesforce, first obtain the WSDL file, confirm that it has an .xml file
