@@ -232,6 +232,9 @@ module Brick::Rails::FormTags
           # binding.pry if col.is_a?(Array)
           out << if @_brick_monetized_attributes&.include?(col_name)
                    val ? Money.new(val.to_i).format : ''
+                 elsif klass.respond_to?(:uploaders) && klass.uploaders.key?(col_name.to_sym) &&
+                    (url = obj.send(col_name)&.url) # Carrierwave image?
+                   "<img class=\"thumbImg\" src=\"#{url}\" title=\"#{val}\">"
                  else
                    lat_lng = if [:float, :decimal].include?(col.type) &&
                                 (
