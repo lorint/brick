@@ -55,7 +55,10 @@ module Brick::Rails::FormBuilder
           is_revert = false
           out << ::Brick::Rails::FormBuilder.hide_bcrypt(val, nil, 1000)
         elsif col_type == :string
-          if model.respond_to?(:enumerized_attributes) && (opts = (attr = model.enumerized_attributes[method])&.options).present?
+          if model.respond_to?(:uploaders) && model.uploaders.key?(col.name&.to_sym) &&
+             (url = self.object.send(col.name)&.url) # Carrierwave image?
+            out << "<img src=\"#{url}\" title=\"#{val}\">"
+          elsif model.respond_to?(:enumerized_attributes) && (opts = (attr = model.enumerized_attributes[method])&.options).present?
             enum_html_options = attr.kind_of?(Enumerize::Multiple) ? html_options.merge({ multiple: true, size: opts.length + 1 }) : html_options
             out << self.select(method.to_sym, [["(No #{method} chosen)", '^^^brick_NULL^^^']] + opts, { value: val || '^^^brick_NULL^^^' }, enum_html_options)
           else
@@ -149,9 +152,10 @@ module Brick::Rails::FormBuilder
     else
       if val.is_a?(String)
         return ::Brick::Rails.display_binary(val) unless (val_utf8 = val.dup.force_encoding('UTF-8')).valid_encoding?
+
         val = val_utf8.strip
         return CGI.escapeHTML(val) if is_xml
-  
+
         if val.length > max_len
           if val[0] == '<' # Seems to be HTML?
             cur_len = 0
