@@ -1002,6 +1002,10 @@ a.big-arrow {
   color: red;
   white-space: nowrap;
 }
+.thumbImg {
+  max-width: 96px;
+  max-height: 96px;
+}
 .danger {
   background-color: red;
   color: white;

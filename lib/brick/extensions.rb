@@ -1917,7 +1917,7 @@ class Object
                 cspd.select! { |val| val == "'self'" }
                 cspd << style_value
               else
-                cspd << "'sha256-Q8t+pETkz0RtyV4XprwdP+uEkVaFyMnx1mXif0wDoxw='"
+                cspd << "'sha256-ZMGrNwNigXBkvHBZrPrNurCVlJycGWtt2uvoEigUowg='"
               end
               cspd << 'https://cdn.jsdelivr.net'
             end
