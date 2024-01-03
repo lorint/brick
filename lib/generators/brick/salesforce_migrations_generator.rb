@@ -74,7 +74,7 @@ module Brick
                     end
         # Build but do not have foreign keys established yet, and do not put version entries info the schema_migrations table
         ::Brick::MigrationBuilder.generate_migrations(chosen, mig_path, is_insert_versions, is_delete_versions, relations,
-                                                      do_fks_last: true, do_schema_migrations: false)
+                                                      do_fks_last: 'Separate', do_schema_migrations: false)
       end
       parser = Nokogiri::XML::SAX::Parser.new(::Brick::SalesforceSchema.new(end_document_proc))
       # The WSDL file must have a .xml extension, and can be in any folder in the project

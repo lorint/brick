@@ -93,7 +93,10 @@ module Brick
                               relations = ::Brick.relations, do_fks_last: nil, do_schema_migrations: true)
         if do_fks_last.nil?
           puts 'Would you like for the foreign keys to be built inline inside of each migration file, or as a final migration?'
-          do_fks_last = (gets_list(list: ['Inline', 'Separate final migration for all FKs']).start_with?('Separate'))
+          options = ['Inline', 'Separate final migration for all FKs']
+          options << 'Create "additional_references" entries in brick.rb that emulate foreign keys'
+          do_fks = gets_list(list: options).split(' ').first
+          do_fks_last = do_fks unless do_fks == 'Inline'
         end
 
         is_sqlite = ActiveRecord::Base.connection.adapter_name == 'SQLite'
@@ -158,38 +161,54 @@ module Brick
           done.concat(chosen)
           chosen.clear
 
-          # Add a final migration to create all the foreign keys
-          mig = +"  def change\n"
-          after_fks.each do |add_fk|
-            next unless add_fk[2] # add_fk[2] holds the inverse relation
+          case do_fks_last
+          when 'Separate' # Add a final migration to create all the foreign keys
+            mig = +"  def change\n"
+            after_fks.each do |add_fk|
+              next unless add_fk[2] # add_fk[2] holds the inverse relation
 
-            unless (pk = add_fk[2][:pkey].values.flatten&.first)
-              # No official PK, but if coincidentally there's a column of the same name, take a chance on it
-              pk = (add_fk[2][:cols].key?(add_fk[1]) && add_fk[1]) || '???'
+              unless (pk = add_fk[2][:pkey].values.flatten&.first)
+                # No official PK, but if coincidentally there's a column of the same name, take a chance on it
+                pk = (add_fk[2][:cols].key?(add_fk[1]) && add_fk[1]) || '???'
+              end
+              mig << "    add_foreign_key #{add_fk[3]}, " # The tbl_code
+              #         to_table               column
+              mig << "#{add_fk[0]}, column: :#{add_fk[1]}, primary_key: :#{pk}\n"
             end
-            mig << "    add_foreign_key #{add_fk[3]}, " # The tbl_code
-            #         to_table               column
-            mig << "#{add_fk[0]}, column: :#{add_fk[1]}, primary_key: :#{pk}\n"
-          end
-          if after_fks.length > 500
-            minutes = (after_fks.length + 1000) / 1500
-            mig << "    if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'\n"
-            mig << "      puts 'NOTE:  It could take around #{minutes} #{'minute'.pluralize(minutes)} on a FAST machine for Postgres to do all the final processing for these foreign keys.  Please be patient!'\n"
+            if after_fks.length > 500
+              minutes = (after_fks.length + 1000) / 1500
+              mig << "    if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'\n"
+              mig << "      puts 'NOTE:  It could take around #{minutes} #{'minute'.pluralize(minutes)} on a FAST machine for Postgres to do all the final processing for these foreign keys.  Please be patient!'\n"
 
-            mig << "      # Vacuum takes only about ten seconds when all the tables are empty,
+              mig << "      # Vacuum takes only about ten seconds when all the tables are empty,
       # and about 2 minutes when the tables are fairly full.
       execute('COMMIT')
       execute('VACUUM FULL')
       execute('BEGIN TRANSACTION')
     end\n"
-          end
-
-          mig << +"  end\n"
-          migration_file_write(mig_path, 'create_brick_fks.rbx', current_mig_time += 1.minute, ar_version, mig)
-          puts "Have written out a final migration called 'create_brick_fks.rbx' which creates #{after_fks.length} foreign keys.
+            end
+            mig << +"  end\n"
+            migration_file_write(mig_path, 'create_brick_fks.rbx', current_mig_time += 1.minute, ar_version, mig)
+            puts "Have written out a final migration called 'create_brick_fks.rbx' which creates #{after_fks.length} foreign keys.
   This file extension (.rbx) will cause it not to run yet when you do a 'rails db:migrate'.
   The idea here is to do all data loading first, and then rename that migration file back
   into having a .rb extension, and run a final db:migrate to put the foreign keys in place."
+
+          when 'Create' # Show additional_references entries that can be added into brick.rb
+            puts 'Place this block into your brick.rb file:'
+            puts '  ::Brick.additional_references = ['
+            after_fks.each do |add_fk|
+              next unless add_fk[2] # add_fk[2] holds the inverse relation
+
+              unless (pk = add_fk[2][:pkey].values.flatten&.first)
+                # No official PK, but if coincidentally there's a column of the same name, take a chance on it
+                pk = (add_fk[2][:cols].key?(add_fk[1]) && add_fk[1]) || '???'
+              end
+              #          from_table    column        to_table
+              puts "    [#{add_fk[3].to_s.inspect}, #{add_fk[1].inspect}, #{add_fk[0].to_s.inspect}]"
+            end
+            puts '  ]'
+          end
         end
 
         stuck_counts = Hash.new { |h, k| h[k] = 0 }
