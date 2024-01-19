@@ -436,7 +436,11 @@ module ActiveRecord
       order_by = ordering&.each_with_object([]) do |ord_part, s| # %%% If a term is also used as an eqi-condition in the WHERE clause, it can be omitted from ORDER BY
                    case ord_part
                    when String
-                     ord_expr = _br_quoted_name(ord_part.gsub('^^^', table_name))
+                     ord_expr = if ord_part.index('(') # Any kind of SQL function at play here?
+                                  ord_part.gsub('^^^', _br_quoted_name(table_name))
+                                else
+                                  _br_quoted_name(ord_part.gsub('^^^', table_name))
+                                end
                      s << Arel.sql(ord_expr)
                      order_by_txt&.<<(ord_expr.index('.') ? "Arel.sql(#{ord_expr.inspect})" : ord_part.inspect)
                    else # Expecting only Symbol
@@ -1166,6 +1170,34 @@ Might want to add this in your brick.rb:
   end
 end
 
+if ::Brick.enable_routes?
+  require 'brick/route_mapper'
+  ActionDispatch::Routing::RouteSet.class_exec do
+    # In order to defer auto-creation of any routes that already exist, calculate Brick routes only after having loaded all others
+    prepend ::Brick::RouteSet
+  end
+  ActionDispatch::Routing::Mapper.class_exec do
+    include ::Brick::RouteMapper
+  end
+
+  # Do the root route before the Rails Welcome one would otherwise take precedence
+  if (route = ::Brick.config.default_route_fallback).present?
+    action = "#{route}#{'#index' unless route.index('#')}"
+    if ::Brick.config.path_prefix
+      ::Rails.application.routes.append do
+        send(:namespace, ::Brick.config.path_prefix) do
+          send(:root, action)
+        end
+      end
+    elsif ::Rails.application.routes.named_routes.send(:routes)[:root].nil?
+      ::Rails.application.routes.append do
+        send(:root, action)
+      end
+    end
+    ::Brick.established_drf = "/#{::Brick.config.path_prefix}#{action[action.index('#')..-1]}"
+  end
+end
+
 if Object.const_defined?('ActionView')
   require 'brick/frameworks/rails/form_tags'
   require 'brick/frameworks/rails/form_builder'
@@ -1298,19 +1330,21 @@ end
     unless (is_tnp_module = (is_brick_prefix && !is_controller && ::Brick.config.table_name_prefixes.values.include?(requested)))
       # ... first look around for an existing module or class.
       desired_classname = (self == Object || !name) ? requested : "#{name}::#{requested}"
-      if ((is_defined = self.const_defined?(args.first)) && (possible = self.const_get(args.first)) &&
+      if (self.const_defined?(args.first) && (possible = self.const_get(args.first)) &&
           # Reset `possible` if it's a controller request that's not a perfect match
           # Was:  (possible = nil)  but changed to #local_variable_set in order to suppress the "= should be ==" warning
           (possible&.name == desired_classname || (is_controller && binding.local_variable_set(:possible, nil)))) ||
+
          # Try to require the respective Ruby file
          ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
                       (self != Object && ActiveSupport::Dependencies.search_for_file((desired_classname = requested).underscore))
           ) && (require_dependency(filename) || true) &&
           ((possible = self.const_get(args.first)) && possible.name == desired_classname)
          ) ||
+
          # If any class has turned up so far (and we're not in the middle of eager loading)
          # then return what we've found.
-         (is_defined && !::Brick.is_eager_loading) # Used to also have:   && possible != self
+         (possible&.module_parent == base_module && !::Brick.is_eager_loading) # Used to also have:   && possible != self
         if ((!brick_root && (filename || possible.instance_of?(Class))) ||
             (possible.instance_of?(Module) && possible&.module_parent == self) ||
             (possible.instance_of?(Class) && possible == self)) && # Are we simply searching for ourselves?
@@ -1342,13 +1376,13 @@ end
                singular_class_name = ::Brick.namify(plural_class_name, :underscore).singularize.camelize
                full_class_name << "::#{singular_class_name}"
                skip_controller = nil
-               if plural_class_name == 'BrickOpenapi' ||
-                  (
-                    (::Brick.config.add_status || ::Brick.config.add_orphans) &&
-                    plural_class_name == 'BrickGem'
-                  ) ||
-                 begin
-                   model = self.const_get(full_class_name)
+               begin
+                 if plural_class_name == 'BrickOpenapi' ||
+                    (
+                      (::Brick.config.add_status || ::Brick.config.add_orphans) &&
+                      plural_class_name == 'BrickGem'
+                    ) || (model = self.const_get(full_class_name))
+                   # puts "#{self.name} - #{full_class_name}"
 
                    # In the very rare case that we've picked up a MODULE which has the same name as what would be the
                    # resource's MODEL name, just build out an appropriate auto-model on-the-fly. (RailsDevs code has this in PayCustomer.)
@@ -1356,10 +1390,10 @@ end
                    if model && !model.is_a?(Class)
                      model, _code = Object.send(:build_model, relations, model.module_parent, model.module_parent.name, singular_class_name)
                    end
-                 rescue NameError # If the const_get for the model has failed...
-                   skip_controller = true
-                   # ... then just fall through and allow it to fail when trying to load the ____Controller class normally.
                  end
+               rescue NameError # If the const_get for the model has failed...
+                 skip_controller = true
+                 # ... then just fall through and allow it to fail when trying to load the ____Controller class normally.
                end
                unless skip_controller
                  Object.send(:build_controller, self, class_name, plural_class_name, model, relations)
@@ -1477,7 +1511,9 @@ class Object
   private
 
     def build_model(relations, base_module, base_name, class_name, inheritable_name = nil)
-      tnp = ::Brick.config.table_name_prefixes&.find { |p| p.last == base_module.name }&.first
+      tnp = ::Brick.config.table_name_prefixes&.find { |p| p.last == base_module.name }
+      return [base_module, ''] if !base_module.is_a?(Class) && base_name == tnp&.last
+
       if (base_model = (::Brick.config.sti_namespace_prefixes&.fetch("::#{base_module.name}::#{class_name}", nil) || # Are we part of an auto-STI namespace? ...
                         ::Brick.config.sti_namespace_prefixes&.fetch("::#{base_module.name}::", nil))&.constantize) ||
          base_module != Object # ... or otherwise already in some namespace?
@@ -1499,7 +1535,7 @@ class Object
         table_name = if (base_model = ::Brick.sti_models[model_name]&.fetch(:base, nil) || ::Brick.existing_stis[model_name]&.constantize)
                        base_model.table_name
                      else
-                       "#{tnp}#{ActiveSupport::Inflector.pluralize(singular_table_name)}"
+                       "#{tnp&.first}#{ActiveSupport::Inflector.pluralize(singular_table_name)}"
                      end
         if ::Brick.apartment_multitenant &&
            Apartment.excluded_models.include?(table_name.singularize.camelize)
@@ -1728,7 +1764,8 @@ class Object
     end
 
     def build_bt_or_hm(full_name, relations, relation, hmts, assoc, inverse_assoc_name, inverse_table, code)
-      singular_table_name = inverse_table&.singularize
+      return unless (singular_table_name = inverse_table&.singularize)
+
       options = {}
       macro = if assoc[:is_bt]
                 # Try to take care of screwy names if this is a belongs_to going to an STI subclass
@@ -2657,13 +2694,16 @@ end.class_exec do
 
         # After loading the initializer, add compatibility for ActiveStorage and ActionText if those haven't already been
         # defined.  (Further JSON configuration for ActiveStorage metadata happens later in the after_initialize hook.)
-        ['ActiveStorage', 'ActionText'].each do |ar_extension|
-          if Object.const_defined?(ar_extension) &&
-             (extension = Object.const_get(ar_extension)).respond_to?(:table_name_prefix) &&
-             !::Brick.config.table_name_prefixes.key?(as_tnp = extension.table_name_prefix)
-            ::Brick.config.table_name_prefixes[as_tnp] = ar_extension
+        # begin
+          ['ActiveStorage', 'ActionText'].each do |ar_extension|
+            if Object.const_defined?(ar_extension) &&
+               (extension = Object.const_get(ar_extension)).respond_to?(:table_name_prefix) &&
+               !::Brick.config.table_name_prefixes.key?(as_tnp = extension.table_name_prefix)
+              ::Brick.config.table_name_prefixes[as_tnp] = ar_extension
+            end
           end
-        end
+        # rescue # NoMethodError
+        # end
 
         # Support the followability gem:  https://github.com/nejdetkadir/followability
         if Object.const_defined?('Followability') && !::Brick.config.table_name_prefixes.key?('followability_')
@@ -3020,9 +3060,11 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         singular = rel_name.last
       end
       name_parts = if (tnp = ::Brick.config.table_name_prefixes
-                                    &.find { |k1, _v1| singular.start_with?(k1) && singular.length > k1.length }
+                                    &.find { |k1, _v1| singular.start_with?(k1) && singular.length >= k1.length }
                       ).present?
-                     v[:auto_prefixed_schema] = tnp.first
+                     # unless tnp.last.nil? # Override applying an auto-prefix for any TNP that points to nil
+                     v[:auto_prefixed_schema], v[:auto_prefixed_class] = tnp
+                     # end
                      # v[:resource] = rel_name.last[tnp.first.length..-1]
                      [tnp.last, singular[tnp.first.length..-1]]
                    else
@@ -3464,7 +3506,7 @@ module Brick
       end
     end
 
-    def _brick_index(tbl_name, mode = nil, separator = nil, relation = nil)
+    def _brick_index(tbl_name, mode = nil, separator = nil, relation = nil, not_path = nil)
       separator ||= '_'
       res_name = (tbl_name_parts = tbl_name.split('.'))[0..-2].first
       res_name << '.' if res_name
@@ -3472,22 +3514,28 @@ module Brick
 
       res_parts = ((mode == :singular) ? res_name.singularize : res_name).split('.')
       res_parts.shift if ::Brick.apartment_multitenant && res_parts.length > 1 && res_parts.first == ::Brick.apartment_default_tenant
+      index2 = []
+      if ::Brick.config.path_prefix
+        res_parts.unshift(::Brick.config.path_prefix)
+        index2 << ::Brick.config.path_prefix
+      end
       if (aps = relation&.fetch(:auto_prefixed_schema, nil)) # && res_parts.last.start_with?(aps)
         aps = aps[0..-2] if aps[-1] == '_'
         last_part = res_parts.last # [aps.length..-1]
         res_parts[-1] = aps
         res_parts << last_part
-      end
-      path_prefix = []
-      if ::Brick.config.path_prefix
-        res_parts.unshift(::Brick.config.path_prefix)
-        path_prefix << ::Brick.config.path_prefix
+        index2 << aps
       end
       index = res_parts.map(&:underscore).join(separator)
-      index = index.tr('_', 'x') if separator == 'x'
-      # Rails applies an _index suffix to that route when the resource name isn't something plural
-      index << '_index' if mode != :singular && separator == '_' &&
-                           index == (path_prefix + [relation[:class_name]&.underscore&.tr('/', '_') || '_']).join(separator)
+      if separator == 'x'
+        index = index.tr('_', 'x')
+      else
+        # Rails applies an _index suffix to that route when the resource name isn't something plural
+        index << '_index' if mode != :singular && !not_path &&
+                             index == (
+                                        index2 + [relation[:class_name][(relation&.fetch(:auto_prefixed_class, nil)&.length&.+ 2) || 0..-1]&.underscore&.tr('/', '_') || '_']
+                                      ).join(separator)
+      end
       index
     end
 

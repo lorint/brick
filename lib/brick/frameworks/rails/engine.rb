@@ -794,7 +794,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                                 if (rowcount = rel.last.fetch(:rowcount, nil))
                                   rowcount = rowcount > 0 ? " (#{rowcount})" : nil
                                 end
-                                s << "<option value=\"#{::Brick._brick_index(rel.first, nil, '/')}\">#{rel.first}#{rowcount}</option>"
+                                s << "<option value=\"#{::Brick._brick_index(rel.first, nil, '/', nil, true)}\">#{rel.first}#{rowcount}</option>"
                               end.html_safe
               prefix = "#{::Brick.config.path_prefix}/" if ::Brick.config.path_prefix
               table_options << "<option value=\"#{prefix}brick_status\">(Status)</option>".html_safe if ::Brick.config.add_status
@@ -1953,34 +1953,6 @@ document.querySelectorAll(\"input, select\").forEach(function (inp) {
                 _brick_render_template(view, template, layout_name, *args)
               end
           end # TemplateRenderer
-        end
-
-        if ::Brick.enable_routes?
-          require 'brick/route_mapper'
-          ActionDispatch::Routing::RouteSet.class_exec do
-            # In order to defer auto-creation of any routes that already exist, calculate Brick routes only after having loaded all others
-            prepend ::Brick::RouteSet
-          end
-          ActionDispatch::Routing::Mapper.class_exec do
-            include ::Brick::RouteMapper
-          end
-
-          # Do the root route before the Rails Welcome one would otherwise take precedence
-          if (route = ::Brick.config.default_route_fallback).present?
-            action = "#{route}#{'#index' unless route.index('#')}"
-            if ::Brick.config.path_prefix
-              ::Rails.application.routes.append do
-                send(:namespace, ::Brick.config.path_prefix) do
-                  send(:root, action)
-                end
-              end
-            elsif ::Rails.application.routes.named_routes.send(:routes)[:root].nil?
-              ::Rails.application.routes.append do
-                send(:root, action)
-              end
-            end
-            ::Brick.established_drf = "/#{::Brick.config.path_prefix}#{action[action.index('#')..-1]}"
-          end
         end
 
         # Just in case it hadn't been done previously when we tried to load the brick initialiser,
