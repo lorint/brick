@@ -45,16 +45,23 @@ module Brick
       table_class_length = 38 # Length of "Classes that can be built from tables:"
       view_class_length = 37 # Length of "Classes that can be built from views:"
 
-      brick_namespace_create = lambda do |path_names, res_name, options|
+      brick_namespace_create = lambda do |path_names, res_name, options, ind = 0|
         if path_names&.present?
           if (path_name = path_names.pop).is_a?(Array)
             module_name = path_name[1]
             path_name = path_name.first
           end
-          send(:scope, { module: module_name || path_name, path: path_name, as: path_name }) do
-            brick_namespace_create.call(path_names, res_name, options)
+          scope_options = { module: module_name || path_name, path: path_name, as: path_name }
+          if module_name.nil? || module_name == path_name
+            puts "#{'  ' * ind}namespace :#{path_name}"
+          else
+            puts "#{'  ' * ind}scope #{scope_options.inspect}"
+          end
+          send(:scope, scope_options) do
+            brick_namespace_create.call(path_names, res_name, options, ind + 1)
           end
         else
+          puts "#{'  ' * ind}resources :#{res_name} #{options.inspect unless options.blank?}"
           send(:resources, res_name.to_sym, **options)
         end
       end
@@ -82,8 +89,16 @@ module Brick
 
         object_name = k.split('.').last # Take off any first schema part
 
+        # # What about:
+        # full_schema_prefix = if (aps2 = v.fetch(:auto_prefixed_schema, nil))
+        #                        # Used to be:  aps = aps[0..-2] if aps[-1] == '_'
+        #                        aps2 = aps2[0..-2] if aps2[-1] == '_'
+        #                        aps = v[:auto_prefixed_class].underscore
+
         full_schema_prefix = if (aps = v.fetch(:auto_prefixed_schema, nil))
                                aps = aps[0..-2] if aps[-1] == '_'
+                               # %%% If this really is nil then should be an override
+                               aps2 = v[:auto_prefixed_class]&.underscore
                                (schema_prefix&.dup || +'') << "#{aps}."
                              else
                                schema_prefix
@@ -105,7 +120,8 @@ module Brick
 
         # First do the normal routes
         prefixes = []
-        prefixes << [aps, v[:class_name]&.split('::')[-2]&.underscore] if aps
+        # Second term used to be:   v[:class_name]&.split('::')[-2]&.underscore
+        prefixes << [aps, aps2] if aps
         prefixes << schema_name if schema_name
         prefixes << path_prefix if path_prefix
         brick_namespace_create.call(prefixes, resource_name, options)
