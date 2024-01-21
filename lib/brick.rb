@@ -89,6 +89,7 @@ end
 # is first established), and then automatically creates models, controllers, views,
 # and routes based on those available relations.
 require 'brick/config'
+require 'brick/reflect_tables'
 if Gem::Dependency.new('rails').matching_specs.present?
   require 'rails'
   require 'brick/frameworks/rails'
