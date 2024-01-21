@@ -89,6 +89,7 @@ end
 # is first established), and then automatically creates models, controllers, views,
 # and routes based on those available relations.
 require 'brick/config'
+require 'brick/reflect_tables'
 if Gem::Dependency.new('rails').matching_specs.present?
   require 'rails'
   require 'brick/frameworks/rails'
@@ -97,6 +98,7 @@ module Brick
   ALL_API_ACTIONS = [:index, :show, :create, :update, :destroy]
   CURRENCY_SYMBOLS = '$£¢₵€₠ƒ¥₿₩₪₹₫₴₱₲₳₸₺₼₽៛₡₢₣₤₥₦₧₨₭₮₯₰₶₷₻₾'
 
+  extend ::Brick::ReflectTables
   class << self
     def sti_models
       @sti_models ||= {}
