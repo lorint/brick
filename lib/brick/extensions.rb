@@ -891,12 +891,16 @@ module ActiveRecord
 
         tbl_alias = unique63("b_r_#{hm.name}", previous)
         on_clause = []
-        hm_selects = if fk_col.is_a?(Array) # Composite key?
-                       fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl.table_name}.#{pri_key[idx]}" }
-                       fk_col.dup
-                     else
+        hm_selects = if !pri_key.is_a?(Array) # Probable standard key?
+                       if fk_col.is_a?(Array) # Foreign is composite but not Primary?  OK, or choose the first part of the foreign key if nothing else
+                         fk_col = fk_col.find { |col_name| col_name == pri_key } || # Try to associate with the same-named part of the foreign key ...
+                                  fk_col.first # ... and if no good match, just choose the first part
+                       end
                        on_clause << "#{_br_quoted_name("#{tbl_alias}.#{fk_col}")} = #{_br_quoted_name("#{pri_tbl.table_name}.#{pri_key}")}"
                        [fk_col]
+                     else # Composite key
+                       fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl.table_name}.#{pri_key[idx]}" }
+                       fk_col.dup
                      end
         if poly_type
           hm_selects << poly_type
