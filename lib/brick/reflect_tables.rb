@@ -37,12 +37,11 @@ module Brick
         # 1. Load three initializers early
         #    (inflectsions.rb, brick.rb, apartment.rb)
         # Very first thing, load inflections since we'll be using .pluralize and .singularize on table and model names
-        rails_root = Object.const_defined?('Rails') ? ::Rails.root : Pathname.new(__dir__)
-        if File.exist?(inflections = rails_root&.join('config/initializers/inflections.rb') || '')
+        if File.exist?(inflections = ::Rails.root&.join('config/initializers/inflections.rb') || '')
           load inflections
         end
         # Now the Brick initializer since there may be important schema things configured
-        if !::Brick.initializer_loaded && File.exist?(brick_initializer = rails_root&.join('config/initializers/brick.rb') || '')
+        if !::Brick.initializer_loaded && File.exist?(brick_initializer = ::Rails.root&.join('config/initializers/brick.rb') || '')
           ::Brick.initializer_loaded = load brick_initializer
 
           # After loading the initializer, add compatibility for ActiveStorage and ActionText if those haven't already been
@@ -50,8 +49,8 @@ module Brick
           # begin
             ['ActiveStorage', 'ActionText'].each do |ar_extension|
               if Object.const_defined?(ar_extension) &&
-                (extension = Object.const_get(ar_extension)).respond_to?(:table_name_prefix) &&
-                !::Brick.config.table_name_prefixes.key?(as_tnp = extension.table_name_prefix)
+                 (extension = Object.const_get(ar_extension)).respond_to?(:table_name_prefix) &&
+                 !::Brick.config.table_name_prefixes.key?(as_tnp = extension.table_name_prefix)
                 ::Brick.config.table_name_prefixes[as_tnp] = ar_extension
               end
             end
@@ -66,7 +65,7 @@ module Brick
         # Load the initializer for the Apartment gem a little early so that if .excluded_models and
         # .default_schema are specified then we can work with non-tenanted models more appropriately
         if (apartment = Object.const_defined?('Apartment')) &&
-          File.exist?(apartment_initializer = rails_root.join('config/initializers/apartment.rb'))
+           File.exist?(apartment_initializer = ::Rails.root.join('config/initializers/apartment.rb'))
           require 'apartment/adapters/abstract_adapter'
           Apartment::Adapters::AbstractAdapter.class_exec do
             if instance_methods.include?(:process_excluded_models)
@@ -98,10 +97,10 @@ module Brick
         when 'PostgreSQL', 'SQLServer'
           is_postgres = !is_mssql
           db_schemas = if is_postgres
-                        ActiveRecord::Base.execute_sql('SELECT nspname AS table_schema, MAX(oid) AS dt FROM pg_namespace GROUP BY 1 ORDER BY 1;')
-                      else
-                        ActiveRecord::Base.execute_sql('SELECT DISTINCT table_schema, NULL AS dt FROM INFORMATION_SCHEMA.tables;')
-                      end
+                         ActiveRecord::Base.execute_sql('SELECT nspname AS table_schema, MAX(oid) AS dt FROM pg_namespace GROUP BY 1 ORDER BY 1;')
+                       else
+                         ActiveRecord::Base.execute_sql('SELECT DISTINCT table_schema, NULL AS dt FROM INFORMATION_SCHEMA.tables;')
+                       end
           ::Brick.db_schemas = db_schemas.each_with_object({}) do |row, s|
             row = case row
                   when Array
@@ -122,7 +121,7 @@ module Brick
               ActiveRecord::Base.execute_sql("SET SEARCH_PATH = ?", schema)
             # When testing, just find the most recently-created schema
             elsif begin
-                    ::Rails.env == 'test' ||
+                    Rails.env == 'test' ||
                       ActiveRecord::Base.execute_sql("SELECT value FROM ar_internal_metadata WHERE key='environment';").first&.fetch('value', nil) == 'test'
                   rescue
                   end
@@ -311,16 +310,16 @@ module Brick
                 WHERE CONSTRAINT_SCHEMA = '#{ActiveRecord::Base.connection.current_database&.tr("'", "''")}'" if ActiveRecord::Base.is_mysql
                 }"
           kcus = ActiveRecord::Base.execute_sql(sql).each_with_object({}) do |v, s|
-                  if (entry_type ||= v.is_a?(Array) ? :array : :hash) == :hash
-                    key = "#{v['constraint_name']}.#{v['constraint_schema']}.#{v['constraint_catalog']}.#{v['ordinal_position']}"
-                    key << ".#{v['table_name']}.#{v['column_name']}" unless is_postgres || is_mssql
-                    s[key] = [v['constraint_schema'], v['table_name']]
-                  else # Array
-                    key = "#{v[2]}.#{v[1]}.#{v[0]}.#{v[3]}"
-                    key << ".#{v[4]}.#{v[5]}" unless is_postgres || is_mssql
-                    s[key] = [v[1], v[4]]
-                  end
-                end
+                   if (entry_type ||= v.is_a?(Array) ? :array : :hash) == :hash
+                     key = "#{v['constraint_name']}.#{v['constraint_schema']}.#{v['constraint_catalog']}.#{v['ordinal_position']}"
+                     key << ".#{v['table_name']}.#{v['column_name']}" unless is_postgres || is_mssql
+                     s[key] = [v['constraint_schema'], v['table_name']]
+                   else # Array
+                     key = "#{v[2]}.#{v[1]}.#{v[0]}.#{v[3]}"
+                     key << ".#{v[4]}.#{v[5]}" unless is_postgres || is_mssql
+                     s[key] = [v[1], v[4]]
+                   end
+                 end
 
           # Part 2 -- fk_references
           sql = "SELECT kcu.CONSTRAINT_SCHEMA, kcu.TABLE_NAME, kcu.COLUMN_NAME,
@@ -347,10 +346,10 @@ module Brick
           schemas = ::Brick.db_schemas.keys.map { |s| "'#{s}'" }.join(', ')
           sql =
           "SELECT -- fk
-                ac.owner AS constraint_schema, acc_fk.table_name, acc_fk.column_name,
-                -- referenced pk
-                ac.r_owner AS primary_schema, acc_pk.table_name AS primary_table, acc_fk.constraint_name AS constraint_schema_fk
-                -- , acc_pk.column_name
+                 ac.owner AS constraint_schema, acc_fk.table_name, acc_fk.column_name,
+                 -- referenced pk
+                 ac.r_owner AS primary_schema, acc_pk.table_name AS primary_table, acc_fk.constraint_name AS constraint_schema_fk
+                 -- , acc_pk.column_name
           FROM all_cons_columns acc_fk
             INNER JOIN all_constraints ac ON acc_fk.owner = ac.owner
               AND acc_fk.constraint_name = ac.constraint_name
@@ -415,13 +414,11 @@ module Brick
         name_parts = if (tnp = ::Brick.config.table_name_prefixes
                                       &.find { |k1, _v1| singular.start_with?(k1) && singular.length >= k1.length }
                         ).present?
-                       if tnp.last.nil? # Override applying an auto-prefix for any TNP that points to nil
-                         [singular]
-                       else
-                         v[:auto_prefixed_schema], v[:auto_prefixed_class] = tnp
-                         # v[:resource] = rel_name.last[tnp.first.length..-1]
-                         [tnp.last, singular[tnp.first.length..-1]]
-                       end
+                       # unless tnp.last.nil? # Override applying an auto-prefix for any TNP that points to nil
+                       v[:auto_prefixed_schema], v[:auto_prefixed_class] = tnp
+                       # end
+                       # v[:resource] = rel_name.last[tnp.first.length..-1]
+                       [tnp.last, singular[tnp.first.length..-1]]
                      else
                        # v[:resource] = rel_name.last
                        [singular]
@@ -433,12 +430,7 @@ module Brick
           klass = Object
           proposed_name_parts.each do |part|
             if klass.const_defined?(part)
-              begin
-                klass = klass.const_get(part)
-              rescue NoMethodError => e
-                klass = nil
-                break
-              end
+              klass = klass.const_get(part)
             else
               klass = nil
               break
@@ -456,7 +448,7 @@ module Brick
         v[:resource] = proposed_name_parts.last.underscore
         if colliding_thing
           message_start = if colliding_thing.is_a?(Module) && Object.const_defined?(:Rails) &&
-                             colliding_thing.constants.find { |c| colliding_thing.const_get(c) < ::Rails::Application }
+                             colliding_thing.constants.find { |c| colliding_thing.const_get(c) < Rails::Application }
                             "The module for the Rails application itself, \"#{colliding_thing.name}\","
                           else
                             "Non-AR #{colliding_thing.class.name.downcase} \"#{colliding_thing.name}\""
@@ -549,7 +541,7 @@ module Brick
         INNER JOIN pg_catalog.pg_type pg_t ON pg_t.oid = pg_a.atttypid" if is_postgres}
       WHERE t.table_schema #{is_postgres || is_mssql ?
           "NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'heroku_ext',
-                  'INFORMATION_SCHEMA', 'sys')"
+                   'INFORMATION_SCHEMA', 'sys')"
           :
           "= '#{ActiveRecord::Base.connection.current_database&.tr("'", "''")}'"}#{
       if is_postgres && schema
