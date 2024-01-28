@@ -334,10 +334,10 @@ module ActiveRecord
     end
 
     # Providing a relation object allows auto-modules built from table name prefixes to work
-    def self._brick_index(mode = nil, separator = nil, relation = nil)
+    def self._brick_index(mode = nil, separator = nil, relation = nil, not_path = nil)
       return if abstract_class?
 
-      ::Brick._brick_index(table_name, mode, separator, relation)
+      ::Brick._brick_index(table_name, mode, separator, relation, not_path)
     end
 
     def self.brick_import_template
@@ -1345,7 +1345,7 @@ end
          ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
                       (self != Object && ActiveSupport::Dependencies.search_for_file((desired_classname = requested).underscore))
           ) && (require_dependency(filename) || true) &&
-          ((possible = self.const_get(args.first)) && possible.name == desired_classname)
+          (!anonymous? && (possible = self.const_get(args.first)) && possible.name == desired_classname)
          ) ||
 
          # If any class has turned up so far (and we're not in the middle of eager loading)
@@ -1440,13 +1440,13 @@ end
                  require 'generators/avo/resource_generator'
                  field_generator = Generators::Avo::ResourceGenerator.new([''])
                  field_generator.instance_variable_set(:@model, model)
-                 fields = field_generator.send(:generate_fields)&.split("\n")
-                                         &.each_with_object([]) do |f, s|
-                                           if (f = f.strip).start_with?('field ')
-                                             f = f[6..-1].split(',')
-                                             s << [f.first[1..-1].to_sym, [f[1][1..-1].split(': :').map(&:to_sym)].to_h]
-                                           end
-                                         end || []
+                 flds = field_generator.send(:generate_fields)&.split("\n")
+                                       &.each_with_object([]) do |f, s|
+                                         if (f = f.strip).start_with?('field ')
+                                           f = f[6..-1].split(',')
+                                           s << [f.first[1..-1].to_sym, [f[1][1..-1].split(': :').map(&:to_sym)].to_h]
+                                         end
+                                       end || []
                  built_resource = Class.new(Avo::BaseResource) do |new_resource_class|
                    self.model_class = model
                    self.title = :brick_descrip
@@ -1455,7 +1455,7 @@ end
                      field((mod_pk.is_a?(Array) ? mod_pk.first : mod_pk).to_sym, { as: :id })
                    end
                    # Create a call such as:  field :name, as: :text
-                   fields.each do |f|
+                   flds.each do |f|
                      # Add proper types if this is a polymorphic belongs_to
                      if f.last == { as: :belongs_to } &&
                         (fk = ::Brick.relations[model.table_name][:fks].find { |k, v| v[:assoc_name] == f.first.to_s }) &&
@@ -2602,8 +2602,9 @@ class Object
                                     assoc_parts[0].downcase! if assoc_parts[0] =~ /^[A-Z0-9_]+$/
                                     assoc_name = assoc_parts.join('.')
                                   else
-                                    class_name_parts = ::Brick.namify(hm_assoc[:inverse_table], :underscore).split('.')
-                                    needs_class = assoc_name.singularize.camelize != class_name_parts.last.singularize.camelize
+                                    last_class_name_part = ::Brick.relations[hm_assoc[:inverse_table]].fetch(:class_name, nil)&.split('::')&.last ||
+                                                           ::Brick.namify(hm_assoc[:inverse_table], :underscore).split('.').last.singularize.camelize
+                                    needs_class = assoc_name.singularize.camelize != last_class_name_part
                                   end
                                   [assoc_name, needs_class]
                                 end
