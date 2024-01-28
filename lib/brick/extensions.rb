@@ -126,10 +126,11 @@ module ActiveRecord
         return @_brick_primary_key if instance_variable_defined?(:@_brick_primary_key)
 
         pk = begin
-              primary_key.is_a?(String) ? [primary_key] : primary_key.dup || []
-            rescue
-              []
-            end
+               primary_key
+             rescue
+               superclass.respond_to?(:primary_key) && superclass.primary_key
+             end
+        pk = pk.is_a?(String) ? [pk] : pk.dup || []
         pk.map! { |pk_part| pk_part =~ /^[A-Z0-9_]+$/ ? pk_part.downcase : pk_part } unless connection.adapter_name == 'MySQL2'
         # Just return [] if we're missing any part of the primary key.  (PK is usually just "id")
         if relation && pk.present?
@@ -334,10 +335,10 @@ module ActiveRecord
     end
 
     # Providing a relation object allows auto-modules built from table name prefixes to work
-    def self._brick_index(mode = nil, separator = nil, relation = nil)
+    def self._brick_index(mode = nil, separator = nil, relation = nil, not_path = nil)
       return if abstract_class?
 
-      ::Brick._brick_index(table_name, mode, separator, relation)
+      ::Brick._brick_index(table_name, mode, separator, relation, not_path)
     end
 
     def self.brick_import_template
@@ -1345,7 +1346,7 @@ end
          ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
                       (self != Object && ActiveSupport::Dependencies.search_for_file((desired_classname = requested).underscore))
           ) && (require_dependency(filename) || true) &&
-          ((possible = self.const_get(args.first)) && possible.name == desired_classname)
+          (!anonymous? && (possible = self.const_get(args.first)) && possible.name == desired_classname)
          ) ||
 
          # If any class has turned up so far (and we're not in the middle of eager loading)
@@ -1440,13 +1441,13 @@ end
                  require 'generators/avo/resource_generator'
                  field_generator = Generators::Avo::ResourceGenerator.new([''])
                  field_generator.instance_variable_set(:@model, model)
-                 fields = field_generator.send(:generate_fields)&.split("\n")
-                                         &.each_with_object([]) do |f, s|
-                                           if (f = f.strip).start_with?('field ')
-                                             f = f[6..-1].split(',')
-                                             s << [f.first[1..-1].to_sym, [f[1][1..-1].split(': :').map(&:to_sym)].to_h]
-                                           end
-                                         end || []
+                 flds = field_generator.send(:generate_fields)&.split("\n")
+                                       &.each_with_object([]) do |f, s|
+                                         if (f = f.strip).start_with?('field ')
+                                           f = f[6..-1].split(',')
+                                           s << [f.first[1..-1].to_sym, [f[1][1..-1].split(': :').map(&:to_sym)].to_h]
+                                         end
+                                       end || []
                  built_resource = Class.new(Avo::BaseResource) do |new_resource_class|
                    self.model_class = model
                    self.title = :brick_descrip
@@ -1455,7 +1456,7 @@ end
                      field((mod_pk.is_a?(Array) ? mod_pk.first : mod_pk).to_sym, { as: :id })
                    end
                    # Create a call such as:  field :name, as: :text
-                   fields.each do |f|
+                   flds.each do |f|
                      # Add proper types if this is a polymorphic belongs_to
                      if f.last == { as: :belongs_to } &&
                         (fk = ::Brick.relations[model.table_name][:fks].find { |k, v| v[:assoc_name] == f.first.to_s }) &&
@@ -1517,7 +1518,7 @@ class Object
 
   private
 
-    def build_model(relations, base_module, base_name, class_name, inheritable_name = nil)
+    def build_model(relations, base_module, base_name, class_name, inheritable_name = nil, is_generator = nil)
       tnp = ::Brick.config.table_name_prefixes&.find { |p| p.last == base_module.name }
       # return [base_module, ''] if !base_module.is_a?(Class) && base_name == tnp&.last
 
@@ -1551,12 +1552,12 @@ class Object
         # Maybe, just maybe there's a database table that will satisfy this need
         matching = ::Brick.table_name_lookup&.fetch(class_name, nil)
         if (matching ||= [table_name, singular_table_name, plural_class_name, model_name, table_name.titleize].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
-          build_model_worker(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching)
+          build_model_worker(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching, is_generator)
         end
       end
     end
 
-    def build_model_worker(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching)
+    def build_model_worker(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching, is_generator = nil)
       if ::Brick.apartment_multitenant &&
          schema_name == ::Brick.apartment_default_tenant
         relation = relations["#{schema_name}.#{matching}"]
@@ -1604,11 +1605,11 @@ class Object
       hmts = nil
       if (schema_module || Object).const_defined?((chosen_name = (inheritable_name || model_name)).to_sym)
         possible = (schema_module || Object).const_get(chosen_name)
-        return possible unless possible == schema_module
+        return possible unless possible == schema_module || is_generator
       end
       code = +"class #{full_name} < #{base_model.name}\n"
       built_model = Class.new(base_model) do |new_model_class|
-        (schema_module || Object).const_set(chosen_name, new_model_class)
+        (schema_module || Object).const_set(chosen_name, new_model_class) unless is_generator
         @_brick_relation = relation
         if inheritable_name
           new_model_class.define_singleton_method :inherited do |subclass|
@@ -1628,7 +1629,7 @@ class Object
           code << "  has_secure_password\n"
         end
         # Accommodate singular or camel-cased table names such as "order_detail" or "OrderDetails"
-        code << "  self.table_name = '#{self.table_name = matching}'\n" if inheritable_name || self.table_name != matching
+        code << "  self.table_name = '#{self.table_name = matching}'\n" if (inheritable_name || model_name).underscore.pluralize != matching
         if (inh_col = ::Brick.config.sti_type_column.find { |_k, v| v.include?(matching) }&.first)
           new_model_class.inheritance_column = inh_col
           code << "  self.inheritance_column = '#{inh_col}'\n"
@@ -2584,9 +2585,9 @@ class Object
 
     def _brick_get_hm_assoc_name(relation, hm_assoc, source = nil)
       assoc_name, needs_class = if (relation[:hm_counts][hm_assoc[:inverse_table]]&.> 1) &&
-                                   hm_assoc[:alternate_name] != (source || name.underscore)
+                                   hm_assoc[:alternate_name] != (source || name&.underscore)
                                   plural = "#{hm_assoc[:assoc_name]}_#{ActiveSupport::Inflector.pluralize(hm_assoc[:alternate_name])}"
-                                  new_alt_name = (hm_assoc[:alternate_name] == name.underscore) ? "#{hm_assoc[:assoc_name].singularize}_#{plural}" : plural
+                                  new_alt_name = (hm_assoc[:alternate_name] == name&.underscore) ? "#{hm_assoc[:assoc_name].singularize}_#{plural}" : plural
                                   # %%% In rare cases might even need to add a number at the end for uniqueness
                                   # uniq = 1
                                   # while same_name = relation[:fks].find { |x| x.last[:assoc_name] == hm_assoc[:assoc_name] && x.last != hm_assoc }
@@ -2602,8 +2603,9 @@ class Object
                                     assoc_parts[0].downcase! if assoc_parts[0] =~ /^[A-Z0-9_]+$/
                                     assoc_name = assoc_parts.join('.')
                                   else
-                                    class_name_parts = ::Brick.namify(hm_assoc[:inverse_table], :underscore).split('.')
-                                    needs_class = assoc_name.singularize.camelize != class_name_parts.last.singularize.camelize
+                                    last_class_name_part = ::Brick.relations[hm_assoc[:inverse_table]].fetch(:class_name, nil)&.split('::')&.last ||
+                                                           ::Brick.namify(hm_assoc[:inverse_table], :underscore).split('.').last.singularize.camelize
+                                    needs_class = assoc_name.singularize.camelize != last_class_name_part
                                   end
                                   [assoc_name, needs_class]
                                 end
@@ -2970,9 +2972,14 @@ module Brick
 
     def _brick_index(tbl_name, mode = nil, separator = nil, relation = nil, not_path = nil)
       separator ||= '_'
-      res_name = (tbl_name_parts = tbl_name.split('.'))[0..-2].first
-      res_name << '.' if res_name
-      (res_name ||= +'') << (relation ||= ::Brick.relations.fetch(tbl_name, nil))&.fetch(:resource, nil) || tbl_name_parts.last
+      relation ||= ::Brick.relations.fetch(tbl_name, nil)
+      if mode == :migration
+        res_name = tbl_name
+      else
+        res_name = (tbl_name_parts = tbl_name.split('.'))[0..-2].first
+        res_name << '.' if res_name
+        (res_name ||= +'') << relation&.fetch(:resource, nil) || tbl_name_parts.last
+      end
 
       res_parts = ((mode == :singular) ? res_name.singularize : res_name).split('.')
       res_parts.shift if ::Brick.apartment_multitenant && res_parts.length > 1 && res_parts.first == ::Brick.apartment_default_tenant

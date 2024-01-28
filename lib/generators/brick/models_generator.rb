@@ -62,7 +62,7 @@ module Brick
                       else
                         Object
                       end
-        _built_model, code = Object.send(:build_model, relations, base_module, base_module.name, model_parts.last)
+        _built_model, code = Object.send(:build_model, relations, base_module, base_module.name, model_parts.last, nil, true)
         path = ['models']
         path.concat(model_parts.map(&:underscore))
         dir = +"#{::Rails.root}/app"

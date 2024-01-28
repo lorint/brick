@@ -110,7 +110,7 @@ module Brick
           end
         end
         # Start the timestamps back the same number of minutes from now as expected number of migrations to create
-        current_mig_time = Time.now - (schemas.length + chosen.length).minutes
+        current_mig_time = [Time.now - (schemas.length + chosen.length).minutes]
         done = []
         fks = {}
         stuck = {}
@@ -139,12 +139,14 @@ module Brick
                             # puts snag_fks.inspect
                             stuck[tbl] = snags
                           end
-                        end).present?
+                        end
+              ).present?
           fringe.each do |tbl|
             mig = gen_migration_columns(relations, tbl, (tbl_parts = tbl.split('.')), (add_fks = []), built_schemas, mig_path, current_mig_time,
-                                        key_type, is_4x_rails, ar_version, do_fks_last)
+                                        key_type, is_4x_rails, ar_version, do_fks_last, versions_to_create)
             after_fks.concat(add_fks) if do_fks_last
-            versions_to_create << migration_file_write(mig_path, "create_#{::Brick._brick_index(tbl, nil, 'x')}", current_mig_time += 1.minute, ar_version, mig)
+            current_mig_time[0] += 1.minute
+            versions_to_create << migration_file_write(mig_path, "create_#{::Brick._brick_index(tbl, nil, 'x')}", current_mig_time, ar_version, mig)
           end
           done.concat(fringe)
           chosen -= done
@@ -154,9 +156,10 @@ module Brick
           # Write out any more tables that haven't been done yet
           chosen.each do |tbl|
             mig = gen_migration_columns(relations, tbl, (tbl_parts = tbl.split('.')), (add_fks = []), built_schemas, mig_path, current_mig_time,
-                                        key_type, is_4x_rails, ar_version, do_fks_last)
+                                        key_type, is_4x_rails, ar_version, do_fks_last, versions_to_create)
             after_fks.concat(add_fks)
-            migration_file_write(mig_path, "create_#{::Brick._brick_index(tbl, nil, 'x')}", current_mig_time += 1.minute, ar_version, mig)
+            current_mig_time[0] += 1.minute
+            versions_to_create << migration_file_write(mig_path, "create_#{::Brick._brick_index(tbl, :migration, 'x')}", current_mig_time, ar_version, mig)
           end
           done.concat(chosen)
           chosen.clear
@@ -188,7 +191,8 @@ module Brick
     end\n"
             end
             mig << +"  end\n"
-            migration_file_write(mig_path, 'create_brick_fks.rbx', current_mig_time += 1.minute, ar_version, mig)
+            current_mig_time[0] += 1.minute
+            versions_to_create << migration_file_write(mig_path, 'create_brick_fks.rbx', current_mig_time, ar_version, mig)
             puts "Have written out a final migration called 'create_brick_fks.rbx' which creates #{after_fks.length} foreign keys.
   This file extension (.rbx) will cause it not to run yet when you do a 'rails db:migrate'.
   The idea here is to do all data loading first, and then rename that migration file back
@@ -255,7 +259,7 @@ module Brick
     private
 
       def gen_migration_columns(relations, tbl, tbl_parts, add_fks, built_schemas, mig_path, current_mig_time,
-                                key_type, is_4x_rails, ar_version, do_fks_last)
+                                key_type, is_4x_rails, ar_version, do_fks_last, versions_to_create)
         return unless (relation = relations.fetch(tbl, nil))&.fetch(:cols, nil)&.present?
 
         mig = +''
@@ -278,7 +282,8 @@ module Brick
                  end
         unless schema.blank? || built_schemas.key?(schema)
           mig = +"  def change\n    create_schema(:#{schema}) unless schema_exists?(:#{schema})\n  end\n"
-          migration_file_write(mig_path, "create_db_schema_#{schema.underscore}", current_mig_time += 1.minute, ar_version, mig)
+          current_mig_time[0] += 1.minute
+          versions_to_create << migration_file_write(mig_path, "create_db_schema_#{schema.underscore}", current_mig_time, ar_version, mig)
           built_schemas[schema] = nil
         end
 
@@ -389,11 +394,11 @@ module Brick
           end
         end
         if possible_ts.length == 2 && # Both created_at and updated_at
-          # Rails 5 and later timestamps default to NOT NULL
-          (possible_ts.first.last == is_4x_rails && possible_ts.last.last == is_4x_rails)
+           # Rails 5 and later timestamps default to NOT NULL
+           (possible_ts.first.last == is_4x_rails && possible_ts.last.last == is_4x_rails)
           mig << "\n      t.timestamps\n"
         else # Just one or the other, or a nullability mismatch
-          possible_ts.each { |ts| emit_column('timestamp', ts.first, nil) }
+          possible_ts.each { |ts| mig << emit_column('timestamp', ts.first, nil) }
         end
         mig << "    end\n"
         if pk_is_also_fk
@@ -424,7 +429,7 @@ module Brick
       end
 
       def migration_file_write(mig_path, name, current_mig_time, ar_version, mig)
-        File.open("#{mig_path}/#{version = current_mig_time.strftime('%Y%m%d%H%M00')}_#{name}#{'.rb' unless name.index('.')}", "w") do |f|
+        File.open("#{mig_path}/#{version = current_mig_time.first.strftime('%Y%m%d%H%M00')}_#{name}#{'.rb' unless name.index('.')}", "w") do |f|
           f.write "class #{name.split('.').first.camelize} < ActiveRecord::Migration#{ar_version}\n"
           f.write mig
           f.write "end\n"

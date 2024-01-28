@@ -50,16 +50,11 @@ a given model creates just one database query in order to get records back -- no
 problem common to other solutions which auto-scaffold related tables of data.  This is due to
 the intelligent way in which JOINs are added to the query, even when fields are requested which
 are multiple "hops" away from the source table.  This frees up the developer from writing many
-tricky ActiveRecord queries.  The approach taken up to version 1.0.91 was fairly successful
-except for when custom DSL was used on tables which are self-referencing, for instance with a
-DSL of `[name]` on an Employee table which has a `manager_id` column, then the employee's name
-and boss' name might show as the same when referenced from a query on a related table at least
-one hop away, such as from `orders` (even though obviously the employee and their boss would be
-two different records in the same table).  To remedy this, a fully new approach was taken
-starting with version 1.0.92 in which the table aliasing logic used by Arel is captured as the
-AST tree is being walked, and exact table correlation names are tracked in relation to the
-association names in the tree.  This enables a really cool feature for those who work with more
-complex ActiveRecord queries that use JOINs -- you can [find table aliases for complex ActiveRecord queries](./docs/find_table_aliases.md).
+tricky ActiveRecord queries.  The approach taken is that the table aliasing logic used by Arel
+is captured as the AST tree is being walked, and exact table correlation names are tracked in
+relation to the association names in the tree.  This enables a really cool feature for those
+who work with more complex ActiveRecord queries that use JOINs -- you can [find table aliases
+for complex ActiveRecord queries](./docs/find_table_aliases.md).
 
 On the "show" page which is built out, CRUD functionality for an individual record can be
 performed.  Date and time fields are made editable with pop-up calendars by using the very lean

@@ -34,7 +34,6 @@ module Brick
 
         tbl_parts = rel.first.split('.')
         tbl_parts.shift if [::Brick.default_schema, 'public'].include?(tbl_parts.first)
-        tbl_parts[-1] = tbl_parts[-1].pluralize
         begin
           s << ControllerOption.new(tbl_parts.join('/').camelize, rel.last[:class_name].constantize)
         rescue
@@ -64,7 +63,7 @@ module Brick
                     else
                       Object
                     end
-        controller_parts[controller_parts.length - 1] = (controller_name = "#{controller_parts.last.pluralize}Controller")
+        controller_parts[controller_parts.length - 1] = (controller_name = "#{controller_parts.last}Controller")
         _built_controller, code = Object.send(:build_controller, namespace, controller_name, controller_name, controller_option.model, relations)
         path = ['controllers']
         path.concat(controller_parts.map(&:underscore))

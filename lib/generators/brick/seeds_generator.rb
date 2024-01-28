@@ -27,7 +27,7 @@ module Brick
       # Generate a list of viable models that can be chosen
       # First start with any existing models that have been defined ...
       existing_models = ActiveRecord::Base.descendants.each_with_object({}) do |m, s|
-        s[m.table_name] = SeedModel.new(m.table_name, m, false) if !m.abstract_class? && m.table_exists?
+        s[m.table_name] = SeedModel.new(m.table_name, m, false) if !m.abstract_class? && !m.is_view? && m.table_exists?
       end
       models = (existing_models.values +
                 # ... then add models which can be auto-built by Brick
@@ -123,12 +123,15 @@ module Brick
             pk_val = obj.send(pkey_cols.first)
             fk_vals = []
             data = []
-            relation[:cols].each do |col, col_type|
+            relation[:cols].each do |col, _col_type|
               next if !(fk = fkeys.find { |assoc| col == assoc[:fk] }) &&
                       pkey_cols.include?(col)
 
-              if (val = obj.send(col)) && (val.is_a?(Time) || val.is_a?(Date))
-                val = val.to_s
+              begin
+                if (val = obj.send(col)) && (val.is_a?(Time) || val.is_a?(Date))
+                  val = val.to_s
+                end
+              rescue StandardError => e # ActiveRecord::Encryption::Errors::Configuration
               end
               if fk
                 inv_tbl = fk[:inverse_table].gsub('.', '__')

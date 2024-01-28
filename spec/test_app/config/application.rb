@@ -35,7 +35,7 @@ Bundler.require(:default, Rails.env)
 Module.class_exec &::Brick::ADD_CONST_MISSING
 
 module TestApp
-  class Application < Rails::Application
+  class Application < ::Rails::Application
     config.encoding = 'utf-8'
     config.filter_parameters += [:password]
     config.active_support.escape_html_entities_in_json = true
