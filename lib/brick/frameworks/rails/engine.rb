@@ -296,13 +296,13 @@ function linkSchemas() {
             end
 
             module UrlHelpers
-              alias _brick_resource_path resource_path
+              alias _brick_resources_path resources_path
               # Accommodate STI resources
-              def resource_path(model:, resource:, **args)
-                resource ||= if (klass = model&.class)
+              def resources_path(resource:, **kwargs)
+                resource ||= if (klass = resource.model_class)
                                Avo::App.resources.find { |r| r.model_class > klass }
                              end
-                _brick_resource_path(model: model, resource: resource, **args)
+                _brick_resources_path(resource: resource, **kwargs)
               end
             end
 
@@ -329,31 +329,50 @@ function linkSchemas() {
             #   end
             # end
 
-            (self::App.respond_to?(:eager_load) ? App : DynamicRouter).class_exec do
-              class << self
-                alias _brick_eager_load eager_load
-                def eager_load(entity)
-                  _brick_eager_load(entity)
-                  if entity == :resources
-                    possible_schema, _x1, _x2 = ::Brick.get_possible_schemas
-                    if possible_schema
-                      orig_tenant = Apartment::Tenant.current
-                      Apartment::Tenant.switch!(possible_schema)
-                    end
-                    existing = Avo::BaseResource.descendants.each_with_object({}) do |r, s|
-                                 s[r.name[0..-9]] = nil if r.name.end_with?('Resource')
-                               end
-                    ::Brick.relations.each do |k, v|
-                      unless k.is_a?(Symbol) || existing.key?(class_name = v[:class_name]) || Brick.config.exclude_tables.include?(k) ||
-                             class_name.blank? || class_name.include?('::') ||
-                             ['ActiveAdminComment', 'MotorAlert', 'MotorAlertLock', 'MotorApiConfig', 'MotorAudit', 'MotorConfig', 'MotorDashboard', 'MotorForm', 'MotorNote', 'MotorNoteTag', 'MotorNoteTagTag', 'MotorNotification', 'MotorQuery', 'MotorReminder', 'MotorResource', 'MotorTag', 'MotorTaggableTag'].include?(class_name)
-                        Object.const_get("#{class_name}Resource")
-                      end
-                    end
-                    Apartment::Tenant.switch!(orig_tenant) if orig_tenant
+            if self.const_defined?('Resources') &&
+               self::Resources.const_defined?('ResourceManager') # Avo 3.x?
+              self::Resources::ResourceManager.class_exec do
+                class << self
+                  alias _brick_fetch_resources fetch_resources
+                  def fetch_resources
+                    Avo._brick_avo_resources
+                    _brick_fetch_resources
                   end
                 end
               end
+            else # Avo 2.x
+              (self::App.respond_to?(:eager_load) ? App : DynamicRouter).class_exec do
+                class << self
+                  alias _brick_eager_load eager_load
+                  def eager_load(entity)
+                    Avo._brick_avo_resources(true) if entity == :resources
+                    _brick_eager_load(entity)
+                  end
+                end
+              end
+            end
+
+            def self._brick_avo_resources(is_2x = nil)
+              possible_schema, _x1, _x2 = ::Brick.get_possible_schemas
+              if possible_schema
+                orig_tenant = Apartment::Tenant.current
+                Apartment::Tenant.switch!(possible_schema)
+              end
+              existing = Avo::BaseResource.descendants.each_with_object({}) do |r, s|
+                           s[r.name[0..-9]] = nil if r.name.end_with?('Resource')
+                         end
+              ::Brick.relations.each do |k, v|
+                unless k.is_a?(Symbol) || existing.key?(class_name = v[:class_name]) || Brick.config.exclude_tables.include?(k) ||
+                       class_name.blank? || class_name.include?('::') ||
+                       ['ActiveAdminComment', 'MotorAlert', 'MotorAlertLock', 'MotorApiConfig', 'MotorAudit', 'MotorConfig', 'MotorDashboard', 'MotorForm', 'MotorNote', 'MotorNoteTag', 'MotorNoteTagTag', 'MotorNotification', 'MotorQuery', 'MotorReminder', 'MotorResource', 'MotorTag', 'MotorTaggableTag'].include?(class_name)
+                  if is_2x # Avo 2.x?
+                    "::#{class_name}Resource".constantize
+                  else # Avo 3.x
+                    ::Brick.avo_3x_resource(Object.const_get(class_name), class_name) unless ::Avo::BaseResource.constants.include?(class_name.to_sym)
+                  end
+                end
+              end
+              Apartment::Tenant.switch!(orig_tenant) if orig_tenant
             end
 
             # Add our schema link Javascript code when the TurboFrameWrapper is rendered so it ends up on all index / show / etc
@@ -409,18 +428,21 @@ window.addEventListener(\"popstate\", linkSchemas);
             class Fields::IndexComponent
               alias _brick_resource_view_path resource_view_path
               def resource_view_path
-                return if @resource.model&.class&.is_view?
+                mdl_class = @resource.respond_to?(:model_class) ? @resource.model_class : @resource.model&.class
+                return if mdl_class&.is_view?
 
                 _brick_resource_view_path
               end
             end
 
             module Concerns::HasFields
-              class_methods do
-                alias _brick_field field
-                def field(name, *args, **kwargs, &block)
-                  kwargs.merge!(args.pop) if args.last.is_a?(Hash)
-                  _brick_field(name, **kwargs, &block)
+              class << self
+                if respond_to?(:field)
+                  alias _brick_field field
+                  def field(name, *args, **kwargs, &block)
+                    kwargs.merge!(args.pop) if args.last.is_a?(Hash)
+                    _brick_field(name, **kwargs, &block)
+                  end
                 end
               end
             end
