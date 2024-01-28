@@ -1367,13 +1367,14 @@ end
       end
     end
     class_name = ::Brick.namify(requested)
+    is_avo_present = Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace)
     #        CONTROLLER
     result = if ::Brick.enable_controllers? &&
                 is_controller && (plural_class_name = class_name[0..-11]).length.positive?
                # Otherwise now it's up to us to fill in the gaps
                controller_class_name = +''
                full_class_name = +''
-               unless self == Object
+               unless self == Object || (is_avo_present && self.name == 'Avo')
                  controller_class_name << ((split_self_name&.first && split_self_name.join('::')) || self.name)
                  full_class_name << "::#{controller_class_name}"
                  controller_class_name << '::'
@@ -1433,58 +1434,43 @@ end
                base_module.const_set(class_name.to_sym, (built_module = Module.new))
                [built_module, "module #{possible_module}; end\n"]
 
-             # AVO Resource
-             elsif base_module == Object && Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) && requested.end_with?('Resource') &&
+             # AVO 2.x Resource
+             elsif base_module == Object && is_avo_present && requested.end_with?('Resource') &&
                    # Expect that anything called MotorResource or SpinaResource could be from those administrative gems
-                   requested.length > 8 && ['MotorResource', 'SpinaResource'].exclude?(requested)
-               if (model = Object.const_get(requested[0..-9])) && model < ActiveRecord::Base
-                 require 'generators/avo/resource_generator'
-                 field_generator = Generators::Avo::ResourceGenerator.new([''])
-                 field_generator.instance_variable_set(:@model, model)
-                 flds = field_generator.send(:generate_fields)&.split("\n")
-                                       &.each_with_object([]) do |f, s|
-                                         if (f = f.strip).start_with?('field ')
-                                           f = f[6..-1].split(',')
-                                           s << [f.first[1..-1].to_sym, [f[1][1..-1].split(': :').map(&:to_sym)].to_h]
-                                         end
-                                       end || []
-                 built_resource = Class.new(Avo::BaseResource) do |new_resource_class|
-                   self.model_class = model
-                   self.title = :brick_descrip
-                   self.includes = []
-                   if (!model.is_view? && mod_pk = model.primary_key)
-                     field((mod_pk.is_a?(Array) ? mod_pk.first : mod_pk).to_sym, { as: :id })
-                   end
-                   # Create a call such as:  field :name, as: :text
-                   flds.each do |f|
-                     # Add proper types if this is a polymorphic belongs_to
-                     if f.last == { as: :belongs_to } &&
-                        (fk = ::Brick.relations[model.table_name][:fks].find { |k, v| v[:assoc_name] == f.first.to_s }) &&
-                        fk.last.fetch(:polymorphic, nil)
-                       poly_types = fk.last.fetch(:inverse_table, nil)&.each_with_object([]) do |poly_table, s|
-                         s << Object.const_get(::Brick.relations[poly_table][:class_name])
-                       end
-                       if poly_types.present?
-                         f.last[:polymorphic_as] = f.first
-                         f.last[:types] = poly_types
-                       end
-                     end
-                     self.send(:field, *f)
-                   end
-                 end
-                 Object.const_set(requested.to_sym, built_resource)
-                 [built_resource, nil]
+                   requested.length > 8 && ['MotorResource', 'SpinaResource'].exclude?(requested) &&
+                   (model = Object.const_get(requested[0..-9])) && model < ActiveRecord::Base
+               built_resource = Class.new(Avo::BaseResource) do
+                 self.model_class = model
+                 self.title = :brick_descrip
+                 self.includes = []
+                 ::Brick::ADD_AVO_FIELDS.call(self, model)
                end
+               base_module.const_set(requested.to_sym, built_resource)
+               [built_resource, nil]
+
+             # AVO 3.x Resource
+             elsif is_avo_present && self.name == 'Avo::Resources' &&
+                   (model = begin
+                              (model = Object.const_get(requested)) && model < ActiveRecord::Base
+                              model
+                            rescue
+                            end)
+               [::Brick.avo_3x_resource(model, requested), nil]
 
              # MODEL
              elsif ::Brick.enable_models?
+               # Avo sometimes tries to find a model class inside of the Avo namespace
+               if is_avo_present && self.name == 'Avo'
+                 name = (base_module = Object).name
+               end
+               name ||= base_module.name
                # Custom inheritable Brick base model?
                class_name = (inheritable_name = class_name)[5..-1] if class_name.start_with?('Brick')
                Object.send(:build_model, relations, base_module, name, class_name, inheritable_name)
              end
     if result
       built_class, code = result
-      puts "\n#{code}\n"
+      puts "\n#{code}\n" if code
       built_class
     elsif !schema_name && ::Brick.config.sti_namespace_prefixes&.key?("::#{class_name}")
 #         module_prefixes = type_name.split('::')
@@ -1510,6 +1496,54 @@ end
     def module_parent # Weirdly for Grape::API does NOT come in with the proper class, but some anonymous Class thing
       parent
     end
+  end
+end
+
+module Brick
+  def self.avo_3x_resource(model, requested)
+    built_resource = Class.new(Avo::BaseResource) do
+      self.model_class = model
+      self.title = :brick_descrip
+      self.includes = []
+      define_method :fields do # Have to be inside of a fields method
+        ::Brick::ADD_AVO_FIELDS.call(self, model)
+      end
+    end
+    ::Avo::Resources.const_set(requested.to_sym, built_resource)
+    built_resource
+  end
+end
+
+::Brick::ADD_AVO_FIELDS = lambda do |obj, model|
+  require 'generators/avo/resource_generator'
+  field_generator = Generators::Avo::ResourceGenerator.new([''])
+  field_generator.instance_variable_set(:@model, model)
+  flds = field_generator.send(:generate_fields)&.split("\n")
+                        &.each_with_object([]) do |f, s|
+                          if (f = f.strip).start_with?('field ')
+                            f = f[6..-1].split(',')
+                            s << [f.first[1..-1].to_sym, [f[1][1..-1].split(': :').map(&:to_sym)].to_h]
+                          end
+                        end || []
+  if (!model.is_view? && mod_pk = model.primary_key)
+    obj.field((mod_pk.is_a?(Array) ? mod_pk.first : mod_pk).to_sym, **{ as: :id })
+  end
+  # Create a call such as:  field :name, as: :text
+  flds.each do |f|
+    # Add proper types if this is a polymorphic belongs_to
+    if f.last == { as: :belongs_to } &&
+       (fk = ::Brick.relations[model.table_name][:fks].find { |k, v| v[:assoc_name] == f.first.to_s }) &&
+       fk.last.fetch(:polymorphic, nil)
+      poly_types = fk.last.fetch(:inverse_table, nil)&.each_with_object([]) do |poly_table, s|
+        s << Object.const_get(::Brick.relations[poly_table][:class_name])
+      end
+      if poly_types.present?
+        f.last[:polymorphic_as] = f.first
+        f.last[:types] = poly_types
+      end
+    end
+    kwargs = f.last.is_a?(Hash) ? f.pop : {}
+    obj.send(:field, *f, **kwargs)
   end
 end
 
@@ -2673,6 +2707,9 @@ else
         ::Brick.reflect_tables
       rescue ActiveRecord::NoDatabaseError
         # ::Brick.is_db_present = false
+      end
+      if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace)
+        Module.class_exec &::Brick::ADD_CONST_MISSING
       end
       conn
     end
