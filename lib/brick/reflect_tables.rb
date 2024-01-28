@@ -462,7 +462,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         v[:resource] = proposed_name_parts.last.underscore
         if colliding_thing
           message_start = if colliding_thing.is_a?(Module) && Object.const_defined?(:Rails) &&
-                             colliding_thing.constants.find { |c| colliding_thing.const_get(c) < Rails::Application }
+                             colliding_thing.constants.find { |c| colliding_thing.const_get(c) < ::Rails::Application }
                             "The module for the Rails application itself, \"#{colliding_thing.name}\","
                           else
                             "Non-AR #{colliding_thing.class.name.downcase} \"#{colliding_thing.name}\""

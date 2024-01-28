@@ -225,14 +225,6 @@ function linkSchemas() {
         # Specific database tables and views to omit when auto-creating models
         ::Brick.exclude_tables = app.config.brick.fetch(:exclude_tables, [])
 
-        # Class for auto-generated models to inherit from
-        ::Brick.models_inherit_from = app.config.brick.fetch(:models_inherit_from, nil) ||
-                                      begin
-                                        ::ApplicationRecord
-                                      rescue StandardError => ex
-                                        ::ActiveRecord::Base
-                                      end
-
         # When table names have specific prefixes, automatically place them in their own module with a table_name_prefix.
         ::Brick.config.table_name_prefixes ||= app.config.brick.fetch(:table_name_prefixes, {})
 
@@ -608,7 +600,7 @@ window.addEventListener(\"popstate\", linkSchemas);
               alias :_brick_lookup_context :lookup_context
               def lookup_context(*args)
                 ret = _brick_lookup_context(*args)
-                @_lookup_context.instance_variable_set(:@_brick_req_params, params) if request
+                @_lookup_context.instance_variable_set(:@_brick_req_params, params) if self.class < AbstractController::Base && params
                 ret
               end
             end
@@ -1634,10 +1626,8 @@ end
      # path_options = [obj.#{pk}]
      # path_options << { '_brick_schema':  } if
      options = {}
-     if ::Brick.config.path_prefix || (obj.class.table_name.singularize == obj.class.table_name)
-       path_helper = obj.new_record? ? #{model_name}._brick_index : #{model_name}._brick_index(:singular)
-       options[:url] = send(\"#\{path_helper}_path\".to_sym, obj)
-     end
+     path_helper = obj.new_record? ? #{model_name}._brick_index : #{model_name}._brick_index(:singular)
+     options[:url] = send(\"#\{path_helper}_path\".to_sym, obj) if ::Brick.config.path_prefix || (path_helper != obj.class.table_name)
 %>
   <br><br>
 
