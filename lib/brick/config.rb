@@ -234,7 +234,7 @@ module Brick
 
     # Polymorphic associations
     def polymorphics
-      @mutex.synchronize { @polymorphics }
+      @mutex.synchronize { @polymorphics ||= {} }
     end
 
     def polymorphics=(polys)
@@ -344,7 +344,7 @@ module Brick
     end
 
     def table_name_prefixes
-      @mutex.synchronize { @table_name_prefixes }
+      @mutex.synchronize { @table_name_prefixes ||= {} }
     end
 
     def table_name_prefixes=(value)
@@ -384,7 +384,7 @@ module Brick
     end
 
     def metadata_columns
-      @mutex.synchronize { @metadata_columns }
+      @mutex.synchronize { @metadata_columns ||= ['created_at', 'updated_at', 'deleted_at'] }
     end
 
     def metadata_columns=(columns)

@@ -209,51 +209,95 @@ function linkSchemas() {
       # paths['app/models'] << 'lib/brick/frameworks/active_record/models'
       config.brick = ActiveSupport::OrderedOptions.new
       ActiveSupport.on_load(:before_initialize) do |app|
+
+        # --------------------------------------------
+        # 1. Load three initializers early
+        #    (inflectsions.rb, brick.rb, apartment.rb)
+        # Very first thing, load inflections since we'll be using .pluralize and .singularize on table and model names
+        if File.exist?(inflections = ::Rails.root&.join('config/initializers/inflections.rb') || '')
+          load inflections
+        end
+        require 'brick/join_array'
+        # Now the Brick initializer since there may be important schema things configured
+        if !::Brick.initializer_loaded && File.exist?(brick_initializer = ::Rails.root&.join('config/initializers/brick.rb') || '')
+          ::Brick.initializer_loaded = load brick_initializer
+
+          # After loading the initializer, add compatibility for ActiveStorage and ActionText if those haven't already been
+          # defined.  (Further JSON configuration for ActiveStorage metadata happens later in the after_initialize hook.)
+          # begin
+            ['ActiveStorage', 'ActionText'].each do |ar_extension|
+              if Object.const_defined?(ar_extension) &&
+                 (extension = Object.const_get(ar_extension)).respond_to?(:table_name_prefix) &&
+                 !::Brick.config.table_name_prefixes.key?(as_tnp = extension.table_name_prefix)
+                ::Brick.config.table_name_prefixes[as_tnp] = ar_extension
+              end
+            end
+          # rescue # NoMethodError
+          # end
+
+          # Support the followability gem:  https://github.com/nejdetkadir/followability
+          if Object.const_defined?('Followability') && !::Brick.config.table_name_prefixes.key?('followability_')
+            ::Brick.config.table_name_prefixes['followability_'] = 'Followability'
+          end
+        end
+        # Load the initializer for the Apartment gem a little early so that if .excluded_models and
+        # .default_schema are specified then we can work with non-tenanted models more appropriately
+        if (apartment = Object.const_defined?('Apartment')) &&
+           File.exist?(apartment_initializer = ::Rails.root.join('config/initializers/apartment.rb'))
+          require 'apartment/adapters/abstract_adapter'
+          Apartment::Adapters::AbstractAdapter.class_exec do
+            if instance_methods.include?(:process_excluded_models)
+              def process_excluded_models
+                # All other models will share a connection (at Apartment.connection_class) and we can modify at will
+                Apartment.excluded_models.each do |excluded_model|
+                  begin
+                    process_excluded_model(excluded_model)
+                  rescue NameError => e
+                    (@bad_models ||= []) << excluded_model
+                  end
+                end
+              end
+            end
+          end
+          unless @_apartment_loaded
+            load apartment_initializer
+            @_apartment_loaded = true
+          end
+        end
+
+        if ::Brick.enable_routes? && Object.const_defined?('ActionDispatch')
+          require 'brick/route_mapper'
+          ActionDispatch::Routing::RouteSet.class_exec do
+            # In order to defer auto-creation of any routes that already exist, calculate Brick routes only after having loaded all others
+            prepend ::Brick::RouteSet
+          end
+          ActionDispatch::Routing::Mapper.class_exec do
+            include ::Brick::RouteMapper
+          end
+
+          # Do the root route before the Rails Welcome one would otherwise take precedence
+          if (route = ::Brick.config.default_route_fallback).present?
+            action = "#{route}#{'#index' unless route.index('#')}"
+            if ::Brick.config.path_prefix
+              ::Rails.application.routes.append do
+                send(:namespace, ::Brick.config.path_prefix) do
+                  send(:root, action)
+                end
+              end
+            elsif ::Rails.application.routes.named_routes.send(:routes)[:root].nil?
+              ::Rails.application.routes.append do
+                send(:root, action)
+              end
+            end
+            ::Brick.established_drf = "/#{::Brick.config.path_prefix}#{action[action.index('#')..-1]}"
+          end
+        end
+
         if ::Rails.application.respond_to?(:reloader)
           ::Rails.application.reloader.to_prepare { Module.class_exec &::Brick::ADD_CONST_MISSING }
         else # For Rails < 5.0, just load it once at the start
           Module.class_exec &::Brick::ADD_CONST_MISSING
         end
-        require 'brick/join_array'
-        is_development = (ENV['RAILS_ENV'] || ENV['RACK_ENV'])  == 'development'
-        ::Brick.enable_models = app.config.brick.fetch(:enable_models, true)
-        ::Brick.enable_controllers = app.config.brick.fetch(:enable_controllers, is_development)
-        ::Brick.enable_views = app.config.brick.fetch(:enable_views, is_development)
-        ::Brick.enable_routes = app.config.brick.fetch(:enable_routes, is_development)
-        ::Brick.skip_database_views = app.config.brick.fetch(:skip_database_views, false)
-
-        # Specific database tables and views to omit when auto-creating models
-        ::Brick.exclude_tables = app.config.brick.fetch(:exclude_tables, [])
-
-        # When table names have specific prefixes, automatically place them in their own module with a table_name_prefix.
-        ::Brick.config.table_name_prefixes ||= app.config.brick.fetch(:table_name_prefixes, {})
-
-        # Columns to treat as being metadata for purposes of identifying associative tables for has_many :through
-        ::Brick.metadata_columns = app.config.brick.fetch(:metadata_columns, ['created_at', 'updated_at', 'deleted_at'])
-
-        # Columns for which to add a validate presence: true even though the database doesn't have them marked as NOT NULL
-        ::Brick.not_nullables = app.config.brick.fetch(:not_nullables, [])
-
-        # Additional references (virtual foreign keys)
-        ::Brick.additional_references = app.config.brick.fetch(:additional_references, nil)
-
-        # Custom columns to add to a table, minimally defined with a name and DSL string
-        ::Brick.custom_columns = app.config.brick.fetch(:custom_columns, nil)
-
-        # When table names have specific prefixes, automatically place them in their own module with a table_name_prefix.
-        ::Brick.order = app.config.brick.fetch(:order, {})
-
-        # Skip creating a has_many association for these
-        ::Brick.exclude_hms = app.config.brick.fetch(:exclude_hms, nil)
-
-        # Has one relationships
-        ::Brick.has_ones = app.config.brick.fetch(:has_ones, nil)
-
-        # accepts_nested_attributes_for relationships
-        ::Brick.nested_attributes = app.config.brick.fetch(:nested_attributes, nil)
-
-        # Polymorphic associations
-        ::Brick.polymorphics = app.config.brick.fetch(:polymorphics, nil)
       end
 
       # After we're initialized and before running the rest of stuff, put our configuration in place

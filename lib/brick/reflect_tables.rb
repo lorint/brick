@@ -31,61 +31,8 @@ module Brick
 
       orig_schema = nil
       if (relations = ::Brick.relations).keys == [:db_name]
-        ::Brick.remove_instance_variable(:@_additional_references_loaded) if ::Brick.instance_variable_defined?(:@_additional_references_loaded)
+        # ::Brick.remove_instance_variable(:@_additional_references_loaded) if ::Brick.instance_variable_defined?(:@_additional_references_loaded)
 
-        # --------------------------------------------
-        # 1. Load three initializers early
-        #    (inflectsions.rb, brick.rb, apartment.rb)
-        # Very first thing, load inflections since we'll be using .pluralize and .singularize on table and model names
-        if File.exist?(inflections = ::Rails.root&.join('config/initializers/inflections.rb') || '')
-          load inflections
-        end
-        # Now the Brick initializer since there may be important schema things configured
-        if !::Brick.initializer_loaded && File.exist?(brick_initializer = ::Rails.root&.join('config/initializers/brick.rb') || '')
-          ::Brick.initializer_loaded = load brick_initializer
-
-          # After loading the initializer, add compatibility for ActiveStorage and ActionText if those haven't already been
-          # defined.  (Further JSON configuration for ActiveStorage metadata happens later in the after_initialize hook.)
-          # begin
-            ['ActiveStorage', 'ActionText'].each do |ar_extension|
-              if Object.const_defined?(ar_extension) &&
-                 (extension = Object.const_get(ar_extension)).respond_to?(:table_name_prefix) &&
-                 !::Brick.config.table_name_prefixes.key?(as_tnp = extension.table_name_prefix)
-                ::Brick.config.table_name_prefixes[as_tnp] = ar_extension
-              end
-            end
-          # rescue # NoMethodError
-          # end
-
-          # Support the followability gem:  https://github.com/nejdetkadir/followability
-          if Object.const_defined?('Followability') && !::Brick.config.table_name_prefixes.key?('followability_')
-            ::Brick.config.table_name_prefixes['followability_'] = 'Followability'
-          end
-        end
-        # Load the initializer for the Apartment gem a little early so that if .excluded_models and
-        # .default_schema are specified then we can work with non-tenanted models more appropriately
-        if (apartment = Object.const_defined?('Apartment')) &&
-           File.exist?(apartment_initializer = ::Rails.root.join('config/initializers/apartment.rb'))
-          require 'apartment/adapters/abstract_adapter'
-          Apartment::Adapters::AbstractAdapter.class_exec do
-            if instance_methods.include?(:process_excluded_models)
-              def process_excluded_models
-                # All other models will share a connection (at Apartment.connection_class) and we can modify at will
-                Apartment.excluded_models.each do |excluded_model|
-                  begin
-                    process_excluded_model(excluded_model)
-                  rescue NameError => e
-                    (@bad_models ||= []) << excluded_model
-                  end
-                end
-              end
-            end
-          end
-          unless @_apartment_loaded
-            load apartment_initializer
-            @_apartment_loaded = true
-          end
-        end
         # Only for Postgres  (Doesn't work in sqlite3 or MySQL)
         # puts ActiveRecord::Base.execute_sql("SELECT current_setting('SEARCH_PATH')").to_a.inspect
 

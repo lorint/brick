@@ -1175,34 +1175,6 @@ Might want to add this in your brick.rb:
   end
 end
 
-if ::Brick.enable_routes? && Object.const_defined?('ActionDispatch')
-  require 'brick/route_mapper'
-  ActionDispatch::Routing::RouteSet.class_exec do
-    # In order to defer auto-creation of any routes that already exist, calculate Brick routes only after having loaded all others
-    prepend ::Brick::RouteSet
-  end
-  ActionDispatch::Routing::Mapper.class_exec do
-    include ::Brick::RouteMapper
-  end
-
-  # Do the root route before the Rails Welcome one would otherwise take precedence
-  if (route = ::Brick.config.default_route_fallback).present?
-    action = "#{route}#{'#index' unless route.index('#')}"
-    if ::Brick.config.path_prefix
-      ::Rails.application.routes.append do
-        send(:namespace, ::Brick.config.path_prefix) do
-          send(:root, action)
-        end
-      end
-    elsif ::Rails.application.routes.named_routes.send(:routes)[:root].nil?
-      ::Rails.application.routes.append do
-        send(:root, action)
-      end
-    end
-    ::Brick.established_drf = "/#{::Brick.config.path_prefix}#{action[action.index('#')..-1]}"
-  end
-end
-
 if Object.const_defined?('ActionView')
   require 'brick/frameworks/rails/form_tags'
   require 'brick/frameworks/rails/form_builder'
