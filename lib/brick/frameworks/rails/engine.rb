@@ -541,20 +541,43 @@ window.addEventListener(\"popstate\", linkSchemas);
               end
             end
           end
-          ::ActiveAdmin::Views::TitleBar.class_exec do
-            alias _brick_build_title_tag build_title_tag
-            def build_title_tag
-              if klass = begin
-                           aa_id = helpers.instance_variable_get(:@current_tab)&.id
-                           ::Brick.relations.fetch(aa_id, nil)&.fetch(:class_name, nil)&.constantize
-                         rescue
-                         end
-                h2((@title + link_to_brick(nil,
-                  BRICK_SVG.html_safe, # This would do well to be sized a bit smaller
-                  { title: "#{@_name} in Brick" }
-                )).html_safe)
-              else
-                _brick_build_title_tag # Revert to the original
+          if (aav = ::ActiveAdmin::Views).const_defined?('TitleBar') # ActiveAdmin < 4.0
+            aav::TitleBar.class_exec do
+              alias _brick_build_title_tag build_title_tag
+              def build_title_tag
+                if klass = begin
+                             aa_id = helpers.instance_variable_get(:@current_tab)&.id
+                             ::Brick.relations.fetch(aa_id, nil)&.fetch(:class_name, nil)&.constantize
+                           rescue
+                           end
+                  h2((@title + link_to_brick(nil,
+                    BRICK_SVG.html_safe, # This would do well to be sized a bit smaller
+                    { title: "#{@_name} in Brick" }
+                  )).html_safe)
+                else
+                  _brick_build_title_tag # Revert to the original
+                end
+              end
+            end
+          else # ActiveAdmin 4.0 or later
+            is_aa_4x = true
+            ::ActiveAdmin::ResourceController.class_exec do
+              include ActionView::Helpers::UrlHelper
+              include ::Brick::Rails::FormTags
+              alias _brick_default_page_title default_page_title
+              def default_page_title
+                dpt = _brick_default_page_title
+                if klass = begin
+                             ::Brick.relations.fetch(@current_menu_item&.id, nil)&.fetch(:class_name, nil)&.constantize
+                           rescue
+                           end
+                  (dpt + link_to_brick(nil,
+                    BRICK_SVG.html_safe,
+                    { title: "#{dpt} in Brick" }
+                  )).html_safe
+                else
+                  dpt
+                end
               end
             end
           end
@@ -567,9 +590,8 @@ window.addEventListener(\"popstate\", linkSchemas);
                 div class: "blank_slate_container", id: "dashboard_default_message" do
                   span class: "blank_slate" do
                     span I18n.t("active_admin.dashboard_welcome.welcome")
-                    small I18n.t("active_admin.dashboard_welcome.call_to_action")
                   end
-                end
+                end unless is_aa_4x
               end
             end
           end
