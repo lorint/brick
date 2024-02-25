@@ -69,8 +69,8 @@ module Brick::Rails::FormTags
 
       if show_aa_button != false && Object.const_defined?('ActiveAdmin')
         ActiveAdmin.application.namespaces.names.each do |ns|
-        out << "
-          <td>#{link_to_brick(
+          out << "
+        <td>#{link_to_brick(
             ::Brick::Rails::AA_PNG.html_safe,
             { index_proc: Proc.new do |aa_model, relation|
                             path_helper = "#{ns}_#{relation.fetch(:auto_prefixed_schema, nil)}#{aa_model.model_name.route_key}_path".to_sym

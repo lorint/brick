@@ -438,7 +438,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         loop do
           klass = Object
           proposed_name_parts.each do |part|
-            if klass.const_defined?(part)
+            if klass.const_defined?(part) && klass.name != part
               begin
                 klass = klass.const_get(part)
               rescue NoMethodError => e

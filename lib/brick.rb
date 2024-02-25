@@ -232,10 +232,6 @@ module Brick
                 )
               )
             )
-        # unless a.polymorphic? || (!a.belongs_to? && (through = a.options[:through])) ||
-        #        (a.klass && ::Brick.config.exclude_tables.exclude?(a.klass.table_name) &&
-        #          (!a.belongs_to? || (same_type = (fk_type = model_cols[a.foreign_key.to_s]&.type) == pk_type))
-        #        )
           if same_type == false # We really do want to test specifically for false here, and not nil!
             puts "WARNING:
   Foreign key column #{a.klass.table_name}.#{a.foreign_key} is #{fk_type}, but the primary key it relates to, #{primary_klass.table_name}.#{a_pk}, is #{pk_type}.

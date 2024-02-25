@@ -171,7 +171,7 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
 
   # # Custom path prefix to apply to all auto-generated Brick routes.  Also causes auto-generated controllers
   # # to be created inside a module with the same name.
-  # ::Brick.path_prefix = 'admin'
+  # ::Brick.path_prefix = 'brick'
 
   # # Normally all are enabled in development mode, and for security reasons only models are enabled in production
   # # and test.  This allows you to either (a) turn off models entirely, or (b) enable controllers, views, and routes

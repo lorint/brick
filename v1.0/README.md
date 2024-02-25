@@ -295,44 +295,44 @@ Lorins-Macbook:example_oracle lorin$ bin/rails s
 
 Classes that can be built from tables:  Path:
 ======================================  =====
-CategoriesTab                           /categories_tabs
-Customer                                /customers
-HR::Country                             /hr/countries
-HR::Department                          /hr/departments
-HR::Employee                            /hr/employees
-HR::Job                                 /hr/jobs
-HR::JobHistory                          /hr/job_histories
-HR::Location                            /hr/locations
-Inventory                               /inventories
-Order                                   /orders
-OrderItem                               /order_items
-ProductDescription                      /product_descriptions
-ProductInformation                      /product_informations
-Promotion                               /promotions
-Warehouse                               /warehouses
+CategoriesTab                           /categories_tab
+Customer                                /customer
+HR::Country                             /hr/country
+HR::Department                          /hr/department
+HR::Employee                            /hr/employee
+HR::Job                                 /hr/job
+HR::JobHistory                          /hr/job_history
+HR::Location                            /hr/location
+Inventory                               /inventory
+Order                                   /order
+OrderItem                               /order_item
+ProductDescription                      /product_description
+ProductInformation                      /product_information
+Promotion                               /promotion
+Warehouse                               /warehouse
 
 Classes that can be built from views:  Path:
 =====================================  =====
-AccountManager                         /account_managers
-BombayInventory                        /bombay_inventories
-CustomersView                          /customers_views
-OcCorporateCustomer                    /oc_corporate_customers
-OcCustomer                             /oc_customers
-OcInventory                            /oc_inventories
-OcOrder                                /oc_orders
-OcProductInformation                   /oc_product_informations
-OrdersView                             /orders_views
-Product                                /products
-ProductPrice                           /product_prices
-SydneyInventory                        /sydney_inventories
-TorontoInventory                       /toronto_inventories
+AccountManager                         /account_manager
+BombayInventory                        /bombay_inventory
+CustomersView                          /customers_view
+OcCorporateCustomer                    /oc_corporate_customer
+OcCustomer                             /oc_customer
+OcInventory                            /oc_inventory
+OcOrder                                /oc_order
+OcProductInformation                   /oc_product_information
+OrdersView                             /orders_view
+Product                                /product
+ProductPrice                           /product_price
+SydneyInventory                        /sydney_inventory
+TorontoInventory                       /toronto_inventory
 
 Puma starting in single mode...
 ...
 ```
 
 From this it's easy to tell where you can navigate to in the browser -- in order to see everything from
-`HR::JobHistory`, just navigate to http://localhost:3000/hr/job_histories.
+`HR::JobHistory`, just navigate to http://localhost:3000/hr/job_history.
 
 To configure additional options, such as defining related columns that you want to have act as if they were a foreign key, then you can build out an initializer file for Brick.  The gem automatically provides some suggestions for you based on your current database, so it's useful to make sure your database.yml file is properly configured before continuing.  By using the `install` generator, the file `config/initializers/brick.rb` is automatically written out and here is the command:
 
@@ -343,7 +343,7 @@ un-comment the line:
 
     ::Brick.path_prefix = 'admin'
 
-and it will affect all routes.  In this case, instead of http://localhost:3000/hr/job_histories, you would navigate to http://localhost:3000/admin/hr/job_histories, and so forth for all routes.  This kind of prefix is very useful when you drop **The Brick** into an existing project and want a full set of administration pages tucked away into their own namespace.  If you are placing this in an existing project then as well you might want to add the very intelligent **link_to_brick** form helper into the `<body>` portion of your `layouts/application.html.erb` file like this:
+and it will affect all routes.  In this case, instead of http://localhost:3000/hr/job_history, you would navigate to http://localhost:3000/admin/hr/job_history, and so forth for all routes.  This kind of prefix is very useful when you drop **The Brick** into an existing project and want a full set of administration pages tucked away into their own namespace.  If you are placing this in an existing project then as well you might want to add the very intelligent **link_to_brick** form helper into the `<body>` portion of your `layouts/application.html.erb` file like this:
 
     <%= link_to_brick %>
 

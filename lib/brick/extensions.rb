@@ -1800,6 +1800,18 @@ class Object
             new_model_class.send(:has_many, hmt_name.to_sym, **options)
           end
         end
+
+        # Auto-support Ransack if it's present
+        if self.respond_to?(:ransackable_attributes)
+          def self.ransackable_attributes(auth_object = nil)
+            column_names + _ransackers.keys
+          end
+
+          def self.ransackable_associations(auth_object = nil)
+            reflect_on_all_associations.map { |a| a.name.to_s } + _ransackers.keys
+          end
+        end
+
         code << "end # model #{full_name}\n"
       end # model class definition
       [built_model, code]

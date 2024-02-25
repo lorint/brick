@@ -1402,7 +1402,7 @@ end %>#{"
   end
   \"<tr><td colspan=\\\"#\{td_count}\\\">Children: #\{child_links.join(' ')}</tr>\".html_safe
 end
-%><%= if (page_num = @#{res_name = table_name.pluralize}._brick_page_num)
+%><%= if (page_num = @#{res_name = table_name.pluralize}&._brick_page_num)
            \"<tr><td colspan=\\\"#\{td_count}\\\">Page #\{page_num}</td></tr>\".html_safe
          end %></table>#{template_link}<%
    if description.present? %><span class=\"__brick\"><%=
@@ -1790,11 +1790,12 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 <link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdn.jsdelivr.net/npm/trix@2.0/dist/trix.min.css\">
 <% end %>
 
-<% # Started with v0.14.4 of vanilla-jsoneditor
+<% # Good up until v0.19.0, and then with v0.20.0 of vanilla-jsoneditor started to get:
+   # Uncaught TypeError: Failed to resolve module specifier \"immutable-json-patch\". Relative references must start with either \"/\", \"./\", or \"../\".
    if @_json_fields_present %>
-<link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdn.jsdelivr.net/npm/vanilla-jsoneditor/themes/jse-theme-default.min.css\">
+<link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdn.jsdelivr.net/npm/vanilla-jsoneditor@0.19.0/themes/jse-theme-default.min.css\">
 <script type=\"module\">
-  import { JSONEditor } from \"https://cdn.jsdelivr.net/npm/vanilla-jsoneditor/index.min.js\";
+  import { JSONEditor } from \"https://cdn.jsdelivr.net/npm/vanilla-jsoneditor@0.19.0/index.min.js\";
   document.querySelectorAll(\"input.jsonpicker\").forEach(function (inp) {
     var jsonDiv;
     if (jsonDiv = document.getElementById(\"_br_json_\" + inp.id)) {
