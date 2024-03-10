@@ -1322,10 +1322,15 @@ end
          # Try to require the respective Ruby file
          # ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore)) &&
          #  (require_dependency(filename) || true) &&
-         ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
+         (!anonymous? &&
+          (filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
                       (self != Object && ActiveSupport::Dependencies.search_for_file((desired_classname = requested).underscore))
           ) && (require_dependency(filename) || true) &&
-          (!anonymous? && (possible = self.const_get(args.first)) && possible.name == desired_classname)
+          (filename != Module.instance_variable_get(:@_brick_last_filename) || # Avoid trying the same exact file twice in a row
+           Module.instance_variable_set(:@_brick_last_filename, nil)) &&
+           Module.instance_variable_set(:@_brick_last_filename, filename) &&
+
+          (possible = self.const_get(args.first)) && possible.name == desired_classname
          ) ||
 
          # If any class has turned up so far (and we're not in the middle of eager loading)
@@ -1344,6 +1349,7 @@ end
           return possible
         end
       end
+      Module.instance_variable_set(:@_brick_last_filename, nil) # Clear out the check for trying the same exact file twice in a row
     end
     class_name = ::Brick.namify(requested)
     is_avo_present = Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace)
