@@ -34,7 +34,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.205        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.206        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -849,7 +849,7 @@ can specify the instance name as part of the **host** parameter like this: **loc
 
 ## Intellectual Property
 
-Copyright (c) 2023 Lorin Thwaits (lorint@gmail.com)
+Copyright (c) 2024 Lorin Thwaits (lorint@gmail.com)
 Released under the MIT licence.
 
 [5]: https://github.com/lorint/brick/blob/master/docs/CONTRIBUTING.md
