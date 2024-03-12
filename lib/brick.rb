@@ -1560,9 +1560,7 @@ module ActiveRecord
             used_cols = {}
             # Find and expand out all column names being used in select(...)
             new_select_values = relation.select_values.map(&:to_s).each_with_object([]) do |col, s|
-              if col.include?(' ') # Some expression? (No chance for a simple column reference)
-                s << col # Just pass it through
-              else
+              unless col.include?(' ') # Pass it through if it's some expression (No chance for a simple column reference)
                 col = if (col_parts = col.split('.')).length == 1
                         [col]
                       else
@@ -1570,6 +1568,7 @@ module ActiveRecord
                       end
                 used_cols[col] = nil
               end
+              s << col
             end
             if new_select_values.present?
               relation.select_values = new_select_values

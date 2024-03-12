@@ -536,10 +536,35 @@ module ActiveRecord
   class Relation
     attr_accessor :_brick_page_num
 
-    # Links from ActiveRecord association pathing names over to real table correlation names
-    # that get chosen when the AREL AST tree is walked.
+    # Links from ActiveRecord association pathing names over to the real table
+    # correlation names that get chosen when the AREL AST tree is walked.
     def brick_links
-      @brick_links ||= { '' => table_name }
+      # Touching AREL AST walks the JoinDependency tree, and in that process uses our
+      # "brick_links" patch to find how every AR chain of association names relates to exact
+      # table correlation names chosen by AREL.  We use a duplicate relation object for this
+      # because an important side-effect of referencing the AST is that the @arel instance
+      # variable gets set, and this is a signal to ActiveRecord that a relation has now
+      # become immutable.  (We aren't quite ready for our "real deal" relation object to be
+      # set in stone ... still need to add .select(), and possibly .where() and .order()
+      # things ... also if there are any HM counts then an OUTER JOIN for each of them out
+      # to a derived table to do that counting.  All of these things need to know proper
+      # table correlation names, which will now become available from brick_links on the
+      # @_brick_rel_dupe object.)
+      @_brick_links ||= begin
+                          # If it's a CollectionProxy (which inherits from Relation) then need to dig
+                          # out the core Relation object which is found in the association scope.
+                          rel_dupe = (is_a?(ActiveRecord::Associations::CollectionProxy) ? scope : self).dup
+                          # This will become a fully populated hash of correlation names
+                          rel_dupe.instance_variable_set(:@_brick_links, bl = { '' => table_name })
+                          # Walk the AST tree in order to capture all the correlation names
+                          rel_dupe.arel.ast
+                          # Now that @_brick_links are captured, we can garbage collect the @_brick_rel_dupe object
+                          # remove_instance_variable(:@_brick_rel_dupe)
+                          bl
+                        end
+      # if @_brick_rel_dupe
+      # end
+      # @_brick_links
     end
 
     def brick_select(*args, params: {}, order_by: nil, translations: {},
@@ -648,23 +673,6 @@ module ActiveRecord
         end
       end
 
-      # If it's a CollectionProxy (which inherits from Relation) then need to dig out the
-      # core Relation object which is found in the association scope.
-      rel_dupe = (is_a?(ActiveRecord::Associations::CollectionProxy) ? scope : self).dup
-
-      # Touching AREL AST walks the JoinDependency tree, and in that process uses our
-      # "brick_links" patch to find how every AR chain of association names relates to exact
-      # table correlation names chosen by AREL.  We use a duplicate relation object for this
-      # because an important side-effect of referencing the AST is that the @arel instance
-      # variable gets set, and this is a signal to ActiveRecord that a relation has now
-      # become immutable.  (We aren't quite ready for our "real deal" relation object to be
-      # set in stone ... still need to add .select(), and possibly .where() and .order()
-      # things ... also if there are any HM counts then an OUTER JOIN for each of them out
-      # to a derived table to do that counting.  All of these things need to know proper
-      # table correlation names, which will now become available in brick_links on the
-      # rel_dupe object.)
-      rel_dupe.arel.ast
-
       core_selects = selects.dup
       id_for_tables = Hash.new { |h, k| h[k] = [] }
       field_tbl_names = Hash.new { |h, k| h[k] = {} }
@@ -673,7 +681,7 @@ module ActiveRecord
       # CUSTOM COLUMNS
       # ==============
       (cust_col_override || klass._br_cust_cols).each do |k, cc|
-        if rel_dupe.respond_to?(k) # Name already taken?
+        if respond_to?(k) # Name already taken?
           # %%% Use ensure_unique here in this kind of fashion:
           # cnstr_name = ensure_unique(+"(brick) #{for_tbl}_#{pri_tbl}", nil, bts, hms)
           # binding.pry
@@ -690,7 +698,7 @@ module ActiveRecord
             # binding.pry unless kl.reflect_on_association(cc_part_term)
             kl.reflect_on_association(cc_part_term)&.klass || klass
           end
-          tbl_name = rel_dupe.brick_links[cc_part[0..-2].map(&:to_s).join('.')]
+          tbl_name = brick_links[cc_part[0..-2].map(&:to_s).join('.')]
           # Deal with the conflict if there are two parts in the custom column named the same,
           # "category.name" and "product.name" for instance will end up with aliases of "name"
           # and "product__name".
@@ -734,19 +742,19 @@ module ActiveRecord
       unless cust_col_override
         klass._br_bt_descrip.each do |v|
           v.last.each do |k1, v1| # k1 is class, v1 is array of columns to snag
-            next unless (tbl_name = rel_dupe.brick_links[v.first.to_s]&.split('.')&.last)
+            next unless (tbl_name = brick_links[v.first.to_s]&.split('.')&.last)
 
             # If it's Oracle, quote any AREL aliases that had been applied
-            tbl_name = "\"#{tbl_name}\"" if ::Brick.is_oracle && rel_dupe.brick_links.values.include?(tbl_name)
+            tbl_name = "\"#{tbl_name}\"" if ::Brick.is_oracle && brick_links.values.include?(tbl_name)
             field_tbl_name = nil
             v1.map { |x| [x[0..-2].map(&:to_s).join('.'), x.last] }.each_with_index do |sel_col, idx|
               # %%% Strangely in Rails 7.1 on a slower system then very rarely brick_link comes back nil...
-              brick_link = rel_dupe.brick_links[sel_col.first]
+              brick_link = brick_links[sel_col.first]
               field_tbl_name = brick_link&.split('.')&.last ||
                 # ... so here's a best-effort guess for what the table name might be.
-                rel_dupe.klass.reflect_on_association(sel_col.first)&.klass&.table_name
+                klass.reflect_on_association(sel_col.first)&.klass&.table_name
               # If it's Oracle, quote any AREL aliases that had been applied
-              field_tbl_name = "\"#{field_tbl_name}\"" if ::Brick.is_oracle && rel_dupe.brick_links.values.include?(field_tbl_name)
+              field_tbl_name = "\"#{field_tbl_name}\"" if ::Brick.is_oracle && brick_links.values.include?(field_tbl_name)
 
               # Postgres can not use DISTINCT with any columns that are XML, so for any of those just convert to text
               is_xml = is_distinct && Brick.relations[k1.table_name]&.[](:cols)&.[](sel_col.last)&.first&.start_with?('xml')
@@ -788,7 +796,7 @@ module ActiveRecord
         join_array.each do |assoc_name|
           next unless assoc_name.is_a?(Symbol)
 
-          table_alias = rel_dupe.brick_links[assoc_name.to_s]
+          table_alias = brick_links[assoc_name.to_s]
           _assoc_names[assoc_name] = [table_alias, klass]
         end
       end
@@ -931,7 +939,7 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
           if (v_parts = v.first.split('.')).length == 1
             (is_not ? where_nots : s)[v.first] = v.last
           else
-            tbl_name = rel_dupe.brick_links[v_parts.first].split('.').last
+            tbl_name = brick_links[v_parts.first].split('.').last
             (is_not ? where_nots : s)["#{tbl_name}.#{v_parts.last}"] = v.last
           end
         end
@@ -1042,10 +1050,9 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
           else
             self.joins!(ja)
           end
-          (ast_tree = self.dup).arel.ast # Walk the AST tree so we can rewrite the prefixes accordingly
           conditions = opts.each_with_object({}) do |v, s|
             if (ref_parts = v.first.split('.')).length > 1 &&
-               (tbl = ast_tree.brick_links[ref_parts[0..-2].join('.')])
+               (tbl = brick_links[ref_parts[0..-2].join('.')])
               s["#{tbl}.#{ref_parts.last}"] = v.last
             else
               s[v.first] = v.last
