@@ -229,8 +229,7 @@ module Brick::Rails::FormTags
             end
           end
         elsif (col = cols[col_name]).is_a?(ActiveRecord::ConnectionAdapters::Column)
-          # binding.pry if col.is_a?(Array)
-          out << if @_brick_monetized_attributes&.include?(col_name)
+          out << if klass._brick_monetized_attributes&.include?(col_name)
                    val ? Money.new(val.to_i).format : ''
                  elsif klass.respond_to?(:uploaders) && klass.uploaders.key?(col_name.to_sym) &&
                     (url = obj.send(col_name)&.url) # Carrierwave image?
@@ -618,6 +617,7 @@ function onImagesLoaded(event) {
 
 private
 
+  # Dig through all instance variables with hopes to find any that appear related to ActiveRecord
   def _brick_resource_from_iv(trim_ampersand = false)
     instance_variables.each_with_object(Hash.new { |h, k| h[k] = [] }) do |name, s|
       iv_name = trim_ampersand ? name.to_s[1..-1] : name

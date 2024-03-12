@@ -304,6 +304,12 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # # Auto-create specific has_many ___, through: ___ associations
   # Brick.hmts = [['recipes', 'recipe_ingredients', 'ingredients']]
 
+  # # Treat specific tables as being associative, using them to wire up HMT relationships.  (This is normally the
+  # # default when a table contains only foreign keys, but when that otherwise associative \"JOIN\" table has any
+  # # other data columns, it is considered a data table and not really associative.  This overrides in order to
+  # # have a table to still be treated as associative, causing HMTs to be auto-generated.)
+  # Brick.treat_as_associative = ['flights']
+
   # # We normally don't show the timestamp columns \"created_at\", \"updated_at\", and \"deleted_at\", and also do
   # # not consider them when finding associative tables to support an N:M association.  (That is, ones that can be a
   # # part of a has_many :through association.)  If you want to use different exclusion columns than our defaults

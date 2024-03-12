@@ -232,6 +232,15 @@ module Brick
       @mutex.synchronize { @hmts = assocs }
     end
 
+    # Tables to treat as associative, even when they have data columns
+    def treat_as_associative
+      @mutex.synchronize { @treat_as_associative }
+    end
+
+    def treat_as_associative=(tables)
+      @mutex.synchronize { @treat_as_associative = tables }
+    end
+
     # Polymorphic associations
     def polymorphics
       @mutex.synchronize { @polymorphics ||= {} }

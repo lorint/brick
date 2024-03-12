@@ -565,6 +565,12 @@ module Brick
       Brick.config.hmts = assocs
     end
 
+    # Tables to treat as associative, even when they have data columns
+    # @api public
+    def treat_as_associative=(tables)
+      Brick.config.treat_as_associative = tables
+    end
+
     # Polymorphic associations
     def polymorphics=(polys)
       polys = polys.each_with_object({}) { |poly, s| s[poly] = nil } if polys.is_a?(Array)
@@ -674,15 +680,18 @@ In config/initializers/brick.rb appropriate entries would look something like:
       end
 
       # Find associative tables that can be set up for has_many :through
-      ::Brick.relations.each do |key, tbl|
-        next if key.is_a?(Symbol)
+      ::Brick.relations.each do |tbl_name, relation|
+        next if tbl_name.is_a?(Symbol)
 
-        tbl_cols = tbl[:cols].keys
-        fks = tbl[:fks].each_with_object({}) { |fk, s| s[fk.last[:fk]] = [fk.last[:assoc_name], fk.last[:inverse_table]] if fk.last[:is_bt]; s }
-        # Aside from the primary key and the metadata columns created_at, updated_at, and deleted_at, if this table only has
-        # foreign keys then it can act as an associative table and thus be used with has_many :through.
-        if fks.length > 1 && (tbl_cols - fks.keys - (::Brick.config.metadata_columns || []) - (tbl[:pkey].values.first || [])).length.zero?
-          fks.each { |fk| tbl[:hmt_fks][fk.first] = fk.last }
+        tbl_cols = relation[:cols].keys
+        fks = relation[:fks].each_with_object({}) { |fk, s| s[fk.last[:fk]] = [fk.last[:assoc_name], fk.last[:inverse_table]] if fk.last[:is_bt]; s }
+        # Aside from the primary key and the metadata columns created_at, updated_at, and deleted_at, if this table
+        # only has foreign keys then it can act as an associative table and thus be used with has_many :through.
+        if fks.length > 1 && (
+             ::Brick.config.treat_as_associative&.include?(tbl_name) ||
+             (tbl_cols - fks.keys - (::Brick.config.metadata_columns || []) - (relation[:pkey].values.first || [])).length.zero?
+           )
+          fks.each { |fk| relation[:hmt_fks][fk.first] = fk.last }
         end
       end
     end
@@ -1560,9 +1569,7 @@ module ActiveRecord
             used_cols = {}
             # Find and expand out all column names being used in select(...)
             new_select_values = relation.select_values.map(&:to_s).each_with_object([]) do |col, s|
-              if col.include?(' ') # Some expression? (No chance for a simple column reference)
-                s << col # Just pass it through
-              else
+              unless col.include?(' ') # Pass it through if it's some expression (No chance for a simple column reference)
                 col = if (col_parts = col.split('.')).length == 1
                         [col]
                       else
@@ -1570,6 +1577,7 @@ module ActiveRecord
                       end
                 used_cols[col] = nil
               end
+              s << col
             end
             if new_select_values.present?
               relation.select_values = new_select_values

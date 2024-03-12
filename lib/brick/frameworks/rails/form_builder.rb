@@ -1,7 +1,8 @@
 module Brick::Rails::FormBuilder
   DT_PICKERS = { datetime: 'datetimepicker', timestamp: 'datetimepicker', time: 'timepicker', date: 'datepicker' }
 
-  # When this field is one of the appropriate types, will set one of these instance variables accordingly:
+  # Render an editable field
+  # When it's one of these types, will set an appropriate instance variable truthy accordingly:
   #   @_text_fields_present - To include trix editor
   #   @_date_fields_present - To include flatpickr date / time editor
   #   @_json_fields_present - To include JSONEditor
@@ -37,7 +38,7 @@ module Brick::Rails::FormBuilder
                   "<span class=\"orphan\">Orphaned ID: #{val}</span>".html_safe
                 end
       out << bt_link if bt_link
-    elsif @_brick_monetized_attributes&.include?(method)
+    elsif model._brick_monetized_attributes&.include?(method)
       out << self.text_field(method.to_sym, html_options.merge({ value: Money.new(val.to_i).format }))
     else
       col_type = if model.json_column?(col) || val.is_a?(Array)
@@ -51,9 +52,9 @@ module Brick::Rails::FormBuilder
       when :string, :text, :citext,
            :enum # Support for the activerecord-mysql-enum gem
         spit_out_text_field = nil
-        if ::Brick::Rails::FormBuilder.is_bcrypt?(val) # || .readonly?
+        if ::Brick::Rails.is_bcrypt?(val) # || .readonly?
           is_revert = false
-          out << ::Brick::Rails::FormBuilder.hide_bcrypt(val, nil, 1000)
+          out << ::Brick::Rails.hide_bcrypt(val, nil, 1000)
         elsif col_type == :string
           if model.respond_to?(:uploaders) && model.uploaders.key?(col.name&.to_sym) &&
              (url = self.object.send(col.name)&.url) # Carrierwave image?
@@ -139,74 +140,4 @@ module Brick::Rails::FormBuilder
 "
     out.html_safe
   end # brick_field
-
-  # --- CLASS METHODS ---
-
-  def self.is_bcrypt?(val)
-    val.is_a?(String) && val.length == 60 && val.start_with?('$2a$')
-  end
-
-  def self.hide_bcrypt(val, is_xml = nil, max_len = 200)
-    if ::Brick::Rails::FormBuilder.is_bcrypt?(val)
-      '(hidden)'
-    else
-      if val.is_a?(String)
-        return ::Brick::Rails.display_binary(val) unless (val_utf8 = val.dup.force_encoding('UTF-8')).valid_encoding?
-
-        val = val_utf8.strip
-        return CGI.escapeHTML(val) if is_xml
-
-        if val.length > max_len
-          if val[0] == '<' # Seems to be HTML?
-            cur_len = 0
-            cur_idx = 0
-            # Find which HTML tags we might be inside so we can apply ending tags to balance
-            element_name = nil
-            in_closing = nil
-            elements = []
-            val.each_char do |ch|
-              case ch
-              when '<'
-                element_name = +''
-              when '/' # First character of tag is '/'?
-                in_closing = true if element_name == ''
-              when '>'
-                if element_name
-                  if in_closing
-                    if (idx = elements.index { |tag| tag.downcase == element_name.downcase })
-                      elements.delete_at(idx)
-                    end
-                  elsif (tag_name = element_name.split.first).present?
-                    elements.unshift(tag_name)
-                  end
-                  element_name = nil
-                  in_closing = nil
-                end
-              else
-                element_name << ch if element_name
-              end
-              cur_idx += 1
-              # Unless it's inside wickets then this is real text content, and see if we're at the limit
-              break if element_name.nil? && ((cur_len += 1) > max_len)
-            end
-            val = val[0..cur_idx]
-            # Somehow still in the middle of an opening tag right at the end? (Should never happen)
-            if !in_closing && (tag_name = element_name&.split&.first)&.present?
-              elements.unshift(tag_name)
-              val << '>'
-            end
-            elements.each do |closing_tag|
-              val << "</#{closing_tag}>"
-            end
-          else # Not HTML, just cut it at the length
-            val = val[0...max_len]
-          end
-          val = "#{val}..."
-        end
-        val
-      else
-        val.to_s
-      end
-    end
-  end  
 end
