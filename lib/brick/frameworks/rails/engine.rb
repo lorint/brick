@@ -2,115 +2,6 @@
 
 module Brick
   module Rails
-    class << self
-      def display_value(col_type, val, lat_lng = nil)
-        is_mssql_geography = nil
-        # Some binary thing that really looks like a Microsoft-encoded WGS84 point?  (With the first two bytes, E6 10, indicating an EPSG code of 4326)
-        if col_type == :binary && val && ::Brick.is_geography?(val)
-          col_type = 'geography'
-          is_mssql_geography = true
-        end
-        case col_type
-        when 'geometry', 'geography'
-          if Object.const_defined?('RGeo')
-            @is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name) if @is_mysql.nil?
-            @is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer' if @is_mssql.nil?
-            val_err = nil
-
-            if @is_mysql || (is_mssql_geography ||=
-                              (@is_mssql ||
-                                (val && ::Brick.is_geography?(val))
-                              )
-                            )
-              # MySQL's \"Internal Geometry Format\" and MSSQL's Geography are like WKB, but with an initial 4 bytes that indicates the SRID.
-              if (srid = val&.[](0..3)&.unpack('I'))
-                val = val.dup.force_encoding('BINARY')[4..-1].bytes
-
-                # MSSQL spatial bitwise flags, often 0C for a point:
-                # xxxx xxx1 = HasZValues
-                # xxxx xx1x = HasMValues
-                # xxxx x1xx = IsValid
-                # xxxx 1xxx = IsSinglePoint
-                # xxx1 xxxx = IsSingleLineSegment
-                # xx1x xxxx = IsWholeGlobe
-                # Convert Microsoft's unique geography binary to standard WKB
-                # (MSSQL point usually has two doubles, lng / lat, and can also have Z)
-                if is_mssql_geography
-                  if val[0] == 1 && (val[1] & 8 > 0) && # Single point?
-                     (val.length - 2) % 8 == 0 && val.length < 27 # And containing up to three 8-byte values?
-                    val = [0, 0, 0, 0, 1] + val[2..-1].reverse
-                  else
-                    val_err = '(Microsoft internal SQL geography type)'
-                  end
-                end
-              end
-            end
-            unless val_err || val.nil?
-              val = if ((geometry = RGeo::WKRep::WKBParser.new.parse(val.pack('c*'))).is_a?(RGeo::Cartesian::PointImpl) ||
-                        geometry.is_a?(RGeo::Geos::CAPIPointImpl)) &&
-                       !(geometry.y == 0.0 && geometry.x == 0.0)
-                      # Create a POINT link to this style of Google maps URL:  https://www.google.com/maps/place/38.7071296+-121.2810649/@38.7071296,-121.2810649,12z
-                      "<a href=\"https://www.google.com/maps/place/#{geometry.y}+#{geometry.x}/@#{geometry.y},#{geometry.x},12z\" target=\"blank\">#{geometry.to_s}</a>"
-                    end
-            end
-            val_err || val
-          else
-            '(Add RGeo gem to parse geometry detail)'
-          end
-        when :binary
-          ::Brick::Rails.display_binary(val)
-        else
-          if col_type
-            if lat_lng && !(lat_lng.first.zero? && lat_lng.last.zero?)
-              # Create a link to this style of Google maps URL:  https://www.google.com/maps/place/38.7071296+-121.2810649/@38.7071296,-121.2810649,12z
-              "<a href=\"https://www.google.com/maps/place/#{lat_lng.first}+#{lat_lng.last}/@#{lat_lng.first},#{lat_lng.last},12z\" target=\"blank\">#{val}</a>"
-            elsif val.is_a?(Numeric) && ::ActiveSupport.const_defined?(:NumberHelper)
-              ::ActiveSupport::NumberHelper.number_to_delimited(val, delimiter: ',')
-            else
-              ::Brick::Rails::FormBuilder.hide_bcrypt(val, col_type == :xml)
-            end
-          else
-            '?'
-          end
-        end
-      end
-
-      def display_binary(val, max_size = 100_000)
-        return unless val
-
-        @image_signatures ||= { (+"\xFF\xD8\xFF\xEE").force_encoding('ASCII-8BIT') => 'jpeg',
-                                (+"\xFF\xD8\xFF\xE0\x00\x10\x4A\x46\x49\x46\x00\x01").force_encoding('ASCII-8BIT') => 'jpeg',
-                                (+"\xFF\xD8\xFF\xDB").force_encoding('ASCII-8BIT') => 'jpeg',
-                                (+"\xFF\xD8\xFF\xE1").force_encoding('ASCII-8BIT') => 'jpeg',
-                                (+"\x89PNG\r\n\x1A\n").force_encoding('ASCII-8BIT') => 'png',
-                                '<svg' => 'svg+xml', # %%% Not yet very good detection for SVG
-                                (+'BM').force_encoding('ASCII-8BIT') => 'bmp',
-                                (+'GIF87a').force_encoding('ASCII-8BIT') => 'gif',
-                                (+'GIF89a').force_encoding('ASCII-8BIT') => 'gif' }
-
-        if val[0..1] == "\x15\x1C" # One of those goofy Microsoft OLE containers?
-          package_header_length = val[2..3].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
-          # This will often be just FF FF FF FF
-          # object_size = val[16..19].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
-          friendly_and_class_names = val[20...package_header_length].split("\0")
-          object_type_name_length = val[package_header_length + 8..package_header_length+11].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
-          friendly_and_class_names << val[package_header_length + 12...package_header_length + 12 + object_type_name_length].strip
-          # friendly_and_class_names will now be something like:  ['Bitmap Image', 'Paint.Picture', 'PBrush']
-          real_object_size = val[package_header_length + 20 + object_type_name_length..package_header_length + 23 + object_type_name_length].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
-          object_start = package_header_length + 24 + object_type_name_length
-          val = val[object_start...object_start + real_object_size]
-        end
-
-        if ((signature = @image_signatures.find { |k, _v| val[0...k.length] == k }&.last) ||
-            (val[0..3] == 'RIFF' && val[8..11] == 'WEBP' && binding.local_variable_set(:signature, 'webp'))) &&
-           val.length < max_size
-          "<img src=\"data:image/#{signature.last};base64,#{Base64.encode64(val)}\">"
-        else
-          "&lt;&nbsp;#{signature ? "#{signature} image" : 'Binary'}, #{val.length} bytes&nbsp;>"
-        end
-      end
-    end
-
     # See http://guides.rubyonrails.org/engines.html
     class Engine < ::Rails::Engine
       JS_CHANGEOUT = "function changeout(href, param, value, trimAfter) {
@@ -209,10 +100,7 @@ function linkSchemas() {
       # paths['app/models'] << 'lib/brick/frameworks/active_record/models'
       config.brick = ActiveSupport::OrderedOptions.new
       ActiveSupport.on_load(:before_initialize) do |app|
-
-        # --------------------------------------------
-        # 1. Load three initializers early
-        #    (inflectsions.rb, brick.rb, apartment.rb)
+        # Load three initializers early (inflections.rb, brick.rb, apartment.rb)
         # Very first thing, load inflections since we'll be using .pluralize and .singularize on table and model names
         if File.exist?(inflections = ::Rails.root&.join('config/initializers/inflections.rb') || '')
           load inflections
@@ -1194,125 +1082,6 @@ if (window.brickFontFamily) {
      Apartment::Tenant.switch!(apartment_default_schema)
    end %>"
 
-              erd_markup = if @_brick_model
-                             "<div id=\"mermaidErd\">
-  <div id=\"mermaidDiagram\" class=\"mermaid\">
-erDiagram
-<% def sidelinks(shown_classes, klass)
-     links = []
-     # %%% Not yet showing these as they can get just a bit intense!
-     # klass.reflect_on_all_associations.select { |a| shown_classes.key?(a.klass) }.each do |assoc|
-     #   unless shown_classes[assoc.klass].key?(klass.name)
-     #     links << \"    #\{klass.name.split('::').last} #\{assoc.macro == :belongs_to ? '}o--||' : '||--o{'} #\{assoc.klass.name.split('::').last} : \\\"\\\"\"n\"
-     #     shown_classes[assoc.klass][klass.name] = nil
-     #   end
-     # end
-     # shown_classes[klass] ||= {}
-     links.join
-   end
-
-   model_short_name = #{@_brick_model.name.split('::').last.inspect}
-   shown_classes = {}
-   @_brick_bt_descrip&.each do |bt|
-     bt_class = bt[1].first.first
-     callbacks[bt_name = bt_class.name.split('::').last] = bt_class
-     is_has_one = #{@_brick_model.name}.reflect_on_association(bt.first)&.inverse_of&.macro == :has_one ||
-                  ::Brick.config.has_ones&.fetch('#{@_brick_model.name}', nil)&.key?(bt.first.to_s)
-    %>  <%= \"#\{model_short_name} #\{is_has_one ? '||' : '}o'}--|| #\{bt_name} : \\\"#\{
-        bt_underscored = bt[1].first.first.name.underscore.singularize
-        bt.first unless bt.first.to_s == bt_underscored.split('/').last # Was:  bt_underscored.tr('/', '_')
-        }\\\"\".html_safe %>
-<%=  sidelinks(shown_classes, bt_class).html_safe %>
-<% end
-   last_hm = nil
-   @_brick_hm_counts&.each do |hm|
-     # Skip showing self-referencing HM links since they would have already been drawn while evaluating the BT side
-     next if (hm_class = hm.last&.klass) == #{@_brick_model.name}
-
-     callbacks[hm_name = hm_class.name.split('::').last] = hm_class
-     if (through = hm.last.options[:through]&.to_s) # has_many :through  (HMT)
-       through_name = (through_assoc = hm.last.source_reflection).active_record.name.split('::').last
-       callbacks[through_name] = through_assoc.active_record
-       if last_hm == through # Same HM, so no need to build it again, and for clarity just put in a blank line
-%><%=    \"\n\"
-%><%   else
-%>  <%= \"#\{model_short_name} ||--o{ #\{through_name}\".html_safe %> : \"\"
-<%=      sidelinks(shown_classes, through_assoc.active_record).html_safe %>
-<%       last_hm = through
-       end
-%>    <%= \"#\{through_name} }o--|| #\{hm_name}\".html_safe %> : \"\"
-    <%= \"#\{model_short_name} }o..o{ #\{hm_name} : \\\"#\{hm.first}\\\"\".html_safe %><%
-     else # has_many
-%>  <%= \"#\{model_short_name} ||--o{ #\{hm_name} : \\\"#\{
-            hm.first.to_s unless (last_hm = hm.first.to_s).downcase == hm_class.name.underscore.pluralize.tr('/', '_')
-          }\\\"\".html_safe %><%
-     end %>
-<%=  sidelinks(shown_classes, hm_class).html_safe %>
-<% end
-   def dt_lookup(dt)
-     { 'integer' => 'int', }[dt] || dt&.tr(' ', '_') || 'int'
-   end
-   callbacks.merge({model_short_name => #{@_brick_model.name}}).each do |cb_k, cb_class|
-     cb_relation = ::Brick.relations[cb_class.table_name]
-     pkeys = cb_relation[:pkey]&.first&.last
-     fkeys = cb_relation[:fks]&.values&.each_with_object([]) { |fk, s| s << fk[:fk] if fk.fetch(:is_bt, nil) }
-     cols = cb_relation[:cols]
- %>  <%= cb_k %> {<%
-     pkeys&.each do |pk| %>
-    <%= \"#\{dt_lookup(cols[pk].first)} #\{pk} \\\"PK#\{' fk' if fkeys&.include?(pk)}\\\"\".html_safe %><%
-     end %><%
-     fkeys&.each do |fk|
-       if fk.is_a?(Array)
-         fk.each do |fk_part| %>
-    <%= \"#\{dt_lookup(cols[fk_part].first)} #\{fk_part} \\\"&nbsp;&nbsp;&nbsp;&nbsp;fk\\\"\".html_safe unless pkeys&.include?(fk_part) %><%
-         end
-       else # %%% Does not yet accommodate polymorphic BTs
-    %>
-    <%= \"#\{dt_lookup(cols[fk]&.first)} #\{fk} \\\"&nbsp;&nbsp;&nbsp;&nbsp;fk\\\"\".html_safe unless pkeys&.include?(fk) %><%
-       end
-     end %>
-  }
-<% end
- # callback < %= cb_k % > erdClick
- @_brick_monetized_attributes = model.respond_to?(:monetized_attributes) ? model.monetized_attributes.values : {}
- %>
-  </div>#{
- add_column = nil
- # Make into a server control with a javascript snippet
- # Have post back go to a common "brick_schema" endpoint, this one for add_column
-"
-  <table id=\"tblAddCol\"><tr>
-    <td rowspan=\"2\">Add<br>Column</td>
-    <td class=\"paddingBottomZero\">Type</td><td class=\"paddingBottomZero\">Name</td>
-    <td rowspan=\"2\"><input type=\"button\" id=\"btnAddCol\" value=\"+\"></td>
-  </tr><tr><td class=\"paddingTopZero\">
-    <select id=\"ddlColType\">
-   <option value=\"string\">String</option>
-   <option value=\"text\">Text</option>
-   <option value=\"integer\">Integer</option>
-   <option value=\"bool\">Boolean</option>
- </select></td>
- <td class=\"paddingTopZero\"><input id=\"txtColName\"></td>
- </tr></table>
- <script>
- var btnAddCol = document.getElementById(\"btnAddCol\");
- btnAddCol.addEventListener(\"click\", function () {
-   var txtColName = document.getElementById(\"txtColName\");
-   var ddlColType = document.getElementById(\"ddlColType\");
-   doFetch(\"POST\", {modelName: \"#{@_brick_model.name}\",
-                      colName: txtColName.value, colType: ddlColType.value,
-                      _brick_action: \"/#{prefix}brick_schema\"},
-     function () { // If it returns successfully, do a page refresh
-       location.href = location.href;
-     }
-   );
- });
- </script>
-" unless add_column == false}
-
-</div>
-"
-                           end
               inline = case args.first
                        when 'index'
                          if Object.const_defined?('DutyFree')
@@ -1506,7 +1275,7 @@ end
   </script>
 <% end %>
 </div></div>
-#{erd_markup}
+#{::Brick::Rails.erd_markup(@_brick_model, prefix) if @_brick_model}
 
 <%= # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
     # If the resource is missing, has the user simply created an inappropriately pluralised name for a table?
@@ -1714,7 +1483,7 @@ if (description = rel&.fetch(:description, nil)) %>
   <span class=\"__brick\"><%= description %></span><br><%
 end
 %><%= link_to \"(See all #\{model_name.pluralize})\", see_all_path, { class: '__brick' } %>
-#{erd_markup}
+#{::Brick::Rails.erd_markup(@_brick_model, prefix) if @_brick_model}
 <% if obj
      # path_options = [obj.#{pk}]
      # path_options << { '_brick_schema':  } if

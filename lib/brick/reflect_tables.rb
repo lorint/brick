@@ -37,7 +37,7 @@ module Brick
         # puts ActiveRecord::Base.execute_sql("SELECT current_setting('SEARCH_PATH')").to_a.inspect
 
         # ---------------------------
-        # 2. Figure out schema things
+        # 1. Figure out schema things
         is_postgres = nil
         is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer'
         case ActiveRecord::Base.connection.adapter_name
@@ -111,7 +111,7 @@ module Brick
         ::Brick.db_schemas ||= {}
 
         # ---------------------
-        # 3. Tables and columns
+        # 2. Tables and columns
         # %%% Retrieve internal ActiveRecord table names like this:
         # ActiveRecord::Base.internal_metadata_table_name, ActiveRecord::Base.schema_migrations_table_name
         # For if it's not SQLite -- so this is the Postgres and MySQL version
@@ -243,7 +243,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         # schema = ::Brick.default_schema # Reset back for this next round of fun
 
         # ---------------------------------------------
-        # 4. Foreign key info
+        # 3. Foreign key info
         # (done in two parts which get JOINed together in Ruby code)
         kcus = nil
         entry_type = nil

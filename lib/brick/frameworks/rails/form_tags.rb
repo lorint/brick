@@ -230,7 +230,7 @@ module Brick::Rails::FormTags
           end
         elsif (col = cols[col_name]).is_a?(ActiveRecord::ConnectionAdapters::Column)
           # binding.pry if col.is_a?(Array)
-          out << if @_brick_monetized_attributes&.include?(col_name)
+          out << if klass._brick_monetized_attributes&.include?(col_name)
                    val ? Money.new(val.to_i).format : ''
                  elsif klass.respond_to?(:uploaders) && klass.uploaders.key?(col_name.to_sym) &&
                     (url = obj.send(col_name)&.url) # Carrierwave image?

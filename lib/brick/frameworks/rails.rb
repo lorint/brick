@@ -4,6 +4,205 @@
 require 'brick/frameworks/rails/engine'
 
 module ::Brick::Rails
+  class << self
+    def display_value(col_type, val, lat_lng = nil)
+      is_mssql_geography = nil
+      # Some binary thing that really looks like a Microsoft-encoded WGS84 point?  (With the first two bytes, E6 10, indicating an EPSG code of 4326)
+      if col_type == :binary && val && ::Brick.is_geography?(val)
+        col_type = 'geography'
+        is_mssql_geography = true
+      end
+      case col_type
+      when 'geometry', 'geography'
+        if Object.const_defined?('RGeo')
+          @is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name) if @is_mysql.nil?
+          @is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer' if @is_mssql.nil?
+          val_err = nil
+
+          if @is_mysql || (is_mssql_geography ||=
+                            (@is_mssql ||
+                              (val && ::Brick.is_geography?(val))
+                            )
+                          )
+            # MySQL's \"Internal Geometry Format\" and MSSQL's Geography are like WKB, but with an initial 4 bytes that indicates the SRID.
+            if (srid = val&.[](0..3)&.unpack('I'))
+              val = val.dup.force_encoding('BINARY')[4..-1].bytes
+
+              # MSSQL spatial bitwise flags, often 0C for a point:
+              # xxxx xxx1 = HasZValues
+              # xxxx xx1x = HasMValues
+              # xxxx x1xx = IsValid
+              # xxxx 1xxx = IsSinglePoint
+              # xxx1 xxxx = IsSingleLineSegment
+              # xx1x xxxx = IsWholeGlobe
+              # Convert Microsoft's unique geography binary to standard WKB
+              # (MSSQL point usually has two doubles, lng / lat, and can also have Z)
+              if is_mssql_geography
+                if val[0] == 1 && (val[1] & 8 > 0) && # Single point?
+                   (val.length - 2) % 8 == 0 && val.length < 27 # And containing up to three 8-byte values?
+                  val = [0, 0, 0, 0, 1] + val[2..-1].reverse
+                else
+                  val_err = '(Microsoft internal SQL geography type)'
+                end
+              end
+            end
+          end
+          unless val_err || val.nil?
+            val = if ((geometry = RGeo::WKRep::WKBParser.new.parse(val.pack('c*'))).is_a?(RGeo::Cartesian::PointImpl) ||
+                      geometry.is_a?(RGeo::Geos::CAPIPointImpl)) &&
+                     !(geometry.y == 0.0 && geometry.x == 0.0)
+                    # Create a POINT link to this style of Google maps URL:  https://www.google.com/maps/place/38.7071296+-121.2810649/@38.7071296,-121.2810649,12z
+                    "<a href=\"https://www.google.com/maps/place/#{geometry.y}+#{geometry.x}/@#{geometry.y},#{geometry.x},12z\" target=\"blank\">#{geometry.to_s}</a>"
+                  end
+          end
+          val_err || val
+        else
+          '(Add RGeo gem to parse geometry detail)'
+        end
+      when :binary
+        ::Brick::Rails.display_binary(val)
+      else
+        if col_type
+          if lat_lng && !(lat_lng.first.zero? && lat_lng.last.zero?)
+            # Create a link to this style of Google maps URL:  https://www.google.com/maps/place/38.7071296+-121.2810649/@38.7071296,-121.2810649,12z
+            "<a href=\"https://www.google.com/maps/place/#{lat_lng.first}+#{lat_lng.last}/@#{lat_lng.first},#{lat_lng.last},12z\" target=\"blank\">#{val}</a>"
+          elsif val.is_a?(Numeric) && ::ActiveSupport.const_defined?(:NumberHelper)
+            ::ActiveSupport::NumberHelper.number_to_delimited(val, delimiter: ',')
+          else
+            ::Brick::Rails::FormBuilder.hide_bcrypt(val, col_type == :xml)
+          end
+        else
+          '?'
+        end
+      end
+    end
+
+    def display_binary(val, max_size = 100_000)
+      return unless val
+
+      @image_signatures ||= { (+"\xFF\xD8\xFF\xEE").force_encoding('ASCII-8BIT') => 'jpeg',
+                              (+"\xFF\xD8\xFF\xE0\x00\x10\x4A\x46\x49\x46\x00\x01").force_encoding('ASCII-8BIT') => 'jpeg',
+                              (+"\xFF\xD8\xFF\xDB").force_encoding('ASCII-8BIT') => 'jpeg',
+                              (+"\xFF\xD8\xFF\xE1").force_encoding('ASCII-8BIT') => 'jpeg',
+                              (+"\x89PNG\r\n\x1A\n").force_encoding('ASCII-8BIT') => 'png',
+                              '<svg' => 'svg+xml', # %%% Not yet very good detection for SVG
+                              (+'BM').force_encoding('ASCII-8BIT') => 'bmp',
+                              (+'GIF87a').force_encoding('ASCII-8BIT') => 'gif',
+                              (+'GIF89a').force_encoding('ASCII-8BIT') => 'gif' }
+
+      if val[0..1] == "\x15\x1C" # One of those goofy Microsoft OLE containers?
+        package_header_length = val[2..3].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+        # This will often be just FF FF FF FF
+        # object_size = val[16..19].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+        friendly_and_class_names = val[20...package_header_length].split("\0")
+        object_type_name_length = val[package_header_length + 8..package_header_length+11].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+        friendly_and_class_names << val[package_header_length + 12...package_header_length + 12 + object_type_name_length].strip
+        # friendly_and_class_names will now be something like:  ['Bitmap Image', 'Paint.Picture', 'PBrush']
+        real_object_size = val[package_header_length + 20 + object_type_name_length..package_header_length + 23 + object_type_name_length].bytes.reverse.inject(0) {|m, b| (m << 8) + b }
+        object_start = package_header_length + 24 + object_type_name_length
+        val = val[object_start...object_start + real_object_size]
+      end
+
+      if ((signature = @image_signatures.find { |k, _v| val[0...k.length] == k }&.last) ||
+          (val[0..3] == 'RIFF' && val[8..11] == 'WEBP' && binding.local_variable_set(:signature, 'webp'))) &&
+         val.length < max_size
+        "<img src=\"data:image/#{signature.last};base64,#{Base64.encode64(val)}\">"
+      else
+        "&lt;&nbsp;#{signature ? "#{signature} image" : 'Binary'}, #{val.length} bytes&nbsp;>"
+      end
+    end
+
+    # Generate MermaidJS markup to create a partial ERD for this model
+    def erd_markup(model, prefix)
+      model_short_name = model.name.split('::').last
+      "<div id=\"mermaidErd\">
+  <div id=\"mermaidDiagram\" class=\"mermaid\">
+erDiagram
+<% shown_classes = {}
+
+   def erd_sidelinks(shown_classes, klass)
+     links = []
+     # %%% Not yet showing these as they can get just a bit intense!
+     # klass.reflect_on_all_associations.select { |a| shown_classes.key?(a.klass) }.each do |assoc|
+     #   unless shown_classes[assoc.klass].key?(klass.name)
+     #     links << \"    #\{klass.name.split('::').last} #\{assoc.macro == :belongs_to ? '}o--||' : '||--o{'} #\{assoc.klass.name.split('::').last} : \\\"\\\"\"n\"
+     #     shown_classes[assoc.klass][klass.name] = nil
+     #   end
+     # end
+     # shown_classes[klass] ||= {}
+     links.join
+   end
+
+   @_brick_bt_descrip&.each do |bt|
+     bt_class = bt[1].first.first
+     callbacks[bt_name = bt_class.name.split('::').last] = bt_class
+     is_has_one = #{model.name}.reflect_on_association(bt.first)&.inverse_of&.macro == :has_one ||
+                  ::Brick.config.has_ones&.fetch('#{model.name}', nil)&.key?(bt.first.to_s)
+    %>  <%= \"#{model_short_name} #\{is_has_one ? '||' : '}o'}--|| #\{bt_name} : \\\"#\{
+        bt_underscored = bt[1].first.first.name.underscore.singularize
+        bt.first unless bt.first.to_s == bt_underscored.split('/').last # Was:  bt_underscored.tr('/', '_')
+        }\\\"\".html_safe %>
+<%=  erd_sidelinks(shown_classes, bt_class).html_safe %>
+<% end
+   last_hm = nil
+   @_brick_hm_counts&.each do |hm|
+     # Skip showing self-referencing HM links since they would have already been drawn while evaluating the BT side
+     next if (hm_class = hm.last&.klass) == #{model.name}
+
+     callbacks[hm_name = hm_class.name.split('::').last] = hm_class
+     if (through = hm.last.options[:through]&.to_s) # has_many :through  (HMT)
+       through_name = (through_assoc = hm.last.source_reflection).active_record.name.split('::').last
+       callbacks[through_name] = through_assoc.active_record
+       if last_hm == through # Same HM, so no need to build it again, and for clarity just put in a blank line
+%><%=    \"\n\"
+%><%   else
+%>  <%= \"#{model_short_name} ||--o{ #\{through_name}\".html_safe %> : \"\"
+<%=      erd_sidelinks(shown_classes, through_assoc.active_record).html_safe %>
+<%       last_hm = through
+       end
+%>    <%= \"#\{through_name} }o--|| #\{hm_name}\".html_safe %> : \"\"
+    <%= \"#{model_short_name} }o..o{ #\{hm_name} : \\\"#\{hm.first}\\\"\".html_safe %><%
+     else # has_many
+%>  <%= \"#{model_short_name} ||--o{ #\{hm_name} : \\\"#\{
+            hm.first.to_s unless (last_hm = hm.first.to_s).downcase == hm_class.name.underscore.pluralize.tr('/', '_')
+          }\\\"\".html_safe %><%
+     end %>
+<%=  erd_sidelinks(shown_classes, hm_class).html_safe %>
+<% end
+   def dt_lookup(dt)
+     { 'integer' => 'int', }[dt] || dt&.tr(' ', '_') || 'int'
+   end
+   callbacks.merge({#{model_short_name} => #{model.name}}).each do |cb_k, cb_class|
+     cb_relation = ::Brick.relations[cb_class.table_name]
+     pkeys = cb_relation[:pkey]&.first&.last
+     fkeys = cb_relation[:fks]&.values&.each_with_object([]) { |fk, s| s << fk[:fk] if fk.fetch(:is_bt, nil) }
+     cols = cb_relation[:cols]
+ %>  <%= cb_k %> {<%
+     pkeys&.each do |pk| %>
+    <%= \"#\{dt_lookup(cols[pk].first)} #\{pk} \\\"PK#\{' fk' if fkeys&.include?(pk)}\\\"\".html_safe %><%
+     end %><%
+     fkeys&.each do |fk|
+       if fk.is_a?(Array)
+         fk.each do |fk_part| %>
+    <%= \"#\{dt_lookup(cols[fk_part].first)} #\{fk_part} \\\"&nbsp;&nbsp;&nbsp;&nbsp;fk\\\"\".html_safe unless pkeys&.include?(fk_part) %><%
+         end
+       else # %%% Does not yet accommodate polymorphic BTs
+    %>
+    <%= \"#\{dt_lookup(cols[fk]&.first)} #\{fk} \\\"&nbsp;&nbsp;&nbsp;&nbsp;fk\\\"\".html_safe unless pkeys&.include?(fk) %><%
+       end
+     end %>
+  }
+<% end
+ # callback < %= cb_k % > erdClick
+ %>
+  </div>#{
+ add_column = false # For the moment, disable all schema modification things
+ "<%= brick_add_column(#{model.name}, #{prefix.inspect}).html_safe %>" unless add_column == false}
+</div>
+"
+    end
+  end
+
   AVO_SVG = "<svg version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 84 90\" height=\"30\" fill=\"#3096F7\">
   <path d=\"M83.8304 81.0201C83.8343 82.9343 83.2216 84.7996 82.0822 86.3423C80.9427 87.8851 79.3363 89.0244 77.4984 89.5931C75.6606 90.1618 73.6878 90.1302 71.8694 89.5027C70.0509 88.8753 68.4823 87.6851 67.3935 86.1065L67.0796 85.6029C66.9412 85.378 66.8146 85.1463 66.6998 84.9079L66.8821 85.3007C64.1347 81.223 60.419 77.8817 56.0639 75.5723C51.7087 73.263 46.8484 72.057 41.9129 72.0609C31.75 72.0609 22.372 77.6459 16.9336 85.336C17.1412 84.7518 17.7185 83.6137 17.9463 83.0446L19.1059 80.5265L19.1414 80.456C25.2533 68.3694 37.7252 59.9541 52.0555 59.9541C53.1949 59.9541 54.3241 60.0095 55.433 60.1102C60.748 60.6134 65.8887 62.2627 70.4974 64.9433C75.1061 67.6238 79.0719 71.2712 82.1188 75.6314C82.1188 75.6314 82.1441 75.6717 82.1593 75.6868C82.1808 75.717 82.1995 75.749 82.215 75.7825C82.2821 75.8717 82.3446 75.9641 82.4024 76.0595C82.4682 76.1653 82.534 76.4221 82.5999 76.5279C82.6657 76.6336 82.772 76.82 82.848 76.9711L83.1822 77.7063C83.6094 78.7595 83.8294 79.8844 83.8304 81.0201V81.0201Z\" fill=\"currentColor\" fill-opacity=\"0.22\"></path>
   <path opacity=\"0.25\" d=\"M83.8303 81.015C83.8354 82.9297 83.2235 84.7956 82.0844 86.3393C80.9453 87.8829 79.339 89.0229 77.5008 89.5923C75.6627 90.1617 73.6895 90.1304 71.8706 89.5031C70.0516 88.8758 68.4826 87.6854 67.3935 86.1065L67.0796 85.6029C66.9412 85.3746 66.8146 85.1429 66.6998 84.9079L66.8821 85.3007C64.1353 81.222 60.4199 77.8797 56.0647 75.5695C51.7095 73.2593 46.8488 72.0524 41.9129 72.0558C31.75 72.0558 22.372 77.6408 16.9336 85.3309C17.1412 84.7467 17.7185 83.6086 17.9463 83.0395L19.1059 80.5214L19.1414 80.4509C22.1906 74.357 26.8837 69.2264 32.6961 65.6326C38.5086 62.0387 45.2114 60.1232 52.0555 60.1001C53.1949 60.1001 54.3241 60.1555 55.433 60.2562C60.7479 60.7594 65.8887 62.4087 70.4974 65.0893C75.1061 67.7698 79.0719 71.4172 82.1188 75.7775C82.1188 75.7775 82.1441 75.8177 82.1593 75.8328C82.1808 75.863 82.1995 75.895 82.215 75.9285C82.2821 76.0177 82.3446 76.1101 82.4024 76.2055L82.5999 76.5228C82.6859 76.6638 82.772 76.8149 82.848 76.966L83.1822 77.7012C83.6093 78.7544 83.8294 79.8793 83.8303 81.015Z\" fill=\"currentColor\" fill-opacity=\"0.22\"></path>
