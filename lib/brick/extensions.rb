@@ -833,7 +833,7 @@ module ActiveRecord
 
                          idx = 0
                          bail_out = nil
-                         through_sources.map do |a|
+                         the_chain = through_sources.map do |a|
                            from_clause << "\n LEFT OUTER JOIN #{a.table_name} br_t#{idx += 1} "
                            from_clause << if (src_ref = a.source_reflection).macro == :belongs_to
                                             link_back << (nm = hmt_assoc.source_reflection.inverse_of&.name)
@@ -890,7 +890,12 @@ module ActiveRecord
 
         pri_tbl = hm.active_record
         pri_key = hm.options[:primary_key] || pri_tbl.primary_key
-        if hm.active_record.abstract_class || hm.active_record.column_names.exclude?(pri_key)
+        if hm.active_record.abstract_class || case pri_key
+                                              when String
+                                                hm.active_record.column_names.exclude?(pri_key)
+                                              when Array
+                                                (pri_key - hm.active_record.column_names).length > 0
+                                              end
           # %%% When this gets hit then if an attempt is made to display the ERD, it might end up being blank
           nix << k
           next
@@ -906,7 +911,7 @@ module ActiveRecord
                        on_clause << "#{_br_quoted_name("#{tbl_alias}.#{fk_col}")} = #{_br_quoted_name("#{pri_tbl.table_name}.#{pri_key}")}"
                        [fk_col]
                      else # Composite key
-                       fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{tbl_alias}.#{fk_col_part} = #{pri_tbl.table_name}.#{pri_key[idx]}" }
+                       fk_col.each_with_index { |fk_col_part, idx| on_clause << "#{_br_quoted_name("#{tbl_alias}.#{fk_col_part}")} = #{_br_quoted_name("#{pri_tbl.table_name}.#{pri_key[idx]}")}" }
                        fk_col.dup
                      end
         if poly_type
