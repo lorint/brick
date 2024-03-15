@@ -440,7 +440,8 @@ function onImagesLoaded(event) {
       end if obj.new_record?
       rtans = model.rich_text_association_names if model.respond_to?(:rich_text_association_names)
       (model.column_names + (rtans || [])).each do |k|
-        next if (pk.include?(k) && !bts.key?(k)) ||
+        pk_pos = (pk.index(k)&.+ 1)
+        next if (pk_pos && pk.length == 1 && !bts.key?(k)) ||
                 ::Brick.config.metadata_columns.include?(k)
 
         col = model.columns_hash[k]
@@ -453,7 +454,7 @@ function onImagesLoaded(event) {
         end
         val = obj.attributes[k]
         out << "
-    <tr>
+  <tr>
     <th class=\"show-field\"#{" title=\"#{col&.comment}\"".html_safe if col&.respond_to?(:comment) && !col&.comment.blank?}>"
         has_fields = true
         if (bt = bts[k])
@@ -497,10 +498,17 @@ function onImagesLoaded(event) {
         else
           out << model.human_attribute_name(k, { default: k })
         end
+        out << " (PK #{pk_pos})" if pk_pos
         out << "
     </th>
     <td>
-      #{f.brick_field(k, html_options = {}, val, col, bt, bt_class, bt_name, bt_pair)}
+        "
+        if pk_pos
+          out << val.to_s
+        else
+          out << f.brick_field(k, html_options = {}, val, col, bt, bt_class, bt_name, bt_pair)
+        end
+        out << "
     </td>
   </tr>"
       end
