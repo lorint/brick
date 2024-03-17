@@ -258,6 +258,18 @@ module Brick
       @mutex.synchronize { @json_columns = cols }
     end
 
+    # Restrict all Carrierwave images when set to +true+,
+    # or limit to the first n number if set to an Integer
+    def limit_carrierwave
+      # When not set then by default just do a max of 50 images so that
+      # a grid of say 1000 things won't bring the page to its knees
+      @mutex.synchronize { @limit_carrierwave ||= 50 }
+    end
+
+    def limit_carrierwave=(num)
+      @mutex.synchronize { @limit_carrierwave = num }
+    end
+
     def sidescroll
       @mutex.synchronize { @sidescroll ||= {} }
     end
