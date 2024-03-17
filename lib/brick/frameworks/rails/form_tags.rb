@@ -423,6 +423,7 @@ function onImagesLoaded(event) {
     out.html_safe
   end # brick_grid
 
+  # -----------------------------
   # Our mega show/new/update form
   def brick_form_for(obj, options = {}, model = obj.class, bts = {}, pk = (obj.class.primary_key || []))
     pk = [pk] unless pk.is_a?(Array)
@@ -518,6 +519,7 @@ function onImagesLoaded(event) {
     end
   end # brick_form_for
 
+  # --------------------------------
   def link_to_brick(*args, **kwargs)
     return unless ::Brick.config.mode == :on
 
@@ -614,6 +616,41 @@ function onImagesLoaded(event) {
       end
     end
   end # link_to_brick
+
+  # ---------------------------------
+  def brick_add_column(model, prefix)
+    # TODO: Make a server control architecture that has separate javascript snippets
+    # Have post back go to a common "brick_schema" endpoint, this one for add_column
+"
+<table id=\"tblAddCol\"><tr>
+  <td rowspan=\"2\">Add<br>Column</td>
+  <td class=\"paddingBottomZero\">Type</td><td class=\"paddingBottomZero\">Name</td>
+  <td rowspan=\"2\"><input type=\"button\" id=\"btnAddCol\" value=\"+\"></td>
+</tr><tr><td class=\"paddingTopZero\">
+  <select id=\"ddlColType\">
+ <option value=\"string\">String</option>
+ <option value=\"text\">Text</option>
+ <option value=\"integer\">Integer</option>
+ <option value=\"bool\">Boolean</option>
+</select></td>
+<td class=\"paddingTopZero\"><input id=\"txtColName\"></td>
+</tr></table>
+<script>
+var btnAddCol = document.getElementById(\"btnAddCol\");
+btnAddCol.addEventListener(\"click\", function () {
+ var txtColName = document.getElementById(\"txtColName\");
+ var ddlColType = document.getElementById(\"ddlColType\");
+ doFetch(\"POST\", {modelName: \"#{model.name}\",
+                    colName: txtColName.value, colType: ddlColType.value,
+                    _brick_action: \"/#{prefix}brick_schema\"},
+   function () { // If it returns successfully, do a page refresh
+     location.href = location.href;
+   }
+ );
+});
+</script>
+"
+  end
 
 private
 
