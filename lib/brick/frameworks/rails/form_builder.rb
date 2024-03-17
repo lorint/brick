@@ -57,7 +57,7 @@ module Brick::Rails::FormBuilder
           out << ::Brick::Rails.hide_bcrypt(val, nil, 1000)
         elsif col_type == :string
           if model.respond_to?(:uploaders) && model.uploaders.key?(col.name&.to_sym) &&
-             (url = self.object.send(col.name)&.url) # Carrierwave image?
+            (url = self.object.send(col.name)&.url) # Carrierwave image?
             out << "<img src=\"#{url}\" title=\"#{val}\">"
           elsif model.respond_to?(:enumerized_attributes) && (opts = (attr = model.enumerized_attributes[method])&.options).present?
             enum_html_options = attr.kind_of?(Enumerize::Multiple) ? html_options.merge({ multiple: true, size: opts.length + 1 }) : html_options

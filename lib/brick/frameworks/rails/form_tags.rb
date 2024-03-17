@@ -232,7 +232,15 @@ module Brick::Rails::FormTags
           out << if klass._brick_monetized_attributes&.include?(col_name)
                    val ? Money.new(val.to_i).format : ''
                  elsif klass.respond_to?(:uploaders) && klass.uploaders.key?(col_name.to_sym) &&
-                    (url = obj.send(col_name)&.url) # Carrierwave image?
+                    (url = obj.send(col.name)&.url) && # Carrierwave image?
+                    # And either not restricting Carrierwave, or under the defined Carrierwave image limit?
+                    (!(limit_carrierwave = ::Brick.config.limit_carrierwave) ||
+                      (limit_carrierwave.is_a?(Numeric) &&
+                       (carrierwave_count = instance_variable_get(:@_carrierwave_count) || 0) &&
+                       ((carrierwave_count += 1) < limit_carrierwave) &&
+                       instance_variable_set(:@_carrierwave_count, carrierwave_count)
+                      )
+                    )
                    "<img class=\"thumbImg\" src=\"#{url}\" title=\"#{val}\">"
                  else
                    lat_lng = if [:float, :decimal].include?(col.type) &&
