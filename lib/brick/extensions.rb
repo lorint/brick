@@ -542,25 +542,27 @@ module ActiveRecord
 
     # Links from ActiveRecord association pathing names over to the real table
     # correlation names that get chosen when the AREL AST tree is walked.
-    def brick_links
+    def brick_links(do_dup = true)
       # Touching AREL AST walks the JoinDependency tree, and in that process uses our
       # "brick_links" patch to find how every AR chain of association names relates to exact
-      # table correlation names chosen by AREL.  We use a duplicate relation object for this
-      # because an important side-effect of referencing the AST is that the @arel instance
-      # variable gets set, and this is a signal to ActiveRecord that a relation has now
-      # become immutable.  (We aren't quite ready for our "real deal" relation object to be
-      # set in stone ... still need to add .select(), and possibly .where() and .order()
-      # things ... also if there are any HM counts then an OUTER JOIN for each of them out
-      # to a derived table to do that counting.  All of these things need to know proper
-      # table correlation names, which will now become available from brick_links on the
-      # rel_dupe object.)
+      # table correlation names chosen by AREL.  Unless a relation has already had its AST
+      # tree built out, we will use a duplicate relation object for this, because an important
+      # side-effect of referencing the AST is that the @arel instance variable gets set.  This
+      # is a signal to ActiveRecord that a relation has now become immutable.  (When Brick is
+      # still in the middle of calculating its query, we aren't quite ready for the relation
+      # object to be set in stone ... still need to add .select(), and possibly .where() and
+      # .order() things ... also if there are any HM counts then an OUTER JOIN for each of
+      # them out to a derived table to do that counting.  All of these things need to know
+      # proper table correlation names, which will now become available from brick_links on
+      # the rel_dupe object.)
       @_brick_links ||= begin
                           # If it's a CollectionProxy (which inherits from Relation) then need to dig
                           # out the core Relation object which is found in the association scope.
-                          rel_dupe = (is_a?(ActiveRecord::Associations::CollectionProxy) ? scope : self).dup
+                          brick_rel = is_a?(ActiveRecord::Associations::CollectionProxy) ? scope : self
+                          brick_rel = brick_rel.dup if do_dup
                           # Start out with a hash that has only the root table name
-                          rel_dupe.instance_variable_set(:@_brick_links, bl = { '' => table_name })
-                          rel_dupe.arel.ast # Walk the AST tree in order to capture all the other correlation names
+                          brick_rel.instance_variable_set(:@_brick_links, bl = { '' => table_name })
+                          brick_rel.arel.ast if do_dup # Walk the AST tree in order to capture all the other correlation names
                           bl
                         end
     end
