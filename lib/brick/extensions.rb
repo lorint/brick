@@ -542,25 +542,27 @@ module ActiveRecord
 
     # Links from ActiveRecord association pathing names over to the real table
     # correlation names that get chosen when the AREL AST tree is walked.
-    def brick_links
+    def brick_links(do_dup = true)
       # Touching AREL AST walks the JoinDependency tree, and in that process uses our
       # "brick_links" patch to find how every AR chain of association names relates to exact
-      # table correlation names chosen by AREL.  We use a duplicate relation object for this
-      # because an important side-effect of referencing the AST is that the @arel instance
-      # variable gets set, and this is a signal to ActiveRecord that a relation has now
-      # become immutable.  (We aren't quite ready for our "real deal" relation object to be
-      # set in stone ... still need to add .select(), and possibly .where() and .order()
-      # things ... also if there are any HM counts then an OUTER JOIN for each of them out
-      # to a derived table to do that counting.  All of these things need to know proper
-      # table correlation names, which will now become available from brick_links on the
-      # rel_dupe object.)
+      # table correlation names chosen by AREL.  Unless a relation has already had its AST
+      # tree built out, we will use a duplicate relation object for this, because an important
+      # side-effect of referencing the AST is that the @arel instance variable gets set.  This
+      # is a signal to ActiveRecord that a relation has now become immutable.  (When Brick is
+      # still in the middle of calculating its query, we aren't quite ready for the relation
+      # object to be set in stone ... still need to add .select(), and possibly .where() and
+      # .order() things ... also if there are any HM counts then an OUTER JOIN for each of
+      # them out to a derived table to do that counting.  All of these things need to know
+      # proper table correlation names, which will now become available from brick_links on
+      # the rel_dupe object.)
       @_brick_links ||= begin
                           # If it's a CollectionProxy (which inherits from Relation) then need to dig
                           # out the core Relation object which is found in the association scope.
-                          rel_dupe = (is_a?(ActiveRecord::Associations::CollectionProxy) ? scope : self).dup
+                          brick_rel = is_a?(ActiveRecord::Associations::CollectionProxy) ? scope : self
+                          brick_rel = (@_brick_rel_dup ||= brick_rel.dup) if do_dup
                           # Start out with a hash that has only the root table name
-                          rel_dupe.instance_variable_set(:@_brick_links, bl = { '' => table_name })
-                          rel_dupe.arel.ast # Walk the AST tree in order to capture all the other correlation names
+                          brick_rel.instance_variable_set(:@_brick_links, bl = { '' => table_name })
+                          brick_rel.arel.ast if do_dup # Walk the AST tree in order to capture all the other correlation names
                           bl
                         end
     end
@@ -658,7 +660,7 @@ module ActiveRecord
           ::Brick.config.always_load_fields.fetch(this_model.name, nil)&.each do |alf|
             selects << alf unless selects.include?(alf)
           end
-          # ... plus any and all STI superclasses it may inherit from
+          # ... plus ALF fields from any and all STI superclasses it may inherit from
           break if (this_model = this_model.superclass).abstract_class? || this_model == ActiveRecord::Base
         end
       end
@@ -671,7 +673,7 @@ module ActiveRecord
         end
       end
 
-      core_selects = selects.dup
+      # core_selects = selects.dup
       id_for_tables = Hash.new { |h, k| h[k] = [] }
       field_tbl_names = Hash.new { |h, k| h[k] = {} }
       used_col_aliases = {} # Used to make sure there is not a name clash
@@ -679,7 +681,8 @@ module ActiveRecord
       # CUSTOM COLUMNS
       # ==============
       (cust_col_override || klass._br_cust_cols).each do |k, cc|
-        if respond_to?(k) # Name already taken?
+        brick_links # Intentionally create a relation duplicate
+        if @_brick_rel_dup.respond_to?(k) # Name already taken?
           # %%% Use ensure_unique here in this kind of fashion:
           # cnstr_name = ensure_unique(+"(brick) #{for_tbl}_#{pri_tbl}", nil, bts, hms)
           # binding.pry
@@ -749,7 +752,7 @@ module ActiveRecord
               # %%% Strangely in Rails 7.1 on a slower system then very rarely brick_link comes back nil...
               brick_link = brick_links[sel_col.first]
               field_tbl_name = brick_link&.split('.')&.last ||
-                # ... so here's a best-effort guess for what the table name might be.
+                # ... so if it is nil then here's a best-effort guess as to what the table name might be.
                 klass.reflect_on_association(sel_col.first)&.klass&.table_name
               # If it's Oracle, quote any AREL aliases that had been applied
               field_tbl_name = "\"#{field_tbl_name}\"" if ::Brick.is_oracle && brick_links.values.include?(field_tbl_name)
