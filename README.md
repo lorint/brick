@@ -126,9 +126,9 @@ the various "Autogenerate ___ Files" sections.
   - [1.i. Autogenerate Controller Files](#1f-autogenerate-controller-files)
   - [1.j. Autogenerate Migration Files from a Salesforce installation](#1i-autogenerate-migration-files-from-a-salesforce-installation)
   ### 1.i. Autogenerate Migration Files based on a Salesforce WSDL file
-- [2. More Fancy Exports](#2-limiting-what-is-versioned-and-when)
-  - [2.a. Simplify Column Names Using Aliases](#2a-simplify-column-names-using-aliases)
-  - [2.b. Filtering the Rows to Export](#2b-filtering-the-rows-to-export)
+- [2. Programmatic Enhancements](#2-programmatic-enhancements)
+  - [2.a. Using brick_select](#2a-using-brick_select)
+  - [2.b. Using brick_where](#2b-using-brick_where)
   - [2.c. Seeing the Resulting JOIN Strategy and SQL Used](#2c-seeing-the-resulting-join-strategy-and-sql-used)
 - [3. More Fancy Imports](#3-more-fancy-imports)
   - [3.a. Self-referencing models](#3a-self-referencing-models)
@@ -147,13 +147,13 @@ the various "Autogenerate ___ Files" sections.
 
 ### 1.a. Compatibility
 
-| brick          | branch     | tags   | ruby     | activerecord  |
-| -------------- | ---------- | ------ | -------- | ------------- |
-| unreleased     | master     |        | >= 2.3.5 | >= 3.1, < 7.2 |
-| 1.0            | 1-stable   | v1.x   | >= 2.3.5 | >= 3.1, < 7.2 |
+| brick          | branch     | tags   | ruby     | activerecord |
+| -------------- | ---------- | ------ | -------- | ------------ |
+| unreleased     | master     |        | >= 2.3.5 | >= 3.1       |
+| 1.0            | 1-stable   | v1.x   | >= 2.3.5 | >= 3.1       |
 
 Brick will work with Rails 3.1 and onwards, and Rails 4.2.0 and above are officially supported.
-Rails 5.2.6, 7.0, and 7.1 are the versions which have been tested most extensively.
+Rails 5.2.6, 7.1, and 7.2 are the versions which have been tested most extensively.
 
 Compatibility with major Rails projects is _very_ strong -- this gem can be dropped directly into a
 [Mastodon](https://github.com/mastodon/mastodon) / [Canvas LMS](https://github.com/instructure/canvas-lms) /
@@ -162,7 +162,7 @@ Might want to set up an initializer that points things to their own path by usin
 
 When used with _really_ old versions of Rails, 4.x and older, Brick automatically applies various
 compatibility patches so it will run under _much_ newer versions of Ruby than would normally be
-allowed -- generally Ruby 2.7.8 can work just fine with apps on Rails 3.1 up to 7.1!  It's all due to the various patches put in place as the gem starts up.  This makes it easier to test the broad range of supported versions of ActiveRecord without the headaches of having to use older versions of Ruby.
+allowed -- generally Ruby 2.7.8 can work just fine with apps on Rails 3.1 up to 7.2!  It's all due to the various patches put in place as the gem starts up.  This makes it easier to test the broad range of supported versions of ActiveRecord without the headaches of having to use older versions of Ruby.
 
 When using those early versions of Rails, in version 3.1 if you get the error `"time_zone.rb:270: circular argument reference - now (SyntaxError)"` then add this at the very top of
 your `application.rb` file:
@@ -198,22 +198,6 @@ Employee.includes(orders: :order_details)
 ```
 
 More information is available in this [discussion post](https://discuss.rubyonrails.org/t/includes-and-select-for-joined-data/81640).
-
-Another enhancement is a smart `.brick_where()` which operates just like ActiveRecord's normal `.where()` with
-the addition that if you reference a related table then it automatically adds appropriate `.joins()` entries
-for you.  For instance, if you have **Post** that `has_many :user_posts`, and also
-`has_many :users, through: :user_posts`, then let's say on the associative model UserPost there is a boolean
-for `liked`.  With this, if you wanted to find all posts which a given user had liked, you could do:
-
-```
-Post.brick_where('user_posts.user.id' => my_user.id, 'user_posts.liked' => true)
-```
-
-And then the resulting SQL would automatically include JOINs for the related tables, and properly reference the
-alias names for those tables in the WHERE clause:
-```
-Post Load (1.6ms)  SELECT "posts".* FROM "posts" INNER JOIN "user_posts" ON "user_posts"."post_id" = "posts"."id" INNER JOIN "users" ON "users"."id" = "user_posts"."user_id" WHERE "users"."id" = $1 AND "user_posts"."liked" = $2 ORDER BY "posts"."id" ASC  [["id", 5], ["liked", true]]
-```
 
 The Brick notices when some other gems are present and makes use of them.  For instance, if your
 database uses composite primary keys and you are using Rails 7.0 or older, you'll want to add
@@ -623,6 +607,31 @@ keys in total.
 Although the class names and column names do not follow Rails conventions, everything will work,
 and this lets you create a Rails app that fully mirrors a Salesforce installation.
 
+
+## 2. Programmatic Enhancements
+
+### 2.a. Using brick_select
+
+### 2.b. Using brick_where
+
+This works pretty similiarly to **brick_select** and **brick_pluck**, above -- a smart `.brick_where()` which
+operates just like ActiveRecord's normal `.where()` with the addition that if you reference a related table
+then it automatically adds appropriate `.joins()` entries for you.  For instance, if you have **Post** that
+`has_many :user_posts`, and also `has_many :users, through: :user_posts`, then let's say on the associative
+model UserPost there is a boolean for `liked`.  With this, if you wanted to find all posts which a given user
+had liked, you could do:
+
+```
+Post.brick_where('user_posts.user.id' => my_user.id, 'user_posts.liked' => true)
+```
+
+And then the resulting SQL would automatically include JOINs for the related tables, and properly reference the
+alias names for those tables in the WHERE clause:
+```
+Post Load (1.6ms)  SELECT "posts".* FROM "posts" INNER JOIN "user_posts" ON "user_posts"."post_id" = "posts"."id" INNER JOIN "users" ON "users"."id" = "user_posts"."user_id" WHERE "users"."id" = $1 AND "user_posts"."liked" = $2 ORDER BY "posts"."id" ASC  [["id", 5], ["liked", true]]
+```
+
+
 ## Issues
 
 If you see an error such as this (note the square brackets around the multiple listed keys specialofferid and productid represented):
@@ -739,10 +748,9 @@ And run the tests on MySQL with:
 
 ## Setting up for Oracle on a MacOS (OSX) machine
 
-Oracle is the third most popular database solution used for Rails projects in production,
-so it only makes sense to have support for this in The Brick.  Starting with version 1.0.69
-this was added, offering full compatibility for all Brick features.  This can run on Linux,
-Windows, and Mac.
+Oracle is moderately popular for Rails projects in production, so it only makes sense to have
+support for this in The Brick.  Starting with version 1.0.69 this was added, offering full
+compatibility for all Brick features.  This can run on Linux, Windows, and Mac.
 
 One important caveat for those with Apple M1 or M2 machines is that the low-level Ruby driver
 which we rely upon will NOT function natively on Apple Silicon, so on an M1 or M2 machine you
@@ -805,10 +813,9 @@ This should be all that is necessary in order to have ActiveRecord interact with
 
 ## Setting up for Microsoft SQL Server on a MacOS (OSX) machine
 
-MSSQL is the fifth most popular database solution used for Rails projects in production, so it
-only makes sense to have support for this in The Brick.  Starting with version 1.0.70 this was
-added, offering full compatibility for all Brick features.  The client library can run on Linux,
-Windows, and Mac.
+MSSQL is occasionally used for Rails projects in production, and support has been added for this
+in The Brick.  Starting with version 1.0.70 this was available, offering full compatibility for
+all Brick features.  The client library can run on Linux, Windows, and Mac.
 
 Before setting up the gems to give support for SQL Server in ActiveRecord, there is a
 necessary library you will need to have installed in order to allow the

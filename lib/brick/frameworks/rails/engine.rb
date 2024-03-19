@@ -1506,7 +1506,7 @@ end
 
     if (pk = hm.first.klass.primary_key)
       hm_singular_name = (hm_name = hm.first.name.to_s).singularize.underscore
-      obj_br_pk = (pk.is_a?(Array) ? pk : [pk]).each_with_object([]) { |pk_part, s| s << "br_#{hm_singular_name}.#{pk_part}" }.join(', ')
+      obj_br_pk = hm.first.klass._pk_as_array.map { |pk_part| "br_#{hm_singular_name}.#{pk_part}" }.join(', ')
       poly_fix = if (poly_type = (hm.first.options[:as] && hm.first.type))
                    "
                      # Let's fix an unexpected \"feature\" of AR -- when going through a polymorphic has_many

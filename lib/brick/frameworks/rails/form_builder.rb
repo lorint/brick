@@ -84,7 +84,7 @@ module Brick::Rails::FormBuilder
           opts = enum_type.send(:mapping)&.each_with_object([]) { |v, s| s << [v.first, v.first] } || []
           out << self.select(method.to_sym, [["(No #{method} chosen)", '^^^brick_NULL^^^']] + opts, { value: val || '^^^brick_NULL^^^' }, options)
         else
-          digit_pattern = col_type == :integer ? '\d*' : '\d*(?:\.\d*|)'
+          digit_pattern = col_type == :integer ? '(?:-|)\d*' : '(?:-|)\d*(?:\.\d*|)'
           # Used to do this for float / decimal:  self.number_field method.to_sym
           out << self.text_field(method.to_sym, { pattern: digit_pattern, class: 'check-validity' })
         end
