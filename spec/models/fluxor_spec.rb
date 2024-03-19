@@ -10,7 +10,7 @@ require 'csv'
 
 RSpec.describe 'Fluxor', type: :model do
   before(:each) do
-    Widget.destroy_all
+    ::Widget.destroy_all
   end
 
   it 'should be able to import from CSV data' do

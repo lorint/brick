@@ -1512,7 +1512,7 @@ module ActiveRecord
   module QueryMethods
   private
 
-    if private_instance_methods.include?(:build_join_query)
+    if private_instance_methods.include?(:build_join_query) # AR 5.0 - 6.0
       alias _brick_build_join_query build_join_query
       def build_join_query(manager, buckets, *args) # , **kwargs)
         # %%% Better way to bring relation into the mix
@@ -1523,7 +1523,7 @@ module ActiveRecord
         _brick_build_join_query(manager, buckets, *args) # , **kwargs)
       end
 
-    elsif private_instance_methods.include?(:select_association_list)
+    elsif private_instance_methods.include?(:select_association_list) # AR >= 6.1
       alias _brick_select_association_list select_association_list
       def select_association_list(associations, stashed_joins = nil)
         result = _brick_select_association_list(associations, stashed_joins)
@@ -1531,7 +1531,7 @@ module ActiveRecord
         result
       end
 
-    # else # Rails 4.1 ? and older
+    # else # AR 4.2 and older
     #   alias _brick_build_joins build_joins
     #   def build_joins(manager, joins)
     #     result = _brick_build_joins(manager, joins)
@@ -1551,12 +1551,12 @@ module ActiveRecord
           # Capture the table alias name that was chosen
           # if (relation = node.instance_variable_get(:@assocs)&.instance_variable_get(:@relation))
           #   link_path = node.instance_variable_get(:@link_path)
-          #   relation.brick_links[link_path] = result.first.table_alias || result.first.table_name
+          #   relation.brick_links(false)[link_path] = result.first.table_alias || result.first.table_name
           # end
           result
         end
       end
-    else # For AR >= 4.2
+    else # For AR >= 4.1
       class JoinDependency
         # An intelligent .eager_load() and .includes() that creates t0_r0 style aliases only for the columns
         # used in .select().  To enable this behaviour, include the flag :_brick_eager_load as the first
@@ -1652,7 +1652,7 @@ module ActiveRecord
             # Capture the table alias name that was chosen
             if (relation = node.instance_variable_get(:@assocs)&.instance_variable_get(:@relation))
               link_path = node.instance_variable_get(:@link_path)
-              relation.brick_links[link_path] = result.first.table_alias || result.first.table_name
+              relation.brick_links(false)[link_path] = result.first.table_alias || result.first.table_name
             end
             result
           end
@@ -1663,7 +1663,7 @@ module ActiveRecord
             # Capture the table alias name that was chosen
             if (relation = child.instance_variable_get(:@assocs)&.instance_variable_get(:@relation))
               link_path = child.instance_variable_get(:@link_path)
-              relation.brick_links[link_path] = if child.table.is_a?(Arel::Nodes::TableAlias)
+              relation.brick_links(false)[link_path] = if child.table.is_a?(Arel::Nodes::TableAlias)
                                                   child.table.right
                                                 else
                                                   # Was:  result.first&.left&.table_alias || child.table_name
