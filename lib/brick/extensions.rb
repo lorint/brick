@@ -72,7 +72,7 @@ module ActiveRecord
 
       def real_model(params)
         if params && (sub_model = params.fetch(type_col = inheritance_column, nil))
-          sub_model = sub_model.first if sub_model.is_a?(Array) # Support the params style that gets returned from #brick_select
+          sub_model = sub_model.first if sub_model.is_a?(Array) # Support the params style that gets returned from #_brick_querying
           # Make sure the chosen model is really the same or a subclass of this model
           (possible_model = sub_model.constantize) <= self ? possible_model : self
         else
@@ -491,17 +491,12 @@ module ActiveRecord
       [order_by, order_by_txt]
     end
 
-    def self.brick_select(*args, params: {}, brick_col_names: false, **kwargs)
-      selects = if args[0].is_a?(Array)
-                  other_args = args[1..-1]
-                  args[0]
-                else
-                  other_args = []
-                  args
-                end
-      (relation = all).brick_select(selects, *other_args,
-                                    params: params, brick_col_names: brick_col_names, **kwargs)
-      relation.select(selects)
+    def self.brick_select(*args, **kwargs)
+      all.brick_select(*args, **kwargs)
+    end
+
+    def self.brick_pluck(*args, withhold_ids: true, **kwargs)
+      all.brick_pluck(*args, withhold_ids: withhold_ids, **kwargs)
     end
 
     def self.brick_where(*args)
@@ -567,10 +562,22 @@ module ActiveRecord
                         end
     end
 
-    def brick_select(*args, params: {}, order_by: nil, translations: {},
-                     join_array: ::Brick::JoinArray.new,
-                     cust_col_override: nil,
-                     brick_col_names: true)
+    def brick_select(*args, **kwargs)
+      selects = args[0].is_a?(Array) ? args[0] : args
+      _brick_querying(selects, **kwargs)
+      select(selects)
+    end
+
+    def brick_pluck(*args, withhold_ids: true, **kwargs)
+      selects = args[0].is_a?(Array) ? args[0] : args
+      _brick_querying(selects, withhold_ids: withhold_ids, **kwargs)
+      pluck(selects)
+    end
+
+    def _brick_querying(*args, withhold_ids: nil, params: {}, order_by: nil, translations: {},
+                        join_array: ::Brick::JoinArray.new,
+                        cust_col_override: nil,
+                        brick_col_names: nil)
       selects = args[0].is_a?(Array) ? args[0] : args
       if selects.present? && cust_col_override.nil? # See if there's any fancy ones in the select list
         idx = 0
@@ -654,7 +661,7 @@ module ActiveRecord
                        "'<#{typ.end_with?('_TYP') ? typ[0..-5] : typ}>' AS #{col.name}"
                      end
         end
-      else # Having some select columns chosen, add any missing always_load_fields for this model ...
+      elsif !withhold_ids # Having some select columns chosen, add any missing always_load_fields for this model ...
         this_model = klass
         loop do
           ::Brick.config.always_load_fields.fetch(this_model.name, nil)&.each do |alf|
@@ -680,7 +687,7 @@ module ActiveRecord
 
       # CUSTOM COLUMNS
       # ==============
-      (cust_col_override || klass._br_cust_cols).each do |k, cc|
+      (cust_col_override || (!withhold_ids && klass._br_cust_cols))&.each do |k, cc|
         brick_links # Intentionally create a relation duplicate
         if @_brick_rel_dup.respond_to?(k) # Name already taken?
           # %%% Use ensure_unique here in this kind of fashion:
@@ -731,12 +738,14 @@ module ActiveRecord
           selects << "#{_br_quoted_name(tbl_name)}.#{_br_quoted_name(cc_part.last)} AS #{_br_quoted_name(col_alias)}"
           cc_part << col_alias
         end
-        # Add a key column unless we've already got it
-        if key_alias && !used_col_aliases.key?(key_alias)
-          selects << "#{_br_quoted_name(key_tbl_name)}.#{_br_quoted_name(dest_pk)} AS #{_br_quoted_name(key_alias)}"
-          used_col_aliases[key_alias] = nil
+        unless withhold_ids
+          # Add a key column unless we've already got it
+          if key_alias && !used_col_aliases.key?(key_alias)
+            selects << "#{_br_quoted_name(key_tbl_name)}.#{_br_quoted_name(dest_pk)} AS #{_br_quoted_name(key_alias)}"
+            used_col_aliases[key_alias] = nil
+          end
+          cc[2] = key_alias ? [key_klass, key_alias] : nil
         end
-        cc[2] = key_alias ? [key_klass, key_alias] : nil
       end
 
       # LEFT OUTER JOINs
@@ -1023,9 +1032,10 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
       selects << 'customer_id' if klass.name == 'Pay::Subscription' && Pay::Subscription.columns_hash.key?('customer_id')
 
       pieces, my_dsl = klass.brick_parse_dsl(join_array = ::Brick::JoinArray.new, [], translations = {}, false, nil, true)
-      brick_select(
+      _brick_querying(
         selects, where_values_hash, nil, translations: translations, join_array: join_array,
-        cust_col_override: { '_br' => (descrip_cols = [pieces, my_dsl]) }
+        cust_col_override: { '_br' => (descrip_cols = [pieces, my_dsl]) },
+        brick_col_names: true
       )
       order_values = "#{_br_quoted_name(klass.table_name)}.#{_br_quoted_name(klass.primary_key)}"
       [self.select(selects), descrip_cols]
@@ -2247,9 +2257,10 @@ class Object
 
             ar_relation = ActiveRecord.version < Gem::Version.new('4') ? real_model.preload : real_model.all
             params['_brick_is_api'] = true if (is_api = request.format == :js || current_api_root)
-            @_brick_params = ar_relation.brick_select((selects ||= []), params: params, order_by: order_by,
-                                                      translations: (translations = {}),
-                                                      join_array: (join_array = ::Brick::JoinArray.new))
+            @_brick_params = ar_relation._brick_querying((selects ||= []), params: params, order_by: order_by,
+                                                         translations: (translations = {}),
+                                                         join_array: (join_array = ::Brick::JoinArray.new),
+                                                         brick_col_names: true)
 
             if is_api # Asking for JSON?
               # Apply column renaming
@@ -2343,7 +2354,7 @@ class Object
           _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk, true)) if pk
           code << "  def index\n"
           code << "    @#{plural_table_name} = #{model.name}#{pk&.present? ? ".order(#{order_by_txt.join(', ')})" : '.all'}\n"
-          code << "    @#{plural_table_name}.brick_select(params)\n"
+          code << "    @#{plural_table_name}._brick_querying(params, brick_col_names: true)\n"
           code << "  end\n"
 
           is_pk_string = nil
