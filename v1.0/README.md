@@ -34,7 +34,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.209        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.210        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -127,10 +127,10 @@ the various "Autogenerate ___ Files" sections.
   - [1.j. Autogenerate Migration Files from a Salesforce installation](#1i-autogenerate-migration-files-from-a-salesforce-installation)
   ### 1.i. Autogenerate Migration Files based on a Salesforce WSDL file
 - [2. Programmatic Enhancements](#2-programmatic-enhancements)
-  - [2.a. Using brick_select](#2a-using-brick_select)
+  - [2.a. Using brick_select and brick_pluck](#2a-using-brick_select-and-brick_pluck)
   - [2.b. Using brick_where](#2b-using-brick_where)
   - [2.c. Seeing the Resulting JOIN Strategy and SQL Used](#2c-seeing-the-resulting-join-strategy-and-sql-used)
-- [3. More Fancy Imports](#3-more-fancy-imports)
+- [3. More Fancy Associations](#3-more-fancy-associations)
   - [3.a. Self-referencing models](#3a-self-referencing-models)
   - [3.b. Polymorphic Inheritance](#3b-polymorphic-inheritance)
   - [3.c. Single Table Inheritance (STI)](#3c-single-table-inheritance-sti)
@@ -610,7 +610,66 @@ and this lets you create a Rails app that fully mirrors a Salesforce installatio
 
 ## 2. Programmatic Enhancements
 
-### 2.a. Using brick_select
+Brick has several extensions which greatly simplify querying ActiveRecord.
+
+### 2.a. Using brick_select and brick_pluck
+
+Imagine you have these three tables:
+```mermaid
+erDiagram
+City {
+bigint id "PK"
+varchar name
+}
+Flight {
+bigint id "PK"
+bigint arrival_id "   fk"
+bigint departure_id "   fk"
+datetime dt
+}
+Airport {
+bigint id "PK"
+bigint city_id "   fk"
+varchar code
+}
+
+Airport }o--|| City : ""
+
+Airport ||--o{ Flight : "flights_arrivals"
+
+Airport ||--o{ Flight : "flights_departures"
+```
+
+Say you would like to get a list of flights and include some detail about their departure and arrival airports.  For both departures and arrivals, you want to show the airport code and city name.  Because this requires these 4 JOINs:
+```ruby
+Flight.joins(departure: :city, arrival: :city)
+```
+and also since you can't easily predict the alias names that will get chosen for each of those four, normally you would need to first see what the resulting SQL would be.  And then from this you can find the alias (correlation) names for **airports** and **cities**.
+
+After investigating this resulting SQL, you would discover that the first time **airports** is JOINed in, it is called just that, and the second time, it gets called **arrival_flights** for whatever reason (even though it really is the **airports** table, and just JOINed another time).  Similar for **cities** -- first time when JOINed for departure airport it is just **cities**, and the second time JOINed to find the arrival city, it gets called **cities_airports**.  Knowing this, you could write this final query:
+
+```
+3.3.0 :004 > Flight.joins(departure: :city, arrival: :city)
+                   .pluck(:dt, 'airports.code AS departure_code',
+                               'cities.name AS departure_city',
+                               'arrivals_flights.code AS arrival_code',
+                               'cities_airports.name AS arrival_city')
+ =>
+[[Wed, 27 Mar 2024, "LHR", "London", "BCN", "Barcelona"],
+ [Fri, 29 Mar 2024, "AMS", "Amsterdam", "CDG", "Paris"]]
+3.3.0 :005 >
+```
+
+This is all a bit brittle.  What if (God forbid) Arel were to change the way that it assigns correlation names?  I mean, it probably won't because so many people have now hard-coded these alias names in place in this kind of way, so there would be a full-on uprising if it started working differently.  Then everyone would have to change those Arel-ish names around that they'd put into the `.select()` and `.where()` and `.pluck()` parts of their AR queries.  Balderdash!
+
+So imagine if you could write something like this instead, not using any of those weird hard-coded correlation names.  Not even having to separately say what associations you're JOINing across...
+
+```ruby
+Flight.brick_pluck(:dt, 'departure.code', 'departure.city.name',
+                        'arrival.code', 'arrival.city.name')
+```
+
+... almost looks like pseudocode, doesn't it?  But it's real!  And it works across any level of complexity of `belongs_to` and `has_many` that you have.  Throw it the works.  See if it can take it.  You can use both `brick_select` and `brick_pluck` -- they both work in this kind of way.
 
 ### 2.b. Using brick_where
 
@@ -655,7 +714,7 @@ can be integrated in order to work in tandem with The Brick.
 
 Please use GitHub's [issue tracker](https://github.com/lorint/brick/issues) to reach out to us.
 
-## Similar Gems
+## 4. Similar Gems
 
 (Are there any???)  A few aspects of **The Brick** resemble Django's [inspectdb](http://docs.djangoproject.com/en/dev/ref/django-admin/#inspectdb)
 and Laravel's [RevengeDb](https://github.com/daavelar/reveng-database), and in the Ruby world some
