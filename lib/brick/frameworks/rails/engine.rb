@@ -198,7 +198,7 @@ function linkSchemas() {
 
         # Treat ActiveStorage::Blob metadata as JSON
         if ::Brick.config.table_name_prefixes.fetch('active_storage_', nil) == 'ActiveStorage' &&
-           ActiveStorage.const_defined?('Blob')
+           ::ActiveStorage.const_defined?('Blob')
           unless (md = (::Brick.config.model_descrips ||= {})).key?('ActiveStorage::Blob')
             md['ActiveStorage::Blob'] = '[filename]'
           end
@@ -640,6 +640,11 @@ window.addEventListener(\"popstate\", linkSchemas);
                 # %%% Might only need hm_assoc.type and not the first part :)
                 type_col = hm_assoc.inverse_of&.foreign_type || hm_assoc.type
                 keys << [type_col, poly_type]
+              end
+              # ActiveStorage has_one_attached and has_many_attached needs additional filtering on the name
+              if (as_name = hm_assoc.klass&._active_storage_name(hm_assoc.name)) # ActiveStorage HMT
+                prefix = 'attachments.' if hm_assoc.through_reflection&.klass&.<= ::ActiveStorage::Attachment
+                keys << ["#{prefix}name", as_name]
               end
               keys.to_h
             end

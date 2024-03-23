@@ -445,19 +445,25 @@ function onImagesLoaded(event) {
           obj.send("#{model.brick_foreign_type(v.first)}=", v[1].first&.first&.name)
         end
       end if obj.new_record?
-      rtans = model.rich_text_association_names if model.respond_to?(:rich_text_association_names)
-      (model.column_names + (rtans || [])).each do |k|
+      hoa, hma, rtans = model._activestorage_actiontext_fields
+      (model.column_names + hoa + hma + rtans.keys).each do |k|
         pk_pos = (pk.index(k)&.+ 1)
         next if (pk_pos && pk.length == 1 && !bts.key?(k)) ||
                 ::Brick.config.metadata_columns.include?(k)
 
         col = model.columns_hash[k]
-        if !col && rtans&.include?(k)
-          k = k[10..-1] if k.start_with?('rich_text_')
-          col = (rt_col ||= ActiveRecord::ConnectionAdapters::Column.new(
-                              '', nil, ActiveRecord::ConnectionAdapters::SqlTypeMetadata.new(sql_type: 'varchar', type: :text)
-                            )
-                )
+        if !col
+          kwargs = if hoa.include?(k) # has_one_attached
+                     { sql_type: 'binary', type: :file }
+                   elsif hma.include?(k) # has_many_attached
+                     { sql_type: 'binary', type: :files }
+                   elsif rtans&.key?(k) # has_rich_text
+                     k = rtans[k]
+                     { sql_type: 'varchar', type: :text }
+                   end
+          col = (ActiveRecord::ConnectionAdapters::Column.new(
+                  '', nil, ActiveRecord::ConnectionAdapters::SqlTypeMetadata.new(**kwargs)
+                )) if kwargs
         end
         val = obj.attributes[k]
         out << "

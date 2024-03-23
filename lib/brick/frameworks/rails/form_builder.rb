@@ -110,6 +110,41 @@ module Brick::Rails::FormBuilder
                    ::Brick::Rails.display_binary(val)
                  end
         end
+      when :file, :files
+        if attached = begin
+                        self.object.send(method)
+                      rescue
+                      end
+          # Show any existing image(s)
+          existing = []
+          got_one = nil
+          (attached.respond_to?(:attachments) ? attached.attachments : [attached]).each do |attachment|
+            next unless (blob = attachment.blob)
+
+            existing << blob.key
+            out << "#{blob.filename}<br>"
+            url = begin
+                    self.object.send(method)&.url
+                  rescue StandardError => e
+                    # Another possible option:
+                    # Rails.application.routes.url_helpers.rails_blob_path(attachment, only_path: true)
+                    Rails.application.routes.url_helpers.rails_storage_proxy_path(attachment, only_path: true)
+                  end
+            out << if url
+                     "<img src=\"#{url}\" title=\"#{val}\">"
+                   else # Convert the raw binary to a Base64 image
+                     ::Brick::Rails.display_binary(attachment.download, 500_000)
+                   end
+            got_one = true
+            out << '<br>'
+          end
+          out << 'Update: ' if got_one
+        end
+        out << self.hidden_field("_brick_attached_#{method}", value: existing.join(',')) unless existing.blank?
+        # Render a "Choose File(s)" input element
+        args = [method.to_sym]
+        args << { multiple: true } if col&.type == :files
+        out << self.file_field(*args)
       when :primary_key
         is_revert = false
       when :json, :jsonb
