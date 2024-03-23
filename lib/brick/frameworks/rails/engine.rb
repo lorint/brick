@@ -641,6 +641,11 @@ window.addEventListener(\"popstate\", linkSchemas);
                 type_col = hm_assoc.inverse_of&.foreign_type || hm_assoc.type
                 keys << [type_col, poly_type]
               end
+              # ActiveStorage has_one_attached and has_many_attached needs additional filtering on the name
+              if (as_name = hm_assoc.klass&._active_storage_name(hm_assoc.name)) # ActiveStorage HMT
+                prefix = 'attachments.' if hm_assoc.through_reflection&.klass&.<= ActiveStorage::Attachment
+                keys << ["#{prefix}name", as_name]
+              end
               keys.to_h
             end
 

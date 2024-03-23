@@ -93,16 +93,44 @@ module ActiveRecord
       end
 
       def _brick_all_fields(skip_id = nil)
-        rtans = if respond_to?(:rich_text_association_names)
-                  rich_text_association_names&.map { |rtan| rtan.to_s.start_with?('rich_text_') ? rtan[10..-1] : rtan }
-                end
         col_names = columns_hash.keys
         # If it's a composite primary key then allow all the values through
         # TODO: Should disallow any autoincrement / SERIAL columns
         if skip_id && (pk_as_array = _pk_as_array).length == 1
           col_names -= _pk_as_array
         end
-        col_names.map(&:to_sym) + (rtans || [])
+        hoa, hma, rtans = _activestorage_actiontext_fields
+        col_names.map(&:to_sym) + hoa + hma.map { |as| { as => [] } } + rtans.values
+      end
+
+      # Return three lists of fields for this model --
+      # has_one_attached, has_many_attached, and has_rich_text
+      def _activestorage_actiontext_fields
+        fields = [[], [], {}]
+        if !(self <= ActiveStorage::Blob) && respond_to?(:generated_association_methods) # ActiveStorage
+          generated_association_methods.instance_methods.each do |method_sym|
+            method_str = method_sym.to_s
+            fields[0] << method_str[0..-13].to_sym if method_str.end_with?('_attachment=') # has_one_attached
+            fields[1] << method_str[0..-14].to_sym if method_str.end_with?('_attachments=') # has_many_attached
+          end
+        end
+        if respond_to?(:rich_text_association_names) # ActionText
+          rich_text_association_names&.each do |rtan| # has_rich_text
+            rtan_str = rtan.to_s
+            fields[2][rtan] = rtan_str.start_with?('rich_text_') ? rtan_str[10..-1].to_sym : rtan
+          end
+        end
+        fields
+      end
+
+      def _active_storage_name(col_name)
+        if Object.const_defined?('ActiveStorage') && (self <= ActiveStorage::Attachment || self <= ActiveStorage::Blob)
+          if (col_str = col_name.to_s).end_with?('_attachments')
+            col_str[0..-13]
+          elsif col_str.end_with?('_blobs')
+            col_str[0..-7]
+          end
+        end
       end
 
       def _pk_as_array
@@ -851,6 +879,8 @@ module ActiveRecord
                          end
                          through_sources.push(src_ref) unless src_ref.belongs_to?
                          from_clause = +"#{_br_quoted_name(through_sources.first.table_name)} br_t0"
+                         # ActiveStorage will not get the correct count unless we do some extra filtering later
+                         tbl_nm = 'br_t0' if Object.const_defined?('ActiveStorage') && through_sources.first.klass <= ActiveStorage::Attachment
                          fk_col = through_sources.shift.foreign_key
 
                          idx = 0
@@ -944,10 +974,14 @@ module ActiveRecord
           tbl_nm = hm.macro == :has_and_belongs_to_many ? hm.join_table : hm.table_name
           hm_table_name = _br_quoted_name(tbl_nm)
         end
+        # ActiveStorage has_many_attached needs a bit more filtering
+        if (k_str = hm.klass._active_storage_name(k))
+          where_ct_clause = "WHERE #{_br_quoted_name("#{tbl_nm}.name")} = '#{k_str}' "
+        end
         group_bys = ::Brick.is_oracle || is_mssql ? hm_selects : (1..hm_selects.length).to_a
         join_clause = "LEFT OUTER
 JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#{s}") }.join(', ')}, COUNT(#{'DISTINCT ' if hm.options[:through]}#{_br_quoted_name(count_column)
-          }) AS c_t_ FROM #{from_clause || hm_table_name} GROUP BY #{group_bys.join(', ')}) #{_br_quoted_name(tbl_alias)}"
+          }) AS c_t_ FROM #{from_clause || hm_table_name} #{where_ct_clause}GROUP BY #{group_bys.join(', ')}) #{_br_quoted_name(tbl_alias)}"
         self.joins_values |= ["#{join_clause} ON #{on_clause.join(' AND ')}"] # Same as:  joins!(...)
       end unless cust_col_override
       while (n = nix.pop)
@@ -2506,7 +2540,16 @@ class Object
               if (upd_hash ||= upd_params).fetch(model.inheritance_column, nil)&.strip == ''
                 upd_hash[model.inheritance_column] = nil
               end
-              obj.send(:update, upd_hash || upd_params)
+              # Do not clear out a has_many_attached field if it already has an entry and nothing is supplied
+              hoa, hma, rtans = model._activestorage_actiontext_fields
+              all_params = params[singular_table_name]
+              hma.each do |hma_field|
+                if upd_hash.fetch(hma_field) == [''] && # No new attachments...
+                   all_params&.fetch("_brick_attached_#{hma_field}", nil) # ...and there is something existing
+                  upd_hash.delete(hma_field)
+                end
+              end
+              obj.send(:update, upd_hash)
               if obj.errors.any? # Surface errors to the user in a flash message
                 flash.now.alert = (obj.errors.errors.map { |err| "<b>#{err.attribute}</b> #{err.message}" }.join(', '))
               end
