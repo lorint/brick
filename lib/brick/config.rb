@@ -238,7 +238,24 @@ module Brick
     end
 
     def treat_as_associative=(tables)
-      @mutex.synchronize { @treat_as_associative = tables }
+      @mutex.synchronize do
+        @treat_as_associative = if tables.is_a?(Hash)
+                                  tables.each_with_object({}) do |v, s|
+                                    # If it's :constellation, or anything else in a hash, we'll take its value
+                                    # (and hopefully in this case that would be either a string or nil)
+                                    dsl = ((v.last.is_a?(Symbol) && v.last) || v.last&.values&.last)
+                                    unless (dsl ||= '').is_a?(String) || dsl.is_a?(Symbol)
+                                      puts "Was really expecting #{v.first} / #{v.last.first&.first} / #{dsl} to be a string, " +
+                                           "so will disregard #{dsl} and just turn on simple constellation view for #{v.first}."
+                                    end
+                                    s[v.first] = v.last.is_a?(Hash) ? dsl : v.last
+                                  end
+                                elsif tables.is_a?(String) # comma-separated list?
+                                  tables.split(',').each_with_object({}) { |v, s| s[v.trim] = nil }
+                                else # Expecting an Array, and have no special presentation
+                                  tables&.each_with_object({}) { |v, s| s[v] = nil }
+                                end
+      end
     end
 
     # Polymorphic associations

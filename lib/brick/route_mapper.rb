@@ -287,6 +287,15 @@ module Brick
         #   post("/#{controller_prefix}brick_schema", to: 'brick_gem#schema_create', as: schema_as.to_s)
         # end
 
+        if (associate_as = "#{controller_prefix.tr('/', '_')}brick_associate".to_sym)
+          (
+            !(associate_route = instance_variable_get(:@set).named_routes.find { |route| route.first == associate_as }&.last) ||
+            !associate_route.ast.to_s.include?("/#{controller_prefix}brick_associate/")
+          )
+          post("/#{controller_prefix}brick_associate", to: 'brick_gem#associate', as: associate_as.to_s)
+          delete("/#{controller_prefix}brick_associate", to: 'brick_gem#unassociate')
+        end
+
         if ::Brick.config.add_orphans && (orphans_as = "#{controller_prefix.tr('/', '_')}brick_orphans".to_sym)
           (
             !(orphans_route = instance_variable_get(:@set).named_routes.find { |route| route.first == orphans_as }&.last) ||

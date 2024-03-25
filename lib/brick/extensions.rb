@@ -2078,6 +2078,23 @@ class Object
           #     add_csp_hash
           #   end
           # end
+
+          # Associate and unassociate in an N:M relation
+          self.define_method :associate do
+            if (base_class = (model = params['modelName']&.constantize).base_class)
+              args = params['args']
+              record = base_class.create(args[0] => args[1], args[2] => args[3])
+              add_csp_hash
+              render json: { data: record.id }
+            end
+          end
+          self.define_method :unassociate do
+            if (base_class = (model = params['modelName']&.constantize).base_class)
+              base_class.find_by(base_class._pk_as_array&.first => params['id']).delete
+              add_csp_hash
+            end
+          end
+
           self.define_method :orphans do
             instance_variable_set(:@orphans, ::Brick.find_orphans(::Brick.set_db_schema(params).first))
             add_csp_hash
