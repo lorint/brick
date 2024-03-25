@@ -3,27 +3,9 @@ module Brick::Rails::FormTags
   def brick_grid(relation = nil, sequence = nil, inclusions = nil, exclusions = nil,
                  cols = {}, bt_descrip: nil, poly_cols: nil, bts: {}, hms_keys: [], hms_cols: {},
                  show_header: nil, show_row_count: nil, show_erd_button: nil, show_in_app_button: nil, show_new_button: nil, show_avo_button: nil, show_aa_button: nil)
-    # When a relation is not provided, first see if one exists which matches the controller name
-    unless (relation ||= instance_variable_get("@#{controller_name}".to_sym))
-      # Failing that, dig through the instance variables with hopes to find something that is an ActiveRecord::Relation
-      case (collections = _brick_resource_from_iv).length
-      when 0
-        puts '#brick_grid:  Not having been provided with a collection to work from, searched through all instance variables to find an ActiveRecord::Relation.  None could be found.'
-        return
-      when 1 # If there's only one type match then simply get the first one, hoping that this is what they intended
-        relation = instance_variable_get(iv = (chosen = collections.first).last.first)
-        puts "#brick_grid:  Not having been provided with a collection to work from, first tried @#{controller_name}.
-              Failing that, have searched through instance variables and found #{iv} of type #{chosen.first.name}.
-              Running with it!"
-      else
-        myriad = collections.each_with_object([]) { |c, s| c.last.each { |iv| s << "#{iv} (#{c.first.name})" } }
-        puts "#brick_grid:  Not having been provided with a collection to work from, first tried @#{controller_name}, and then searched through all instance variables.
-              Found ActiveRecord::Relation objects of multiple types:
-                #{myriad.inspect}
-              Not knowing which of these to render, have erred on the side of caution and simply provided this warning message."
-        return
-      end
-    end
+    # When a relation is not provided, first see if one exists which matches the controller name or
+    # something has turned up in the instance variables.
+    relation ||= (instance_variable_get("@#{controller_name}".to_sym) || _brick_resource_from_iv)
 
     nfc = Brick.config.sidescroll.fetch(relation.table_name, nil)&.fetch(:num_frozen_columns, nil) ||
           Brick.config.sidescroll.fetch(:num_frozen_columns, nil) ||
@@ -541,6 +523,159 @@ function onImagesLoaded(event) {
     end
   end # brick_form_for
 
+  # ------------------------------------------
+  # Our cool N:M checkbox constellation editor
+  def brick_constellation(relation = nil, options = {}, x_axis: nil, y_axis: nil, bt_descrip: nil, bts: {})
+    x_axis, x_list, y_axis, y_list, existing = _n_m_prep(relation, x_axis, y_axis)
+
+    # HTML for constellation
+    prefix = options[:prefix]
+    out = +"<form action=\"#{"#{prefix}/" if prefix}brick_constellation\">
+<table id=\"#{table_name = relation.table_name.split('.').last}\" class=\"shadow\">
+  <thead><tr><td></td>
+"
+    # Header row with X axis values
+    x_list.each do |x_item|
+      out << "    <th>#{x_item.first}</th>
+"
+    end
+    out << "  </tr></thead>
+  <tbody>
+"
+    obj_path = "#{relation.klass._brick_index(:singular)}_path".to_sym
+    link_arrow = link_to('⇛', send(obj_path, '____'), { class: 'big-arrow' })
+    pk_as_array = relation.klass._pk_as_array
+    y_list.each do |y_item|
+      out << "  <tr><th>#{y_item.first}</th>
+"
+      x_list.each do |x_item|
+        checked = existing.find { |e| e[1] == x_item.last && e[2] == y_item.last }
+        item_id = pk_as_array.map { |pk_part| checked.first }.join('%2F') if checked
+        out << "    <td><input type=\"checkbox\" name=\"#{table_name}\" #{"x-id=\"#{item_id}\" " if checked
+                           }\" value=\"#{x_item.last}_#{y_item.last}\"#{' checked' if checked}>
+    #{link_arrow.gsub('____', item_id) if checked}</td>
+"
+      end
+      out << "  </tr>
+"
+    end
+    out << "  </tbody>
+</table>
+<script>
+  var constellation = document.getElementById(\"#{table_name}\");
+  var nextSib,
+      _this;
+  [... constellation.getElementsByTagName(\"INPUT\")].forEach(function (x) {
+    x.addEventListener(\"change\", function (y) {
+      _this = this;
+      if (this.checked) {
+        var ids = this.value.split(\"_\");
+        doFetch(\"POST\", {modelName: \"#{relation.klass.name}\",
+                           args: [#{x_axis[1].inspect}, ids[0], #{y_axis[1].inspect}, ids[1]],
+                           _brick_action: \"/#{prefix}brick_associate\"},
+          function (p) { // If it returns successfully, create an <a> element
+            p.text().then(function (response) {
+              var recordId = JSON.parse(response).data;
+              if (recordId) {
+                console.log(_this.getAttribute(\"x-id\"));
+                var tmp = document.createElement(\"DIV\");
+                tmp.innerHTML = \"#{link_arrow.gsub('"', '\"')}\".replace(\"____\", recordId);
+                _this.parentElement.append(tmp.firstChild);
+              }
+            });
+          }
+        );
+      } else if (nextSib = this.nextElementSibling) {
+        doFetch(\"DELETE\", {modelName: \"#{relation.klass.name}\",
+                id: this.getAttribute(\"x-id\"),
+                _brick_action: \"/#{prefix}brick_associate\"},
+          function (p) { // If it returns successfully, remove the an <a> element
+            _this.parentElement.removeChild(nextSib);
+          }
+        );
+      }
+    });
+  });
+</script>
+</form>
+"
+    out.html_safe
+  end # brick_constellation
+
+  # ---------------------------------
+  # Our cool N:M bezier visualisation
+  # (...... work in progress .......)
+  def brick_bezier(relation = nil, options = {}, x_axis: nil, y_axis: nil, bt_descrip: nil, bts: {})
+    x_axis, x_list, y_axis, y_list, existing = _n_m_prep(relation, x_axis, y_axis)
+    # HTML for constellation
+    # X axis (List on left side)
+    out = +"<table id=\"#{x_axis.first}\" class=\"shadow\">
+  <tbody>
+"
+    x_list.each_with_index { |x_item, idx| out << "    <tr>#{"<th rowspan=\"#{x_list.length}\">#{x_axis.first}</th>" if idx.zero?}<td>#{x_item.first}</td></tr>" }
+    out << "  </tbody>
+</table>
+"
+
+    # Y axis (List on right side)
+    out << "<table id=\"#{y_axis.first}\" class=\"shadow\">
+  <tbody>
+"
+    y_list.each_with_index { |y_item, idx| out << "    <tr><td>#{y_item.first}</td>#{"<th rowspan=\"#{y_list.length}\">#{y_axis.first}</th>" if idx.zero?}</tr>" }
+    out << "  </tbody>
+</table>
+"
+
+    out.html_safe
+  end # brick_bezier
+
+  def _n_m_prep(relation, x_axis, y_axis)
+    relation ||= (instance_variable_get("@#{controller_name}".to_sym) || _brick_resource_from_iv)
+    # Just find the first two BT things at this point
+
+    klass = relation.klass
+    rel = ::Brick.relations&.fetch(relation.table_name, nil)
+    # fk_assocs = rel[:fks].map { |k, fk| [fk[:assoc_name], fk[:fk]] }
+    fk_assocs = klass.reflect_on_all_associations.each_with_object([]) do |assoc, s|
+      s << [assoc.name.to_s, assoc.foreign_key, assoc.klass] if assoc.belongs_to?
+    end
+
+    if (x_axis = fk_assocs.find { |assoc| assoc.include?(x_axis) })
+      fk_assocs -= x_axis
+    end
+    if (y_axis = fk_assocs.find { |assoc| assoc.include?(y_axis) })
+      fk_assocs -= y_axis
+    end
+    y_axis = fk_assocs.shift unless y_axis
+    x_axis = fk_assocs.shift unless x_axis
+    puts "FK Leftovers: #{fk_assocs.join(', ')}" unless fk_assocs.empty?
+
+    existing = relation.each_with_object([]) do |row, s|
+                 row_id = row.send(klass.primary_key)
+                 if (x_id = row.send(x_axis[1])) && (y_id = row.send(y_axis[1]))
+                   s << [row_id, x_id, y_id]
+                 end
+               end
+    x_list = _expand_collection(x_axis.last.all)
+    y_list = _expand_collection(y_axis.last.all)
+    [x_axis, x_list, y_axis, y_list, existing]
+  end
+
+  def _expand_collection(relation)
+    collection, descrip_cols = relation.brick_list
+    details = []
+    obj_pk = relation.klass.primary_key
+    collection&.brick_(:each) do |obj|
+      details << [
+        obj.brick_descrip(
+          descrip_cols&.first&.map { |col2| obj.send(col2.last) },
+          obj_pk
+        ), obj.send(obj_pk)
+      ]
+    end
+    details
+  end
+
   # --------------------------------
   def link_to_brick(*args, **kwargs)
     return unless ::Brick.config.mode == :on
@@ -627,7 +762,7 @@ function onImagesLoaded(event) {
     else
       # puts "Warning:  link_to_brick could not find a class for \"#{controller_path}\" -- consider setting @_brick_model within that controller."
       # if (hits = res_names.keys & instance_variables.map { |v| v.to_s[1..-1] }).present?
-      if (links = _brick_resource_from_iv(true)).length == 1 # If there's only one match then use any text that was supplied
+      if (links = _brick_relation_from_iv(true)).length == 1 # If there's only one match then use any text that was supplied
         link_to_brick(text || links.first.last.join('/'), links.first.first, **kwargs)
       else
         links.each_with_object([]) do |v, s|
@@ -677,7 +812,7 @@ btnAddCol.addEventListener(\"click\", function () {
 private
 
   # Dig through all instance variables with hopes to find any that appear related to ActiveRecord
-  def _brick_resource_from_iv(trim_ampersand = false)
+  def _brick_relation_from_iv(trim_ampersand = false)
     instance_variables.each_with_object(Hash.new { |h, k| h[k] = [] }) do |name, s|
       iv_name = trim_ampersand ? name.to_s[1..-1] : name
       case (val = instance_variable_get(name))
@@ -686,6 +821,28 @@ private
       when ActiveRecord::Base
         s[val] << iv_name
       end
+    end
+  end
+
+  def _brick_resource_from_iv
+    # Failing that, dig through the instance variables with hopes to find something that is an ActiveRecord::Relation
+    case (collections = _brick_relation_from_iv).length
+    when 0
+      puts '#brick_grid:  Not having been provided with a collection to work from, searched through all instance variables to find an ActiveRecord::Relation.  None could be found.'
+      return
+    when 1 # If there's only one type match then simply get the first one, hoping that this is what they intended
+      relation = instance_variable_get(iv = (chosen = collections.first).last.first)
+      puts "#brick_grid:  Not having been provided with a collection to work from, first tried @#{controller_name}.
+            Failing that, have searched through instance variables and found #{iv} of type #{chosen.first.name}.
+            Running with it!"
+      relation
+    else
+      myriad = collections.each_with_object([]) { |c, s| c.last.each { |iv| s << "#{iv} (#{c.first.name})" } }
+      puts "#brick_grid:  Not having been provided with a collection to work from, first tried @#{controller_name}, and then searched through all instance variables.
+            Found ActiveRecord::Relation objects of multiple types:
+              #{myriad.inspect}
+            Not knowing which of these to render, have erred on the side of caution and simply provided this warning message."
+      return
     end
   end
 end

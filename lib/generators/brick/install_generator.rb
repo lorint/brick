@@ -310,6 +310,14 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # # have a table to still be treated as associative, causing HMTs to be auto-generated.)
   # Brick.treat_as_associative = ['flights']
 
+  # # Further, if you want to present a given associative table in various ways then you can choose a 2D
+  # # constellation map of checkboxes, or bezier curves showing the association between a list at the left and at
+  # # the right.  Indicating just :bezier is the same as :bezier_full, which shows the full list of all possible
+  # # things that can be associated.  :bezier_union shows just the ones that are currently wired up, and
+  # # :bezier_excluded, :bezier_excluded_left, or :bezier_excluded_right shows the ones not yet wired up.
+  # Brick.treat_as_associative = { 'flights' => [:bezier, 'departure.code', 'arrival.code'],
+  #                                'crew' => [:constellation, 'flight', 'personnel', '[used ? [used it!] : []]'] }
+
   # # We normally don't show the timestamp columns \"created_at\", \"updated_at\", and \"deleted_at\", and also do
   # # not consider them when finding associative tables to support an N:M association.  (That is, ones that can be a
   # # part of a has_many :through association.)  If you want to use different exclusion columns than our defaults

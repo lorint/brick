@@ -1315,9 +1315,26 @@ end
     # or
     # Rails.application.reloader.to_prepare do ... end
     self.class.class_exec { include ::Brick::Rails::FormTags } unless respond_to?(:brick_grid)
-    # Write out the mega-grid
+
+    #{# Determine if we should render an N:M representation or the standard "mega_grid"
+      taa = ::Brick.config.treat_as_associative&.fetch(res_name, nil)
+      options = {}
+      options[:prefix] = prefix unless prefix.blank?
+      if taa.is_a?(String) # Write out a constellation
+        representation = :constellation
+        "
+    brick_constellation(@#{res_name}, #{options.inspect}, bt_descrip: @_brick_bt_descrip, bts: bts)"
+      elsif taa.is_a?(Symbol) # Write out a bezier representation
+        "
+    brick_bezier(@#{res_name}, #{options.inspect}, bt_descrip: @_brick_bt_descrip, bts: bts)"
+      else # Write out the mega-grid
+        representation = :grid
+        "
     brick_grid(@#{res_name}, @_brick_sequence, @_brick_incl, @_brick_excl,
-               cols, bt_descrip: @_brick_bt_descrip, poly_cols: poly_cols, bts: bts, hms_keys: #{hms_keys.inspect}, hms_cols: {#{hms_columns.join(', ')}}) %>
+               cols, bt_descrip: @_brick_bt_descrip,
+               poly_cols: poly_cols, bts: bts, hms_keys: #{hms_keys.inspect}, hms_cols: {#{hms_columns.join(', ')}})"
+      end}
+ %>
 
 #{"<hr><%= link_to(\"New #{new_path_name = "new_#{path_obj_name}_path"
                            obj_name}\", #{new_path_name}, { class: '__brick' }) if respond_to?(:#{new_path_name}) %>" unless @_brick_model.is_view?}
@@ -1727,10 +1744,11 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
   }
   <%= \"  showErd();\n\" if (@_brick_erd || 0) > 0
 %></script>
-
-<% end
-
-%><script>
+<% end %>
+"
+              end
+              if representation == :grid
+                "<script>
 <% # Make column headers sort when clicked
    # %%% Create a smart javascript routine which can do this client-side %>
 [... document.getElementsByTagName(\"TH\")].forEach(function (th) {
