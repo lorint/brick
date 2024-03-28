@@ -334,6 +334,14 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # # user, then you can use model_descrips like this, putting expressions with property references in square brackets:
   # Brick.model_descrips = { 'User' => '[profile.firstname] [profile.lastname]' }
 
+  # # ERD SETTINGS
+
+  # # By default the Entity Relationship Diagram fragment which is available to be shown on the Grid page includes
+  # # primary and foreign keys.  In order for it to show all columns in all cases, set this value to +true+:
+  # Brick.config.erd_show_columns = true
+  # # or to show all columns for specific tables, supply an array of model names:
+  # Brick.config.erd_show_columns = ['User', 'OrderDetail']
+
   # # SINGLE TABLE INHERITANCE
 
   # # Specify STI subclasses either directly by name or as a general module prefix that should always relate to a specific
