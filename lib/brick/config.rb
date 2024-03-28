@@ -286,6 +286,14 @@ module Brick
       @mutex.synchronize { @model_descrips = descrips }
     end
 
+    def erd_show_columns
+      @mutex.synchronize { @erd_show_columns ||= [] }
+    end
+
+    def erd_show_columns=(descrips)
+      @mutex.synchronize { @erd_show_columns = descrips }
+    end
+
     def sti_namespace_prefixes
       @mutex.synchronize { @sti_namespace_prefixes ||= {} }
     end

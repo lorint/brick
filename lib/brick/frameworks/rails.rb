@@ -173,7 +173,11 @@ erDiagram
 <%=  erd_sidelinks(shown_classes, hm_class).html_safe %>
 <% end
    def dt_lookup(dt)
-     { 'integer' => 'int', }[dt] || dt&.tr(' ', '_') || 'int'
+     { 'integer' => 'int', 'character varying' => 'varchar', 'double precision' => 'float',
+       'timestamp without time zone' => 'timestamp',
+       'timestamp with time zone' => 'timestamp',
+       'time without time zone' => 'time',
+       'time with time zone' => 'time' }[dt] || dt&.tr(' ', '_') || 'int'
    end
    callbacks.merge({#{model_short_name.inspect} => #{model.name}}).each do |cb_k, cb_class|
      cb_relation = ::Brick.relations[cb_class.table_name]
@@ -192,6 +196,12 @@ erDiagram
        else # %%% Does not yet accommodate polymorphic BTs
     %>
     <%= \"#\{dt_lookup(cols[fk]&.first)} #\{fk} \\\"&nbsp;&nbsp;&nbsp;&nbsp;fk\\\"\".html_safe unless pkeys&.include?(fk) %><%
+       end
+     end %><%
+     if (erd_sc = Brick.config.erd_show_columns) == true || erd_sc&.include?(cb_class.name)
+       cols&.each do |col|
+         next if pkeys.include?(col.first) || fkeys.include?(col.first) %>
+    <%= \"#\{dt_lookup(col[1]&.first&.to_s)} #\{col.first}\".html_safe %><%
        end
      end %>
   }
