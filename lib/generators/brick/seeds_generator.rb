@@ -53,7 +53,12 @@ module Brick
           s[v_parts.first] = nil unless [::Brick.default_schema, 'public'].include?(v_parts.first)
         end
       end
-      seeds = +"# Seeds file for #{ActiveRecord::Base.connection.current_database}:\n"
+      seeds = +'# Seeds file for '
+      if (arbc = ActiveRecord::Base.connection).respond_to?(:current_database) # SQLite3 can't do this!
+        seeds << "#{arbc.current_database}:\n"
+      elsif (filename = arbc.instance_variable_get(:@connection_parameters)&.fetch(:database, nil))
+        seeds << "#{filename}:\n"
+      end
       done = []
       fks = {}
       stuck = {}

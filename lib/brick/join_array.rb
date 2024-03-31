@@ -165,6 +165,12 @@ module Brick
         end.tap { |member| push(member) }
       end
     end
+
+    def add_parts(parts)
+      s = self
+      parts[0..-3].each { |part| s = s[part.to_sym] }
+      s[parts[-2].to_sym] = nil # unless parts[-2].empty? # Using []= will "hydrate" any missing part(s) in our whole series
+    end
   end
 
   class JoinHash < Hash

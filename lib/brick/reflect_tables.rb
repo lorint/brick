@@ -341,7 +341,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
             fk[4].downcase! if fk[4] =~ /^[A-Z0-9_]+$/
             fk[2] = connection.send(:oracle_downcase, fk[2])
           end
-          ::Brick._add_bt_and_hm(fk, relations)
+          ::Brick._add_bt_and_hm(fk, relations, nil, nil)
         end
         kcus = nil # Allow this large item to be garbage collected
       end
