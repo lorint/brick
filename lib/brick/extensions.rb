@@ -196,6 +196,33 @@ module ActiveRecord
       def _brick_monetized_attributes
         @_brick_monetized_attributes ||= respond_to?(:monetized_attributes) ? monetized_attributes.values : {}
       end
+
+      # def acts_as_list(aal_cols = nil)
+      #   if aal_cols
+      #     aal_cols = [aal_cols] unless aal_cols.is_a?(Array)
+      #     @acts_as_list_cols = aal_cols.each_with_object([]) do |aal_col, s|
+      #       if column_names.include?(aal_col = aal_col.to_s) && !s.include?(aal_col)
+      #         s << aal_col
+      #       end
+      #     end
+      #   else
+      #     if [:integer, :bigint].include?(columns_hash['position']&.type)
+      #       @acts_as_list_cols = ['position']
+      #     else
+      #       return
+      #     end
+      #   end
+      #   # Override save in order to update neighbours when necessary
+      #   alias _brick_save save
+      #   def save
+      #     # @acts_as_list_cols
+      #     # -1
+      #     @acts_as_list_cols.each do |aal_col|
+      #       binding.pry if (aal_change = changes[aal_col])
+      #     end
+      #     _brick_save
+      #   end
+      # end
     end
 
     def self.brick_parse_dsl(join_array = nil, prefix = [], translations = {}, is_polymorphic = false, dsl = nil, emit_dsl = false)
@@ -1873,6 +1900,12 @@ class Object
             code << "  has_many :#{hmt_name}#{options.map { |opt| ", #{opt.first}: #{opt.last.inspect}" }.join}\n"
             new_model_class.send(:has_many, hmt_name.to_sym, **options)
           end
+        end
+
+        # Apply any acts_as_list things
+        if (aal_col = ::Brick.config.acts_as_list_cols.fetch(matching, nil))
+          new_model_class.send(:acts_as_list, aal_col.to_sym)
+          code << "  acts_as_list :#{aal_col}\n"
         end
 
         # Auto-support Ransack if it's present
