@@ -230,11 +230,7 @@ module ActiveRecord
             end
             if first_parts
               if (parts = prefix + first_parts + [parts[-1]]).length > 1 && klass
-                unless is_polymorphic
-                  s = join_array
-                  parts[0..-3].each { |v| s = s[v.to_sym] }
-                  s[parts[-2]] = nil # unless parts[-2].empty? # Using []= will "hydrate" any missing part(s) in our whole series
-                end
+                join_array.add_parts(parts) unless is_polymorphic
                 translations[parts[0..-2].join('.')] = klass
               end
               if klass&.column_names.exclude?(parts.last) &&
@@ -538,7 +534,11 @@ module ActiveRecord
     end
 
     def self.brick_where(*args)
-      (relation = all).brick_where(*args)
+      all.brick_where(*args)
+    end
+
+    def self.brick_group(*args, withhold_ids: true, **kwargs)
+      all.brick_group(*args, withhold_ids: withhold_ids, **kwargs)
     end
 
   private
@@ -612,27 +612,36 @@ module ActiveRecord
       pluck(selects)
     end
 
-    def _brick_querying(*args, withhold_ids: nil, params: {}, order_by: nil, translations: {},
+    def brick_group(*args, **kwargs)
+      grouping = args[0].is_a?(Array) ? args[0] : args
+      _brick_querying(select_values.frozen? ? select_values.dup : select_values,
+                      grouping: grouping, **kwargs)
+      self
+    end
+
+    def _brick_querying(*args, grouping: nil, withhold_ids: nil, params: {}, order_by: nil, translations: {},
                         join_array: ::Brick::JoinArray.new,
                         cust_col_override: nil,
                         brick_col_names: nil)
       selects = args[0].is_a?(Array) ? args[0] : args
-      if selects.present? && cust_col_override.nil? # See if there's any fancy ones in the select list
-        idx = 0
-        while idx < selects.length
-          v = selects[idx]
-          if v.is_a?(String) && v.index('.')
-            # No prefixes and not polymorphic
-            pieces = self.brick_parse_dsl(join_array, [], translations, false, dsl = "[#{v}]")
-            (cust_col_override ||= {})[v.tr('.', '_').to_sym] = [pieces, dsl, true]
-            selects.delete_at(idx)
-          else
-            idx += 1
+      unless cust_col_override
+        if selects.present? # See if there's any fancy ones in the select list
+          idx = 0
+          while idx < selects.length
+            v = selects[idx]
+            if v.is_a?(String) && v.index('.')
+              # No prefixes and not polymorphic
+              pieces = self.brick_parse_dsl(join_array, [], translations, false, dsl = "[#{v}]")
+              (cust_col_override ||= {})[v.tr('.', '_').to_sym] = [pieces, dsl, true]
+              selects.delete_at(idx)
+            else
+              idx += 1
+            end
           end
+        elsif selects.is_a?(Hash) && params.empty? # Make sense of things if they've passed in only params
+          params = selects
+          selects = []
         end
-      elsif selects.is_a?(Hash) && params.empty? && cust_col_override.nil? # Make sense of things if they've passed in only params
-        params = selects
-        selects = []
       end
       is_add_bts = is_add_hms = !cust_col_override
 
@@ -710,6 +719,14 @@ module ActiveRecord
         end
       end
 
+      # Establish necessary JOINs for any custom GROUP BY columns
+      grouping&.each do |group_item|
+        # JOIN in all the same ways as the pathing describes
+        if group_item.is_a?(String) && (ref_parts = group_item.split('.')).length > 1
+          join_array.add_parts(ref_parts)
+        end
+      end
+
       if join_array.present?
         if ActiveRecord.version < Gem::Version.new('4.2')
           self.joins_values += join_array # Same as:  joins!(join_array)
@@ -725,7 +742,9 @@ module ActiveRecord
 
       # CUSTOM COLUMNS
       # ==============
-      (cust_col_override || (!withhold_ids && klass._br_cust_cols))&.each do |k, cc|
+      cust_cols = cust_col_override
+      cust_cols ||= klass._br_cust_cols unless withhold_ids
+      cust_cols&.each do |k, cc|
         brick_links # Intentionally create a relation duplicate
         if @_brick_rel_dup.respond_to?(k) # Name already taken?
           # %%% Use ensure_unique here in this kind of fashion:
@@ -753,7 +772,7 @@ module ActiveRecord
             col_alias = "#{col_prefix}#{k}__#{table_name.tr('.', '_')}_#{cc_part.first}"
           elsif brick_col_names ||
                 used_col_aliases.key?(col_alias = k.to_s) # This sets a simpler custom column name if possible
-            while cc_part_idx > 0 &&
+            while cc_part_idx >= 0 &&
                   (col_alias = "#{col_prefix}#{k}__#{cc_part[cc_part_idx..-1].map(&:to_s).join('__').tr('.', '_')}") &&
                   used_col_aliases.key?(col_alias)
               cc_part_idx -= 1
@@ -988,6 +1007,20 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
         klass._br_hm_counts.delete(n)
       end
 
+      # Rewrite the group values to reference table and correlation names built out by AREL
+      if grouping
+        group2 = (gvgu = (group_values + grouping).uniq).each_with_object([]) do |v, s|
+          if v.is_a?(Symbol) || (v_parts = v.split('.')).length == 1
+            s << v
+          elsif (tbl_name = brick_links[v_parts[0..-2].join('.')]&.split('.')&.last)
+            s << "#{tbl_name}.#{v_parts.last}"
+          else
+            s << v
+          end
+        end
+        group!(*group2)
+      end
+
       unless wheres.empty?
         # Rewrite the wheres to reference table and correlation names built out by AREL
         where_nots = {}
@@ -998,7 +1031,7 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
           if (v_parts = v.first.split('.')).length == 1
             (is_not ? where_nots : s)[v.first] = v.last
           else
-            tbl_name = brick_links[v_parts.first].split('.').last
+            tbl_name = brick_links[v_parts[0..-2].join('.')].split('.').last
             (is_not ? where_nots : s)["#{tbl_name}.#{v_parts.last}"] = v.last
           end
         end
@@ -1095,13 +1128,9 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
         # && joins_values.empty? # Make sure we don't step on any toes if they've already specified JOIN things
         ja = nil
         opts.each do |k, v|
+          # JOIN in all the same ways as the pathing describes
           if k.is_a?(String) && (ref_parts = k.split('.')).length > 1
-            # JOIN in all the same ways as the pathing describes
-            linkage = (ja ||= ::Brick::JoinArray.new)
-            ref_parts[0..-3].each do |prefix_part|
-              linkage = linkage[prefix_part.to_sym]
-            end
-            linkage[ref_parts[-2].to_sym] = nil
+            (ja ||= ::Brick::JoinArray.new).add_parts(ref_parts)
           end
         end
         if ja&.present?
