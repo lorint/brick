@@ -71,10 +71,13 @@ module ActiveRecord
       end
 
       def real_model(params)
-        if params && (sub_model = params.fetch(type_col = inheritance_column, nil))
-          sub_model = sub_model.first if sub_model.is_a?(Array) # Support the params style that gets returned from #_brick_querying
+        if params && ((sub_name = params.fetch(inheritance_column, nil)).present? ||
+                      (sub_name = params[name.underscore]&.fetch(inheritance_column, nil)))
+          sub_name = sub_name.first if sub_name.is_a?(Array) # Support the params style that gets returned from #_brick_querying
           # Make sure the chosen model is really the same or a subclass of this model
-          (possible_model = sub_model.constantize) <= self ? possible_model : self
+          return self if sub_name.blank?
+
+          (possible_model = sub_name.constantize) <= self ? possible_model : self
         else
           self
         end
@@ -1738,7 +1741,9 @@ class Object
         end
         # Accommodate singular or camel-cased table names such as "order_detail" or "OrderDetails"
         code << "  self.table_name = '#{self.table_name = matching}'\n" if (inheritable_name || model_name).underscore.pluralize != matching
-        if (inh_col = ::Brick.config.sti_type_column.find { |_k, v| v.include?(matching) }&.first)
+
+        if (inh_col = relation.fetch(:sti_col, nil) ||
+                      ::Brick.config.sti_type_column.find { |_k, v| v.include?(matching) }&.first)
           new_model_class.inheritance_column = inh_col
           code << "  self.inheritance_column = '#{inh_col}'\n"
         end
@@ -1787,11 +1792,6 @@ class Object
           else
             code << "  # Could not identify any column(s) to use as a primary key\n"
           end
-        end
-
-        if (sti_col = relation.fetch(:sti_col, nil))
-          new_model_class.send(:'inheritance_column=', sti_col)
-          code << "  self.inheritance_column = #{sti_col.inspect}\n"
         end
 
         unless is_sti
@@ -2447,13 +2447,15 @@ class Object
           code << "    @#{plural_table_name}._brick_querying(params, brick_col_names: true)\n"
           code << "  end\n"
 
-          is_pk_string = nil
+          # ----------------------------------------------------------------------------------
+
           if pk.present?
             code << "  def show\n"
             code << "    #{find_by_name = "find_#{singular_table_name}"}\n"
             code << "  end\n"
             self.define_method :show do
               _schema, @_is_show_schema_list = ::Brick.set_db_schema(params)
+              _, singular_table_name = model.real_singular(params)
               instance_variable_set("@#{singular_table_name}".to_sym, find_obj)
               add_csp_hash("'unsafe-inline'")
             end
@@ -2509,12 +2511,20 @@ class Object
               end
               render json: { result: ::Brick.unexclude_column(table_name, col) }
             else
-              created_obj = model.send(:create, send(params_name_sym))
+              real_model = model.real_model(params)
+              singular_table_name = real_model.name.underscore.split('/').last
+              created_obj = model.send(:new, send(params_name_sym))
+              if created_obj.respond_to?(inh_col = model.inheritance_column) && created_obj.send(inh_col) == ''
+                created_obj.send("#{inh_col}=", model.name)
+              end
+              created_obj.save
               @_lookup_context.instance_variable_set(:@_brick_model, model)
               if created_obj.errors.empty?
+                instance_variable_set("@#{table_name}".to_sym, created_obj)
                 index
                 render :index
               else # Surface errors to the user in a flash message
+                instance_variable_set("@#{real_model.name.underscore}".to_sym, created_obj)
                 flash.now.alert = (created_obj.errors.errors.map { |err| "<b>#{err.attribute}</b> #{err.message}" }.join(', '))
                 new
                 render :new
@@ -2646,11 +2656,11 @@ class Object
           if is_need_params
             code << "  def #{params_name}\n"
             permits_txt = model._brick_find_permits(model, permits = model._brick_all_fields(true))
-            code << "    params.require(:#{require_name = model.name.underscore.tr('/', '_')
+            code << "    params.require(:#{model.base_class.name.underscore.tr('/', '_')
                              }).permit(#{permits_txt.map(&:inspect).join(', ')})\n"
             code << "  end\n"
             self.define_method(params_name) do
-              params.require(require_name.to_sym).permit(permits)
+              params.require(model.base_class.name.underscore.tr('/', '_').to_sym).permit(permits)
             end
             private params_name
             # Get column names for params from relations[model.table_name][:cols].keys

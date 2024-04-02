@@ -377,13 +377,13 @@ if (headerTop) {
   window.addEventListener(\"resize\", function(event) {
     setHeaderSizes();
   }, true);#{
-if !klass.is_view? && respond_to?(new_path_name = "new_#{klass._brick_index(:singular)}_path")
+if !klass.is_view?
   "
 var headerButtonBox = document.getElementById(\"headerButtonBox\");
 if (headerButtonBox) {
   var addNew = document.createElement(\"A\");
   addNew.id = \"addNew\";
-  addNew.href = \"#{send(new_path_name)}\";
+  addNew.href = \"#{link_to_brick(klass, new: true, path_only: true)}\";
   addNew.title = \"New #{table_name.singularize}\";
   addNew.innerHTML = '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\"><path fill=\"#fff\" d=\"M24 10h-10v-10h-4v10h-10v4h10v10h4v-10h10z\"/></svg>';
   headerButtonBox.append(addNew);
@@ -418,7 +418,7 @@ function onImagesLoaded(event) {
   def brick_form_for(obj, options = {}, model = obj.class, bts = {}, pk = (obj.class.primary_key || []))
     pk = [pk] unless pk.is_a?(Array)
     pk.map!(&:to_s)
-    form_for(obj.becomes(model), options) do |f|
+    form_for(obj.becomes(model.base_class), options) do |f|
       out = +'<table class="shadow">'
       has_fields = false
       # If it's a new record, set any default polymorphic types
@@ -690,8 +690,10 @@ function onImagesLoaded(event) {
       kwargs[:visited] = {}
     end
 
-    text = ((args.first.is_a?(String) || args.first.is_a?(Proc)) && args.shift) || args[1]
-    text = text.call if text.is_a?(Proc)
+    unless (is_path_only = kwargs.delete(:path_only))
+      text = ((args.first.is_a?(String) || args.first.is_a?(Proc)) && args.shift) || args[1]
+      text = text.call if text.is_a?(Proc)
+    end
     klass_or_obj = ((args.first.is_a?(ActiveRecord::Relation) ||
                      args.first.is_a?(ActiveRecord::Base) ||
                      args.first.is_a?(Class)) &&
@@ -739,6 +741,8 @@ function onImagesLoaded(event) {
           filter_parts << "#{whr.first}=#{whr.last}" if whr.last && !whr.last.is_a?(Array)
         end
         klass_or_obj = klass_or_obj.klass
+      end
+      if klass_or_obj.is_a?(Class) && klass_or_obj <= ActiveRecord::Base
         type_col = klass_or_obj.inheritance_column
         if klass_or_obj.column_names.include?(type_col) && klass_or_obj.name != klass_or_obj.base_class.name
           filter_parts << "#{type_col}=#{klass_or_obj.name}"
@@ -750,11 +754,22 @@ function onImagesLoaded(event) {
       relation = ::Brick.relations.fetch(rel_name || klass.table_name, nil)
       if (klass_or_obj&.is_a?(Class) && klass_or_obj < ActiveRecord::Base) ||
          (klass_or_obj&.is_a?(ActiveRecord::Base) && klass_or_obj.new_record? && (klass_or_obj = klass_or_obj.class))
-        path = (proc = kwargs[:index_proc]) ? proc.call(klass_or_obj, relation) : "#{app_routes.path_for(controller: klass_or_obj.base_class._brick_index(nil, '/', relation, true), action: :index)}#{filter}"
-        lt_args = [text || "Index for #{klass_or_obj.name.pluralize}", path]
+        if kwargs.delete(:new)
+          path = (proc = kwargs[:new_proc]) ? proc.call(klass_or_obj, relation) : "#{app_routes.path_for(controller: klass_or_obj.base_class._brick_index(:singular, '/', relation, true), action: :new)}#{filter}"
+          return path if is_path_only
+
+          lt_args = [text || "New #{klass_or_obj.name}", path]
+        else
+          path = (proc = kwargs[:index_proc]) ? proc.call(klass_or_obj, relation) : "#{app_routes.path_for(controller: klass_or_obj.base_class._brick_index(nil, '/', relation, true), action: :index)}#{filter}"
+          return path if is_path_only
+
+          lt_args = [text || "Index for #{klass_or_obj.name.pluralize}", path]
+        end
       else
         # If there are multiple incoming parameters then last one is probably the actual ID, and first few might be some nested tree of stuff leading up to it
         path = (proc = kwargs[:show_proc]) ? proc.call(klass_or_obj, relation) : "#{app_routes.path_for(controller: klass_or_obj.class.base_class._brick_index(nil, '/', relation, true), action: :show, id: klass_or_obj)}#{filter}"
+        return path if is_path_only
+
         lt_args = [text || "Show this #{klass_or_obj.class.name}", path]
       end
       kwargs.delete(:visited)

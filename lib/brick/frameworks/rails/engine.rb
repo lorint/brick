@@ -1336,8 +1336,7 @@ end
       end}
  %>
 
-#{"<hr><%= link_to(\"New #{new_path_name = "new_#{path_obj_name}_path"
-                           obj_name}\", #{new_path_name}, { class: '__brick' }) if respond_to?(:#{new_path_name}) %>" unless @_brick_model.is_view?}
+#{"<hr><%= link_to_brick(model, new: true, class: '__brick') %>" unless @_brick_model.is_view?}
 #{script}
 </body>
 </html>
@@ -1437,7 +1436,7 @@ end
 <head>
 #{css}
 <title><%=
-  base_model = (model = (obj = @#{obj_name})&.class).base_class
+  base_model = (model = (obj = @#{obj_name}).class).base_class
   see_all_path = send(\"#\{base_model._brick_index}_path\")
 #{(inh_col = @_brick_model.inheritance_column).present? &&
 "  if obj.respond_to?(:#{inh_col}) && (model_name = @#{obj_name}.#{inh_col}) &&
@@ -1445,6 +1444,7 @@ end
     see_all_path << \"?#{inh_col}=#\{model_name}\"
   end
   model_name = base_model.name if model_name.is_a?(Numeric)"}
+  model_name = nil if model_name == ''
   page_title = (\"#\{model_name ||= model.name}: #\{obj&.brick_descrip || controller_name}\")
 %></title>
 </head>
@@ -1510,8 +1510,12 @@ end
      # path_options = [obj.#{pk}]
      # path_options << { '_brick_schema':  } if
      options = {}
-     path_helper = obj.new_record? ? #{model_name}._brick_index : #{model_name}._brick_index(:singular)
-     options[:url] = send(\"#\{path_helper}_path\".to_sym, obj) if ::Brick.config.path_prefix || (path_helper != obj.class.table_name)
+     options[:url] = if obj.new_record?
+                       link_to_brick(obj.class, path_only: true) # Properly supports STI, but only works for :new
+                     else
+                       path_helper = obj.new_record? ? #{model_name}._brick_index : #{model_name}._brick_index(:singular)
+                       options[:url] = send(\"#\{path_helper}_path\".to_sym, obj) if ::Brick.config.path_prefix || (path_helper != obj.class.table_name)
+                     end
 %>
   <br><br>
 
