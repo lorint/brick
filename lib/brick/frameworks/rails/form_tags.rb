@@ -6,70 +6,20 @@ module Brick::Rails::FormTags
     # When a relation is not provided, first see if one exists which matches the controller name or
     # something has turned up in the instance variables.
     relation ||= (instance_variable_get("@#{controller_name}".to_sym) || _brick_resource_from_iv)
+    klass = relation.klass
 
     nfc = Brick.config.sidescroll.fetch(relation.table_name, nil)&.fetch(:num_frozen_columns, nil) ||
           Brick.config.sidescroll.fetch(:num_frozen_columns, nil) ||
           0
 
-    # HTML for brick_grid
-    out = +"<div id=\"headerTopContainer\"><table id=\"headerTop\"></table>
-"
-    klass = relation.klass
+    out = +''
     rel = ::Brick.relations&.fetch(relation.table_name, nil)
-    unless show_header == false
-      out << "  <div id=\"headerTopAddNew\">
-    <div id=\"headerButtonBox\">
-"
-      unless show_row_count == false
-        out << "      <div id=\"rowCount\"></div>
-"
-      end
-      unless show_erd_button == false
-        out << "      <div id=\"imgErd\" title=\"Show ERD\"></div>
-"
-      end
-      if rel && show_in_app_button != false && (in_app = rel.fetch(:existing, nil)&.fetch(:index, nil))
-        begin
-          in_app = send("#{in_app}_path") if in_app.is_a?(Symbol)
-          out << "      <td title=\"Show in app\">#{link_to(::Brick::Rails::IN_APP.html_safe, in_app)}</td>
-"
-        rescue ActionController::UrlGenerationError # Avoid snags like "No route matches {:action=>"index", :controller=>"categories/products"}, missing required keys: [:category_id]"
-        end
-      end
-      if show_avo_button != false && Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) && klass.name.exclude?('::')
-        out << "
-        <td>#{link_to_brick(
-            ::Brick::Rails::AVO_SVG.html_safe,
-            { index_proc: Proc.new do |_avo_model, relation|
-                            path_helper = "resources_#{relation.fetch(:auto_prefixed_schema, nil)}#{klass.model_name.route_key}_path".to_sym
-                            ::Avo.railtie_routes_url_helpers.send(path_helper) if ::Avo.railtie_routes_url_helpers.respond_to?(path_helper)
-                          end,
-              title: "#{klass.name} in Avo" }
-        )}</td>
-"
-      end
-
-      if show_aa_button != false && Object.const_defined?('ActiveAdmin')
-        ActiveAdmin.application.namespaces.names.each do |ns|
-          out << "
-        <td>#{link_to_brick(
-            ::Brick::Rails::AA_PNG.html_safe,
-            { index_proc: Proc.new do |aa_model, relation|
-                            path_helper = "#{ns}_#{relation.fetch(:auto_prefixed_schema, nil)}#{aa_model.model_name.route_key}_path".to_sym
-                            send(path_helper) if respond_to?(path_helper)
-                          end,
-              title: "#{klass.name} in ActiveAdmin" }
-        )}</td>
-"
-        end
-      end
-    out << "    </div>
-  </div>
-"
+    if show_header != false
+      out << brick_header(rel, klass, show_row_count, show_erd_button, show_in_app_button, show_avo_button, show_aa_button)
     end
 
-    out << "</div>
-<table id=\"#{table_name = relation.table_name.split('.').last}\" class=\"shadow\"#{ " x-num-frozen=\"#{nfc}\"" if nfc.positive? }>
+    # HTML for brick_grid
+    out << "<table id=\"#{table_name = relation.table_name.split('.').last}\" class=\"shadow\"#{ " x-num-frozen=\"#{nfc}\"" if nfc.positive? }>
   <thead><tr>"
     pk = klass.primary_key || []
     pk = [pk] unless pk.is_a?(Array)
@@ -145,13 +95,13 @@ module Brick::Rails::FormTags
     row_count = 0
     relation.each do |obj|
       out << "<tr>\n"
-      out << "<td class=\"col-sticky\">#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym,
+      out << "<td class=\"col-sticky alternating-gray\">#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym,
                                       pk.map { |pk_part| obj.send(pk_part.to_sym) }), { class: 'big-arrow' })}</td>\n" if pk.present?
       sequence.each_with_index do |col_name, idx|
         val = obj.attributes[col_name]
         bt = bts[col_name] || composite_bt_names[col_name]
         out << '<td'
-        (classes ||= []) << 'col-sticky' if idx < nfc
+        (classes ||= []) << 'col-sticky alternating-gray' if idx < nfc
         (classes ||= []) << 'dimmed' unless cols.key?(col_name) || (cust_col = cust_cols[col_name]) ||
                                             (col_name.is_a?(Symbol) && bts.key?(col_name)) # HOT
         (classes ||= []) << 'right' if val.is_a?(Numeric) && !bt
@@ -255,161 +205,14 @@ module Brick::Rails::FormTags
       out << '</tr>'
       row_count += 1
     end
+    out << "  </tbody>
+</table>
+"
     if rel && (total_row_count = rel.fetch(:rowcount, nil))
       total_row_count = total_row_count > row_count ? " (out of #{total_row_count})" : nil
     end
-    out << "  </tbody>
-</table>
-<script>
-  var rowCount = document.getElementById(\"rowCount\");
-  if (rowCount) rowCount.innerHTML = \"#{pluralize(row_count, "row")}#{total_row_count} &nbsp;\";
-</script>
-"
 
-    # Javascript for brick_grid
-    (@_brick_javascripts ||= {})[:grid_scripts] = "
-var #{table_name}HtColumns;
-
-// Snag first TR for sticky header
-var grid = document.getElementById(\"#{table_name}\");
-#{table_name}HtColumns = grid && [grid.getElementsByTagName(\"TR\")[0]];
-var headerTop = document.getElementById(\"headerTop\");
-var headerCols;
-if (grid) {
-  // COLUMN HEADER AND TABLE CELL HIGHLIGHTING
-  var gridHighHeader = null,
-      gridHighCell = null;
-  grid.addEventListener(\"mouseenter\", gridMove);
-  grid.addEventListener(\"mousemove\", gridMove);
-  grid.addEventListener(\"mouseleave\", function (evt) {
-    if (gridHighCell) gridHighCell.classList.remove(\"highlight\");
-    gridHighCell = null;
-    if (gridHighHeader) gridHighHeader.classList.remove(\"highlight\");
-    gridHighHeader = null;
-  });
-  function gridMove(evt) {
-    var lastHighCell = gridHighCell;
-    gridHighCell = document.elementFromPoint(evt.x, evt.y);
-    while (gridHighCell && gridHighCell.tagName !== \"TD\" && gridHighCell.tagName !== \"TH\")
-      gridHighCell = gridHighCell.parentElement;
-    if (gridHighCell) {
-      if (lastHighCell !== gridHighCell) {
-        gridHighCell.classList.add(\"highlight\");
-        if (lastHighCell) lastHighCell.classList.remove(\"highlight\");
-      }
-      var lastHighHeader = gridHighHeader;
-      if ((gridHighHeader = headerCols[gridHighCell.cellIndex]) && lastHighHeader !== gridHighHeader) {
-        if (gridHighHeader) gridHighHeader.classList.add(\"highlight\");
-        if (lastHighHeader) lastHighHeader.classList.remove(\"highlight\");
-      }
-    }
-  }
-  // // LESS TOUCHY NAVIGATION BACK OR FORWARD IN HISTORY WHEN USING MOUSE WHEEL
-  // grid.addEventListener(\"wheel\", function (evt) {
-  //   grid.scrollLeft += evt.deltaX;
-  //   document.body.scrollTop += (evt.deltaY * 0.6);
-  //   evt.preventDefault();
-  //   return false;
-  // });
-}
-function setHeaderSizes() {
-  if (grid.clientWidth > window.outerWidth)
-    document.getElementById(\"titleBox\").style.width = grid.clientWidth;
-  // console.log(\"start\");
-  // See if the headerTop is already populated
-  // %%% Grab the TRs from headerTop, clear it out, do this stuff, add them back
-  headerTop.innerHTML = \"\"; // %%% Would love to not have to clear it out like this every time!  (Currently doing this to support resize events.)
-  var isEmpty = headerTop.childElementCount === 0;
-  var numFixed = parseInt(grid.getAttribute(\"x-num-frozen\")) || 0;
-  var fixedColLefts = [0];
-
-  // Set up proper sizings of sticky column header
-  var node;
-  for (var j = 0; j < #{table_name}HtColumns.length; ++j) {
-    var row = #{table_name}HtColumns[j];
-    var tr = isEmpty ? document.createElement(\"TR\") : headerTop.childNodes[j];
-    tr.innerHTML = row.innerHTML.trim();
-    var curLeft = 0.0;
-    // Match up widths from the original column headers
-    for (var i = 0; i < row.childNodes.length; ++i) {
-      node = row.childNodes[i];
-      if (node.nodeType === 1) {
-        var th = tr.childNodes[i];
-        th.style.minWidth = th.style.maxWidth = getComputedStyle(node).width;
-        // Add \"left: __px\" style to the fixed-width column THs
-        if (i <= numFixed) {
-          th.style.position = \"sticky\";
-          th.style.backgroundColor = \"#008061\";
-          th.style.zIndex = \"1\";
-          th.style.left = curLeft + \"px\";
-          fixedColLefts.push(curLeft += node.clientWidth);
-        }
-        if (#{pk&.present? ? 'i > 0' : 'true'}) {
-          // Add <span> at the end
-          var span = document.createElement(\"SPAN\");
-          span.className = \"exclude\";
-          span.innerHTML = \"X\";
-          span.addEventListener(\"click\", function (e) {
-            e.stopPropagation();
-            doFetch(\"POST\", {_brick_exclude: this.parentElement.getAttribute(\"x-order\")});
-          });
-          th.appendChild(span);
-        }
-      }
-    }
-    headerCols = tr.childNodes;
-    if (isEmpty) headerTop.appendChild(tr);
-  }
-  // Add \"left: __px\" style to all fixed-width column TDs
-  [...grid.children[1].children].forEach(function (row) {
-    for (var j = 1; j <= numFixed; ++j) {
-      row.children[j].style.left = fixedColLefts[j] + 'px';
-    }
-  });
-  grid.style.marginTop = \"-\" + getComputedStyle(headerTop).height;
-  // console.log(\"end\");
-}
-
-if (headerTop) {
-  onImagesLoaded(function() {
-    setHeaderSizes();
-  });
-  window.addEventListener(\"resize\", function(event) {
-    setHeaderSizes();
-  }, true);#{
-if !klass.is_view?
-  "
-var headerButtonBox = document.getElementById(\"headerButtonBox\");
-if (headerButtonBox) {
-  var addNew = document.createElement(\"A\");
-  addNew.id = \"addNew\";
-  addNew.href = \"#{link_to_brick(klass, new: true, path_only: true)}\";
-  addNew.title = \"New #{table_name.singularize}\";
-  addNew.innerHTML = '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\"><path fill=\"#fff\" d=\"M24 10h-10v-10h-4v10h-10v4h10v10h4v-10h10z\"/></svg>';
-  headerButtonBox.append(addNew);
-}
-"
-end}
-}
-
-function onImagesLoaded(event) {
-  var images = document.getElementsByTagName(\"IMG\");
-  var numLoaded = images.length;
-  for (var i = 0; i < images.length; ++i) {
-    if (images[i].complete)
-      --numLoaded;
-    else {
-      images[i].addEventListener(\"load\", function() {
-        if (--numLoaded <= 0)
-          event();
-      });
-    }
-  }
-  if (numLoaded <= 0)
-    event();
-}
-"
-
+    set_grid_javascript(klass, pk, show_new_button, row_count, total_row_count)
     out.html_safe
   end # brick_grid
 
@@ -525,28 +328,37 @@ function onImagesLoaded(event) {
 
   # ------------------------------------------
   # Our cool N:M checkbox constellation editor
-  def brick_constellation(relation = nil, options = {}, x_axis: nil, y_axis: nil, bt_descrip: nil, bts: {})
+  def brick_constellation(relation = nil, options = {}, x_axis: nil, y_axis: nil, bt_descrip: nil, bts: {},
+                          show_header: nil, show_erd_button: nil, show_in_app_button: nil, show_new_button: nil, show_avo_button: nil, show_aa_button: nil)
+    relation ||= (instance_variable_get("@#{controller_name}".to_sym) || _brick_resource_from_iv)
+    klass = relation.klass
     x_axis, x_list, y_axis, y_list, existing = _n_m_prep(relation, x_axis, y_axis)
+
+    out = +''
+    rel = ::Brick.relations&.fetch(relation.table_name, nil)
+    if show_header != false
+      out << brick_header(rel, klass, false, show_erd_button, show_in_app_button, show_avo_button, show_aa_button)
+    end
 
     # HTML for constellation
     prefix = options[:prefix]
-    out = +"<form action=\"#{"#{prefix}/" if prefix}brick_constellation\">
+    out << "<form action=\"#{"#{prefix}/" if prefix}brick_constellation\">
 <table id=\"#{table_name = relation.table_name.split('.').last}\" class=\"shadow\">
-  <thead><tr><td></td>
-"
+  <thead><tr><td class=\"brick-note\">Checkbox changes are saved immediately</td>"
     # Header row with X axis values
+    # (In order for grid highlighting to function, these TH elements must have no whitespace between them.
+    # In this way the Javascript headerCols array will be set properly.
     x_list.each do |x_item|
-      out << "    <th>#{x_item.first}</th>
-"
+      out << "<th>#{x_item.first}</th>"
     end
-    out << "  </tr></thead>
+    out << "</tr></thead>
   <tbody>
 "
-    obj_path = "#{relation.klass._brick_index(:singular)}_path".to_sym
+    obj_path = "#{klass._brick_index(:singular)}_path".to_sym
     link_arrow = link_to('⇛', send(obj_path, '____'), { class: 'big-arrow' })
-    pk_as_array = relation.klass._pk_as_array
+    pk_as_array = klass._pk_as_array
     y_list.each do |y_item|
-      out << "  <tr><th>#{y_item.first}</th>
+      out << "  <tr><th class=\"col-sticky\">#{y_item.first}</th>
 "
       x_list.each do |x_item|
         checked = existing.find { |e| e[1] == x_item.last && e[2] == y_item.last }
@@ -570,7 +382,7 @@ function onImagesLoaded(event) {
       _this = this;
       if (this.checked) {
         var ids = this.value.split(\"_\");
-        doFetch(\"POST\", {modelName: \"#{relation.klass.name}\",
+        doFetch(\"POST\", {modelName: \"#{klass.name}\",
                            args: [#{x_axis[1].inspect}, ids[0], #{y_axis[1].inspect}, ids[1]],
                            _brick_action: \"/#{prefix}brick_associate\"},
           function (p) { // If it returns successfully, create an <a> element
@@ -586,7 +398,7 @@ function onImagesLoaded(event) {
           }
         );
       } else if (nextSib = this.nextElementSibling) {
-        doFetch(\"DELETE\", {modelName: \"#{relation.klass.name}\",
+        doFetch(\"DELETE\", {modelName: \"#{klass.name}\",
                 id: this.getAttribute(\"x-id\"),
                 _brick_action: \"/#{prefix}brick_associate\"},
           function (p) { // If it returns successfully, remove the an <a> element
@@ -599,6 +411,7 @@ function onImagesLoaded(event) {
 </script>
 </form>
 "
+    set_grid_javascript(klass, pk_as_array, false)
     out.html_safe
   end # brick_constellation
 
@@ -606,7 +419,9 @@ function onImagesLoaded(event) {
   # Our cool N:M bezier visualisation
   # (...... work in progress .......)
   def brick_bezier(relation = nil, options = {}, x_axis: nil, y_axis: nil, bt_descrip: nil, bts: {})
+    relation ||= (instance_variable_get("@#{controller_name}".to_sym) || _brick_resource_from_iv)
     x_axis, x_list, y_axis, y_list, existing = _n_m_prep(relation, x_axis, y_axis)
+    rel = ::Brick.relations&.fetch(relation.table_name, nil)
     # HTML for constellation
     # X axis (List on left side)
     out = +"<table id=\"#{x_axis.first}\" class=\"shadow\">
@@ -629,13 +444,222 @@ function onImagesLoaded(event) {
     out.html_safe
   end # brick_bezier
 
+  # ---------------------------------------------------------------------------------------------------------
+  def brick_header(rel, klass, show_row_count, show_erd_button, show_in_app_button, show_avo_button, show_aa_button)
+    out = +"<div id=\"headerTopContainer\"><table id=\"headerTop\"></table>
+  <div id=\"headerTopAddNew\">
+    <div id=\"headerButtonBox\">
+"
+    unless show_row_count == false
+      out << "      <div id=\"rowCount\"></div>
+"
+    end
+    unless show_erd_button == false
+      out << "      <div id=\"imgErd\" title=\"Show ERD\"></div>
+"
+    end
+    if rel && show_in_app_button != false && (in_app = rel.fetch(:existing, nil)&.fetch(:index, nil))
+      begin
+        in_app = send("#{in_app}_path") if in_app.is_a?(Symbol)
+        out << "      <td title=\"Show in app\">#{link_to(::Brick::Rails::IN_APP.html_safe, in_app)}</td>
+"
+      rescue ActionController::UrlGenerationError # Avoid snags like "No route matches {:action=>"index", :controller=>"categories/products"}, missing required keys: [:category_id]"
+      end
+    end
+    if show_avo_button != false && Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) && klass.name.exclude?('::')
+      out << "
+        <td>#{link_to_brick(
+            ::Brick::Rails::AVO_SVG.html_safe,
+            { index_proc: Proc.new do |_avo_model, relation|
+                            path_helper = "resources_#{relation.fetch(:auto_prefixed_schema, nil)}#{klass.model_name.route_key}_path".to_sym
+                            ::Avo.railtie_routes_url_helpers.send(path_helper) if ::Avo.railtie_routes_url_helpers.respond_to?(path_helper)
+                          end,
+              title: "#{klass.name} in Avo" }
+        )}</td>
+"
+    end
+
+    if show_aa_button != false && Object.const_defined?('ActiveAdmin')
+      ActiveAdmin.application.namespaces.names.each do |ns|
+        out << "
+        <td>#{link_to_brick(
+            ::Brick::Rails::AA_PNG.html_safe,
+            { index_proc: Proc.new do |aa_model, relation|
+                            path_helper = "#{ns}_#{relation.fetch(:auto_prefixed_schema, nil)}#{aa_model.model_name.route_key}_path".to_sym
+                            send(path_helper) if respond_to?(path_helper)
+                          end,
+              title: "#{rel[:class_name]} in ActiveAdmin" }
+        )}</td>
+"
+      end
+    end
+    out << "    </div>
+  </div>
+</div>
+"
+    out
+  end # brick_header
+
+  # -----------------------------------------------------------------------------------------------
+  def set_grid_javascript(klass, pk, show_new_button = nil, row_count = nil, total_row_count = nil)
+    table_name = klass.table_name
+
+    # Javascript for brick_grid and brick_constellation
+    grid_scripts = (@_brick_javascripts ||= {})[:grid_scripts] = +''
+
+    grid_scripts << "
+// Plunk the row count in now that we know it
+var rowCount = document.getElementById(\"rowCount\");
+if (rowCount) rowCount.innerHTML = \"#{pluralize(row_count, "row")}#{total_row_count} &nbsp;\";
+var #{table_name}HtColumns;
+" unless row_count.nil?
+
+    grid_scripts << "
+// Snag first TR for sticky header
+var grid = document.getElementById(\"#{table_name}\");
+#{table_name}HtColumns = grid && [grid.getElementsByTagName(\"TR\")[0]];
+var headerTop = document.getElementById(\"headerTop\");
+var headerCols;
+if (grid) {
+  // COLUMN HEADER AND TABLE CELL HIGHLIGHTING
+  var gridHighHeader = null,
+      gridHighCell = null;
+  grid.addEventListener(\"mouseenter\", gridMove);
+  grid.addEventListener(\"mousemove\", gridMove);
+  grid.addEventListener(\"mouseleave\", function (evt) {
+    if (gridHighCell) gridHighCell.classList.remove(\"highlight\");
+    gridHighCell = null;
+    if (gridHighHeader) gridHighHeader.classList.remove(\"highlight\");
+    gridHighHeader = null;
+  });
+  function gridMove(evt) {
+    var lastHighCell = gridHighCell;
+    gridHighCell = document.elementFromPoint(evt.x, evt.y);
+    while (gridHighCell && gridHighCell.tagName !== \"TD\" && gridHighCell.tagName !== \"TH\")
+      gridHighCell = gridHighCell.parentElement;
+    if (gridHighCell) {
+      if (lastHighCell !== gridHighCell) {
+        gridHighCell.classList.add(\"highlight\");
+        if (lastHighCell) lastHighCell.classList.remove(\"highlight\");
+      }
+      var lastHighHeader = gridHighHeader;
+      if ((gridHighHeader = headerCols[gridHighCell.cellIndex]) && lastHighHeader !== gridHighHeader) {
+        if (gridHighHeader) gridHighHeader.classList.add(\"highlight\");
+        if (lastHighHeader) lastHighHeader.classList.remove(\"highlight\");
+      }
+    }
+  }
+  // // Less touchy navigation back or forward in history when using mouse wheel
+  // grid.addEventListener(\"wheel\", function (evt) {
+  //   grid.scrollLeft += evt.deltaX;
+  //   document.body.scrollTop += (evt.deltaY * 0.6);
+  //   evt.preventDefault();
+  //   return false;
+  // });
+}
+function setHeaderSizes() {
+  if (grid.clientWidth > window.outerWidth)
+    document.getElementById(\"titleBox\").style.width = grid.clientWidth;
+  // console.log(\"start\");
+  // See if the headerTop is already populated
+  // %%% Grab the TRs from headerTop, clear it out, do this stuff, add them back
+  headerTop.innerHTML = \"\"; // %%% Would love to not have to clear it out like this every time!  (Currently doing this to support resize events.)
+  var isEmpty = headerTop.childElementCount === 0;
+  var numFixed = parseInt(grid.getAttribute(\"x-num-frozen\")) || 0;
+  var fixedColLefts = [0];
+
+  // Set up proper sizings of sticky column header
+  var node;
+  for (var j = 0; j < #{table_name}HtColumns.length; ++j) {
+    var row = #{table_name}HtColumns[j];
+    var tr = isEmpty ? document.createElement(\"TR\") : headerTop.childNodes[j];
+    tr.innerHTML = row.innerHTML.trim();
+    var curLeft = 0.0;
+    // Match up widths from the original column headers
+    for (var i = 0; i < row.childNodes.length; ++i) {
+      node = row.childNodes[i];
+      if (node.nodeType === 1) {
+        var th = tr.childNodes[i];
+        th.style.minWidth = th.style.maxWidth = getComputedStyle(node).width;
+        // Add \"left: __px\" style to the fixed-width column THs
+        if (i <= numFixed) {
+          th.style.position = \"sticky\";
+          th.style.backgroundColor = \"#008061\";
+          th.style.zIndex = \"1\";
+          th.style.left = curLeft + \"px\";
+          fixedColLefts.push(curLeft += node.clientWidth);
+        }
+        if (#{pk&.present? ? 'i > 0' : 'true'}) {
+          // Add <span> at the end
+          var span = document.createElement(\"SPAN\");
+          span.className = \"exclude\";
+          span.innerHTML = \"X\";
+          span.addEventListener(\"click\", function (e) {
+            e.stopPropagation();
+            doFetch(\"POST\", {_brick_exclude: this.parentElement.getAttribute(\"x-order\")});
+          });
+          th.appendChild(span);
+        }
+      }
+    }
+    headerCols = tr.childNodes;
+    if (isEmpty) headerTop.appendChild(tr);
+  }
+  // Add \"left: __px\" style to all fixed-width column TDs
+  [...grid.children[1].children].forEach(function (row) {
+    for (var j = 1; j <= numFixed; ++j) {
+      row.children[j].style.left = fixedColLefts[j] + 'px';
+    }
+  });
+  grid.style.marginTop = \"-\" + getComputedStyle(headerTop).height;
+  // console.log(\"end\");
+}
+
+if (headerTop) {
+  onImagesLoaded(function() {
+    setHeaderSizes();
+  });
+  window.addEventListener(\"resize\", function(event) {
+    setHeaderSizes();
+  }, true);#{
+    "
+    var headerButtonBox = document.getElementById(\"headerButtonBox\");
+    if (headerButtonBox) {
+      var addNew = document.createElement(\"A\");
+      addNew.id = \"addNew\";
+      addNew.href = \"#{link_to_brick(klass, new: true, path_only: true)}\";
+      addNew.title = \"New #{table_name.singularize}\";
+      addNew.innerHTML = '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\"><path fill=\"#fff\" d=\"M24 10h-10v-10h-4v10h-10v4h10v10h4v-10h10z\"/></svg>';
+      headerButtonBox.append(addNew);
+    }
+" unless klass.is_view? || show_new_button == false
+  }
+}
+
+function onImagesLoaded(event) {
+  var images = document.getElementsByTagName(\"IMG\");
+  var numLoaded = images.length;
+  for (var i = 0; i < images.length; ++i) {
+    if (images[i].complete)
+      --numLoaded;
+    else {
+      images[i].addEventListener(\"load\", function() {
+        if (--numLoaded <= 0)
+          event();
+      });
+    }
+  }
+  if (numLoaded <= 0)
+    event();
+}
+"
+  end
+
+  # -------------------------------------
   def _n_m_prep(relation, x_axis, y_axis)
-    relation ||= (instance_variable_get("@#{controller_name}".to_sym) || _brick_resource_from_iv)
     # Just find the first two BT things at this point
 
     klass = relation.klass
-    rel = ::Brick.relations&.fetch(relation.table_name, nil)
-    # fk_assocs = rel[:fks].map { |k, fk| [fk[:assoc_name], fk[:fk]] }
     fk_assocs = klass.reflect_on_all_associations.each_with_object([]) do |assoc, s|
       s << [assoc.name.to_s, assoc.foreign_key, assoc.klass] if assoc.belongs_to?
     end

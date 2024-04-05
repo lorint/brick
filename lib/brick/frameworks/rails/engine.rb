@@ -809,6 +809,7 @@ h1, h3 {
   background-repeat: no-repeat;
   background-size: 100% 100%;
   width: 28px;
+  height: 32px;
   cursor: pointer;
 }
 #mermaidErd {
@@ -942,10 +943,10 @@ table.shadow > tbody > tr {
 table tbody tr:nth-of-type(even) {
   background-color: #f3f3f3;
 }
-table tbody tr:nth-of-type(even) .col-sticky {
+table tbody tr:nth-of-type(even) .alternating-gray {
   background-color: #fff;
 }
-table tbody tr:nth-of-type(odd) .col-sticky {
+table tbody tr:nth-of-type(odd) .alternating-gray {
   background-color: #f3f3f3;
 }
 
@@ -990,6 +991,11 @@ a.big-arrow {
 .danger {
   background-color: red;
   color: white;
+}
+.brick-note {
+  font-size: 0.7em;
+  color: #A0FFA0;
+  max-width: 0;
 }
 
 #revertTemplate {
