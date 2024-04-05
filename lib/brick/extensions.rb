@@ -83,6 +83,12 @@ module ActiveRecord
         end
       end
 
+      # Accommodate STI
+      def real_singular(params)
+        real_model = real_model(params)
+        [real_model, real_model.name.underscore.split('/').last]
+      end
+
       def json_column?(col)
         col.type == :json || ::Brick.config.json_columns[table_name]&.include?(col.name) ||
         (
@@ -2474,7 +2480,8 @@ class Object
                            send(params_name_sym)
                          rescue
                          end
-            new_params ||= model.attribute_names.each_with_object({}) do |a, s|
+            real_model, singular_table_name = model.real_singular(params)
+            new_params ||= real_model.attribute_names.each_with_object({}) do |a, s|
               if (val = params["__#{a}"])
                 # val = case new_obj.class.column_for_attribute(a).type
                 #       when :datetime, :date, :time, :timestamp
@@ -2485,7 +2492,7 @@ class Object
                 s[a] = val
               end
             end
-            if (new_obj = model.new(new_params)).respond_to?(:serializable_hash)
+            if (new_obj = real_model.new(new_params)).respond_to?(:serializable_hash)
               # Convert any Filename objects with nil into an empty string so that #encode can be called on them
               new_obj.serializable_hash.each do |k, v|
                 new_obj.send("#{k}=", ::ActiveStorage::Filename.new('')) if v.is_a?(::ActiveStorage::Filename) && !v.instance_variable_get(:@filename)
@@ -2518,13 +2525,13 @@ class Object
                 created_obj.send("#{inh_col}=", model.name)
               end
               created_obj.save
-              @_lookup_context.instance_variable_set(:@_brick_model, model)
+              @_lookup_context.instance_variable_set(:@_brick_model, real_model)
               if created_obj.errors.empty?
-                instance_variable_set("@#{table_name}".to_sym, created_obj)
+                instance_variable_set("@#{singular_table_name}".to_sym, created_obj)
                 index
                 render :index
               else # Surface errors to the user in a flash message
-                instance_variable_set("@#{real_model.name.underscore}".to_sym, created_obj)
+                instance_variable_set("@#{singular_table_name}".to_sym, created_obj)
                 flash.now.alert = (created_obj.errors.errors.map { |err| "<b>#{err.attribute}</b> #{err.message}" }.join(', '))
                 new
                 render :new
@@ -2543,6 +2550,7 @@ class Object
             code << "  end\n"
             self.define_method :edit do
               _schema, @_is_show_schema_list = ::Brick.set_db_schema(params)
+              _, singular_table_name = model.real_singular(params)
               instance_variable_set("@#{singular_table_name}".to_sym, find_obj)
               add_csp_hash
             end
@@ -2570,6 +2578,7 @@ class Object
               #   return
               end
 
+              _, singular_table_name = model.real_singular(params)
               instance_variable_set("@#{singular_table_name}".to_sym, (obj = find_obj))
               upd_params = send(params_name_sym)
               json_overrides = ::Brick.config.json_columns&.fetch(table_name, nil)

@@ -502,7 +502,7 @@ module Brick::Rails::FormTags
 
   # -----------------------------------------------------------------------------------------------
   def set_grid_javascript(klass, pk, show_new_button = nil, row_count = nil, total_row_count = nil)
-    table_name = klass.table_name
+    table_name = klass.table_name.split('.').last
 
     # Javascript for brick_grid and brick_constellation
     grid_scripts = (@_brick_javascripts ||= {})[:grid_scripts] = +''
