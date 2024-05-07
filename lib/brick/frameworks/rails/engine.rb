@@ -292,9 +292,10 @@ function linkSchemas() {
                   if is_2x # Avo 2.x?
                     "::#{class_name}Resource".constantize
                   else # Avo 3.x
-                    unless ::Avo::BaseResource.constants.include?(class_name.to_sym) ||
-                           ::Avo::Resources.constants.include?(class_name.to_sym)
-                      ::Brick.avo_3x_resource(Object.const_get(class_name), class_name)
+                    if ::Avo::BaseResource.constants.exclude?(class_name.to_sym) &&
+                       ::Avo::Resources.constants.exclude?(class_name.to_sym) &&
+                       (klass = Object.const_get(class_name)).is_a?(Class)
+                      ::Brick.avo_3x_resource(klass, class_name)
                     end
                   end
                 end
@@ -1066,7 +1067,7 @@ document.querySelectorAll(\"input[type=submit][data-confirm]\").forEach(function
   "\nbrickTestSchema = \"#{::Brick.test_schema}\";" if ::Brick.test_schema
 }
 function doFetch(method, payload, success) {
-  payload.authenticity_token = <%= session[:_csrf_token].inspect.html_safe %>;
+  payload.authenticity_token = <%= (session[:_csrf_token] || form_authenticity_token).inspect.html_safe %>;
   var action = payload._brick_action || location.href;
   delete payload._brick_action;
   if (!success) {
@@ -1323,10 +1324,11 @@ end
     self.class.class_exec { include ::Brick::Rails::FormTags } unless respond_to?(:brick_grid)
 
     #{# Determine if we should render an N:M representation or the standard "mega_grid"
-      taa = ::Brick.config.treat_as_associative&.fetch(res_name, nil)
+      taa = ::Brick.config.treat_as_associative&.fetch(table_name, nil)
       options = {}
       options[:prefix] = prefix unless prefix.blank?
-      if taa.is_a?(String) # Write out a constellation
+      if taa.is_a?(String) || # Write out a constellation
+         (taa.is_a?(Array) && (options[:axes] = taa[0..-2]) && (options[:dsl] = taa.last))
         representation = :constellation
         "
     brick_constellation(@#{res_name}, #{options.inspect}, bt_descrip: @_brick_bt_descrip, bts: bts)"
@@ -1758,7 +1760,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 "
               end
               if representation == :grid
-                "<script>
+                inline << "<script>
 <% # Make column headers sort when clicked
    # %%% Create a smart javascript routine which can do this client-side %>
 [... document.getElementsByTagName(\"TH\")].forEach(function (th) {

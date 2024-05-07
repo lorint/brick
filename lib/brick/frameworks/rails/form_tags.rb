@@ -96,7 +96,7 @@ module Brick::Rails::FormTags
     relation.each do |obj|
       out << "<tr>\n"
       out << "<td class=\"col-sticky alternating-gray\">#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym,
-                                      pk.map { |pk_part| obj.send(pk_part.to_sym) }), { class: 'big-arrow' })}</td>\n" if pk.present?
+                                                                            pk.map { |pk_part| obj.send(pk_part.to_sym) }), { class: 'big-arrow' })}</td>\n" if pk.present?
       sequence.each_with_index do |col_name, idx|
         val = obj.attributes[col_name]
         bt = bts[col_name] || composite_bt_names[col_name]
@@ -332,6 +332,9 @@ module Brick::Rails::FormTags
                           show_header: nil, show_erd_button: nil, show_in_app_button: nil, show_new_button: nil, show_avo_button: nil, show_aa_button: nil)
     relation ||= (instance_variable_get("@#{controller_name}".to_sym) || _brick_resource_from_iv)
     klass = relation.klass
+    if (axes = options[:axes])
+      x_axis, y_axis = axes
+    end
     x_axis, x_list, y_axis, y_list, existing = _n_m_prep(relation, x_axis, y_axis)
 
     out = +''
@@ -356,13 +359,12 @@ module Brick::Rails::FormTags
 "
     obj_path = "#{klass._brick_index(:singular)}_path".to_sym
     link_arrow = link_to('⇛', send(obj_path, '____'), { class: 'big-arrow' })
-    pk_as_array = klass._pk_as_array
     y_list.each do |y_item|
       out << "  <tr><th class=\"col-sticky\">#{y_item.first}</th>
 "
       x_list.each do |x_item|
         checked = existing.find { |e| e[1] == x_item.last && e[2] == y_item.last }
-        item_id = pk_as_array.map { |pk_part| checked.first }.join('%2F') if checked
+        item_id = checked.first.join('%2F') if checked
         out << "    <td><input type=\"checkbox\" name=\"#{table_name}\" #{"x-id=\"#{item_id}\" " if checked
                            }\" value=\"#{x_item.last}_#{y_item.last}\"#{' checked' if checked}>
     #{link_arrow.gsub('____', item_id) if checked}</td>
@@ -389,7 +391,7 @@ module Brick::Rails::FormTags
             p.text().then(function (response) {
               var recordId = JSON.parse(response).data;
               if (recordId) {
-                console.log(_this.getAttribute(\"x-id\"));
+                // console.log(_this.getAttribute(\"x-id\"));
                 var tmp = document.createElement(\"DIV\");
                 tmp.innerHTML = \"#{link_arrow.gsub('"', '\"')}\".replace(\"____\", recordId);
                 _this.parentElement.append(tmp.firstChild);
@@ -411,7 +413,7 @@ module Brick::Rails::FormTags
 </script>
 </form>
 "
-    set_grid_javascript(klass, pk_as_array, false)
+    set_grid_javascript(klass, klass._pk_as_array, false)
     out.html_safe
   end # brick_constellation
 
@@ -674,8 +676,9 @@ function onImagesLoaded(event) {
     x_axis = fk_assocs.shift unless x_axis
     puts "FK Leftovers: #{fk_assocs.join(', ')}" unless fk_assocs.empty?
 
+    pk_as_array = klass._pk_as_array
     existing = relation.each_with_object([]) do |row, s|
-                 row_id = row.send(klass.primary_key)
+                 row_id = pk_as_array.map { |pk_part| row.send(pk_part) }
                  if (x_id = row.send(x_axis[1])) && (y_id = row.send(y_axis[1]))
                    s << [row_id, x_id, y_id]
                  end

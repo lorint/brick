@@ -2964,8 +2964,9 @@ module Brick
       else
         inverse_table = [primary_table] if polymorphic_class
         assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[2], assoc_name: bt_assoc_name, inverse_table: inverse_table || primary_table }
-        assoc_bt[:optional] = true if is_optional ||
-                                      (is_optional.nil? && !relations[fk[1]][:cols][fk[2]][3])
+        assoc_bt[:optional] = true if (is_optional ||
+                                       (is_optional.nil? && !relations[fk[1]][:cols][fk[2]][3])
+                                      ) && ActiveRecord.version >= ::Gem::Version.new('5.0')
         assoc_bt[:polymorphic] = [polymorphic_class] if polymorphic_class
       end
       if is_class
