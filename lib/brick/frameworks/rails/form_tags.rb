@@ -93,10 +93,21 @@ module Brick::Rails::FormTags
     #     TinyTds::Error: Adaptive Server connection timed out
     #     (After restarting the server it worked fine again.)
     row_count = 0
+    # binding.pry
+    # if @_brick_join_array&.include?()
+    enumerator = relation.each # Runs the SQL query
+    # Add proxied info for @_brick_includes
+    # proxy = relation.instance_variable_get(:@proxy) || relation.instance_variable_set(:@proxy, {})
+    bi = relation.instance_variable_get(:@_brick_includes)
     relation.each do |obj|
       out << "<tr>\n"
       out << "<td class=\"col-sticky alternating-gray\">#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym,
-                                      pk.map { |pk_part| obj.send(pk_part.to_sym) }), { class: 'big-arrow' })}</td>\n" if pk.present?
+                                                                            pk.map { |pk_part| obj.send(pk_part.to_sym) }), { class: 'big-arrow' })}</td>\n" if pk.present?
+      ac = obj.instance_variable_get(:@association_cache) || obj.instance_variable_set(:@association_cache, {})
+      # included = 
+      bi&.each do |bi_key|
+        (ac[col_name.to_sym] ||= []) << val if bi&.key?(col_name) # Add to any proxy things
+      end
       sequence.each_with_index do |col_name, idx|
         val = obj.attributes[col_name]
         bt = bts[col_name] || composite_bt_names[col_name]
@@ -107,6 +118,7 @@ module Brick::Rails::FormTags
         (classes ||= []) << 'right' if val.is_a?(Numeric) && !bt
         out << " class=\"#{classes.join(' ')}\"" if classes&.present?
         out << '>'
+        # binding.pry if col_name == 'event_image_attachment' && obj.id == 6
         if bt
           if bt[2] && obj.respond_to?(poly_id_col = "#{bt.first}_id") # Polymorphic?
             if (poly_id = obj.send(poly_id_col))
@@ -332,6 +344,9 @@ module Brick::Rails::FormTags
                           show_header: nil, show_erd_button: nil, show_in_app_button: nil, show_new_button: nil, show_avo_button: nil, show_aa_button: nil)
     relation ||= (instance_variable_get("@#{controller_name}".to_sym) || _brick_resource_from_iv)
     klass = relation.klass
+    if (axes = options[:axes])
+      x_axis, y_axis = axes
+    end
     x_axis, x_list, y_axis, y_list, existing = _n_m_prep(relation, x_axis, y_axis)
 
     out = +''
@@ -347,7 +362,7 @@ module Brick::Rails::FormTags
   <thead><tr><td class=\"brick-note\">Checkbox changes are saved immediately</td>"
     # Header row with X axis values
     # (In order for grid highlighting to function, these TH elements must have no whitespace between them.
-    # In this way the Javascript headerCols array will be set properly.
+    # In this way the Javascript headerCols array will be set properly.)
     x_list.each do |x_item|
       out << "<th>#{x_item.first}</th>"
     end
@@ -356,13 +371,12 @@ module Brick::Rails::FormTags
 "
     obj_path = "#{klass._brick_index(:singular)}_path".to_sym
     link_arrow = link_to('⇛', send(obj_path, '____'), { class: 'big-arrow' })
-    pk_as_array = klass._pk_as_array
     y_list.each do |y_item|
       out << "  <tr><th class=\"col-sticky\">#{y_item.first}</th>
 "
       x_list.each do |x_item|
         checked = existing.find { |e| e[1] == x_item.last && e[2] == y_item.last }
-        item_id = pk_as_array.map { |pk_part| checked.first }.join('%2F') if checked
+        item_id = checked.first.join('%2F') if checked
         out << "    <td><input type=\"checkbox\" name=\"#{table_name}\" #{"x-id=\"#{item_id}\" " if checked
                            }\" value=\"#{x_item.last}_#{y_item.last}\"#{' checked' if checked}>
     #{link_arrow.gsub('____', item_id) if checked}</td>
@@ -389,7 +403,7 @@ module Brick::Rails::FormTags
             p.text().then(function (response) {
               var recordId = JSON.parse(response).data;
               if (recordId) {
-                console.log(_this.getAttribute(\"x-id\"));
+                // console.log(_this.getAttribute(\"x-id\"));
                 var tmp = document.createElement(\"DIV\");
                 tmp.innerHTML = \"#{link_arrow.gsub('"', '\"')}\".replace(\"____\", recordId);
                 _this.parentElement.append(tmp.firstChild);
@@ -411,7 +425,7 @@ module Brick::Rails::FormTags
 </script>
 </form>
 "
-    set_grid_javascript(klass, pk_as_array, false)
+    set_grid_javascript(klass, klass._pk_as_array, false)
     out.html_safe
   end # brick_constellation
 
@@ -499,6 +513,11 @@ module Brick::Rails::FormTags
 "
     out
   end # brick_header
+
+  # All the standard CSS with teal colouration for use with Brick
+  def brick_css(theme = nil)
+    ::Brick::Rails::BRICK_CSS.html_safe
+  end
 
   # -----------------------------------------------------------------------------------------------
   def set_grid_javascript(klass, pk, show_new_button = nil, row_count = nil, total_row_count = nil)
@@ -674,8 +693,9 @@ function onImagesLoaded(event) {
     x_axis = fk_assocs.shift unless x_axis
     puts "FK Leftovers: #{fk_assocs.join(', ')}" unless fk_assocs.empty?
 
+    pk_as_array = klass._pk_as_array
     existing = relation.each_with_object([]) do |row, s|
-                 row_id = row.send(klass.primary_key)
+                 row_id = pk_as_array.map { |pk_part| row.send(pk_part) }
                  if (x_id = row.send(x_axis[1])) && (y_id = row.send(y_axis[1]))
                    s << [row_id, x_id, y_id]
                  end

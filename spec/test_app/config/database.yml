@@ -1,15 +1,13 @@
-# SQLite version 3.x
-#   gem install sqlite3-ruby
 test: &test
-  adapter: sqlite3
-  pool: 5
-  timeout: 5000
-  database: db/test.sqlite3
+  adapter: postgresql
+  database: brick_test
+  host:     localhost
+  port:     5432
 
 foo:
   <<: *test
-  database: db/test-foo.sqlite3
+  database: brick_foo
 
 bar:
   <<: *test
-  database: db/test-bar.sqlite3
+  database: brick_bar

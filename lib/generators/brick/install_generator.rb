@@ -315,8 +315,8 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # # the right.  Indicating just :bezier is the same as :bezier_full, which shows the full list of all possible
   # # things that can be associated.  :bezier_union shows just the ones that are currently wired up, and
   # # :bezier_excluded, :bezier_excluded_left, or :bezier_excluded_right shows the ones not yet wired up.
-  # Brick.treat_as_associative = { 'flights' => [:bezier, 'departure.code', 'arrival.code'],
-  #                                'crew' => [:constellation, 'flight', 'personnel', '[used ? [used it!] : []]'] }
+  # Brick.treat_as_associative = { 'flights' => { bezier: ['departure.code', 'arrival.code'] },
+  #                                'crew' => { constellation: ['flight', 'personnel', '[used ? [used it!] : []]'] } }
 
   # # We normally don't show the timestamp columns \"created_at\", \"updated_at\", and \"deleted_at\", and also do
   # # not consider them when finding associative tables to support an N:M association.  (That is, ones that can be a
