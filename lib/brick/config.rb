@@ -243,6 +243,7 @@ module Brick
                                   tables.each_with_object({}) do |v, s|
                                     # If it's :constellation, or anything else in a hash, we'll take its value
                                     # (and hopefully in this case that would be either a string or nil)
+                                    # binding.pry
                                     dsl = ((v.last.is_a?(Symbol) && v.last) || v.last&.values&.last)
                                     unless (dsl ||= '').is_a?(String) || dsl.is_a?(Symbol)
                                       puts "Was really expecting #{v.first} / #{v.last.first&.first} / #{dsl} to be a string, " +
@@ -426,6 +427,19 @@ module Brick
           orders[:_brick_default] = [brick_default]
         end
         @order = orders
+      end
+    end
+
+    def acts_as_list_cols
+      @mutex.synchronize { @acts_as_list || {} }
+    end
+
+    # Get something like:
+    #   { 'on_call_list' => { _brick_default: [:last_name, :first_name] } }
+    #   { 'on_call_list' => { _brick_default: :sequence } }
+    def acts_as_list_cols=(position_cols)
+      @mutex.synchronize do
+        @acts_as_list ||= position_cols
       end
     end
 

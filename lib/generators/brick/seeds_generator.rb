@@ -142,6 +142,7 @@ module Brick
                 inv_tbl = fk[:inverse_table].gsub('.', '__')
                 fk_vals << "#{fk[:assoc_name]}: #{inv_tbl}_#{brick_escape(val)}" if val
               else
+                val = val.to_s if val.is_a?(ActiveStorage::Filename)
                 data << "#{col}: #{val.inspect}"
               end
             end

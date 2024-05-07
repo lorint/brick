@@ -1,32 +1,32 @@
 PATH
   remote: ..
   specs:
-    brick (1.0.214)
+    brick (1.0.216)
       activerecord (>= 3.1.1)
       fancy_gets
 
 GEM
   remote: https://rubygems.org/
   specs:
-    actionpack (6.1.7.7)
-      actionview (= 6.1.7.7)
-      activesupport (= 6.1.7.7)
+    actionpack (6.1.7.8)
+      actionview (= 6.1.7.8)
+      activesupport (= 6.1.7.8)
       rack (~> 2.0, >= 2.0.9)
       rack-test (>= 0.6.3)
       rails-dom-testing (~> 2.0)
       rails-html-sanitizer (~> 1.0, >= 1.2.0)
-    actionview (6.1.7.7)
-      activesupport (= 6.1.7.7)
+    actionview (6.1.7.8)
+      activesupport (= 6.1.7.8)
       builder (~> 3.1)
       erubi (~> 1.4)
       rails-dom-testing (~> 2.0)
       rails-html-sanitizer (~> 1.1, >= 1.2.0)
-    activemodel (6.1.7.7)
-      activesupport (= 6.1.7.7)
-    activerecord (6.1.7.7)
-      activemodel (= 6.1.7.7)
-      activesupport (= 6.1.7.7)
-    activesupport (6.1.7.7)
+    activemodel (6.1.7.8)
+      activesupport (= 6.1.7.8)
+    activerecord (6.1.7.8)
+      activemodel (= 6.1.7.8)
+      activesupport (= 6.1.7.8)
+    activesupport (6.1.7.8)
       concurrent-ruby (~> 1.0, >= 1.0.2)
       i18n (>= 1.6, < 2)
       minitest (>= 5.1)
@@ -84,9 +84,9 @@ GEM
     rails-html-sanitizer (1.6.0)
       loofah (~> 2.21)
       nokogiri (~> 1.14)
-    railties (6.1.7.7)
-      actionpack (= 6.1.7.7)
-      activesupport (= 6.1.7.7)
+    railties (6.1.7.8)
+      actionpack (= 6.1.7.8)
+      activesupport (= 6.1.7.8)
       method_source
       rake (>= 12.2)
       thor (~> 1.0)

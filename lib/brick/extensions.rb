@@ -867,6 +867,15 @@ module ActiveRecord
               end
               v1 << id_for_tables[v.first].compact
             end
+            if k1.name == 'ActiveStorage::Attachment'
+              binding.pry
+              (@_brick_includes ||= {})[v1.first.first.to_s] = [v1.first[1..-1], 'blob']
+              # x = 5
+            # elsif k1.name == 'ActiveStorage::Blob'
+            #   binding.pry
+            #   (@_brick_includes ||= {})[v1.first.first.to_s] = v1[0..1]
+            #   # x = 5
+            end
           end
         end
         join_array.each do |assoc_name|
@@ -908,7 +917,12 @@ module ActiveRecord
                          through_sources.push(src_ref) unless src_ref.belongs_to?
                          from_clause = +"#{_br_quoted_name(through_sources.first.table_name)} br_t0"
                          # ActiveStorage will not get the correct count unless we do some extra filtering later
-                         tbl_nm = 'br_t0' if Object.const_defined?('ActiveStorage') && through_sources.first.klass <= ::ActiveStorage::Attachment
+                         if Object.const_defined?('ActiveStorage') && through_sources.first.klass <= ::ActiveStorage::Attachment
+                           # binding.pry
+                           tbl_nm = 'br_t0'
+                           # Need to somehow have this kind of an include in order to avoid an N+1 problem:
+                           # .include(images_attachments: [blob: { variant_records: :blob }])
+                         end
                          fk_col = through_sources.shift.foreign_key
 
                          idx = 0
@@ -1111,8 +1125,12 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
       end
 
       # ActiveStorage compatibility
-      selects << 'service_name' if klass.name == 'ActiveStorage::Blob' && ::ActiveStorage::Blob.columns_hash.key?('service_name')
-      selects << 'blob_id' if klass.name == 'ActiveStorage::Attachment' && ::ActiveStorage::Attachment.columns_hash.key?('blob_id')
+      if klass.name == 'ActiveStorage::Blob' && ::ActiveStorage::Blob.columns_hash.key?('service_name')
+        selects << 'service_name'
+      end
+      if klass.name == 'ActiveStorage::Attachment' && ::ActiveStorage::Attachment.columns_hash.key?('blob_id')
+        selects << 'blob_id'
+      end
       # Pay gem compatibility
       selects << 'processor' if klass.name == 'Pay::Customer' && Pay::Customer.columns_hash.key?('processor')
       selects << 'customer_id' if klass.name == 'Pay::Subscription' && Pay::Subscription.columns_hash.key?('customer_id')
@@ -2349,7 +2367,7 @@ class Object
 
             # %%% Allow params to define which columns to use for order_by
             # Overriding the default by providing a querystring param?
-            order_by = params['_brick_order']&.split(',')&.map(&:to_s) || Object.send(:default_ordering, table_name, pk)
+            order_by = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
 
             ar_relation = ActiveRecord.version < Gem::Version.new('4') ? real_model.preload : real_model.all
             params['_brick_is_api'] = true if (is_api = request.format == :js || current_api_root)
@@ -2964,8 +2982,9 @@ module Brick
       else
         inverse_table = [primary_table] if polymorphic_class
         assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[2], assoc_name: bt_assoc_name, inverse_table: inverse_table || primary_table }
-        assoc_bt[:optional] = true if is_optional ||
-                                      (is_optional.nil? && !relations[fk[1]][:cols][fk[2]][3])
+        assoc_bt[:optional] = true if (is_optional ||
+                                       (is_optional.nil? && !relations[fk[1]][:cols][fk[2]][3])
+                                      ) && ActiveRecord.version >= ::Gem::Version.new('5.0')
         assoc_bt[:polymorphic] = [polymorphic_class] if polymorphic_class
       end
       if is_class

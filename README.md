@@ -34,7 +34,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.214        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.216        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -123,9 +123,8 @@ the various "Autogenerate ___ Files" sections.
   - [1.f. Autogenerate Model Files](#1f-autogenerate-model-files)
   - [1.g. Autogenerate Migration Files](#1g-autogenerate-migration-files)
   - [1.h. Autogenerate Seeds File](#1h-autogenerate-seeds-file)
-  - [1.i. Autogenerate Controller Files](#1f-autogenerate-controller-files)
-  - [1.j. Autogenerate Migration Files from a Salesforce installation](#1i-autogenerate-migration-files-from-a-salesforce-installation)
-  ### 1.i. Autogenerate Migration Files based on a Salesforce WSDL file
+  - [1.i. Autogenerate Controller Files](#1i-autogenerate-controller-files)
+  - [1.j. Autogenerate Migration Files based on a Salesforce WSDL file](#1j-autogenerate-migration-files-from-a-salesforce-installation)
 - [2. Programmatic Enhancements](#2-programmatic-enhancements)
   - [2.a. Using brick_select and brick_pluck](#2a-using-brick_select-and-brick_pluck)
   - [2.b. Using brick_where](#2b-using-brick_where)
