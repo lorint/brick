@@ -1,32 +1,32 @@
 PATH
   remote: ..
   specs:
-    brick (1.0.214)
+    brick (1.0.217)
       activerecord (>= 3.1.1)
       fancy_gets
 
 GEM
   remote: https://rubygems.org/
   specs:
-    actionpack (7.0.8.1)
-      actionview (= 7.0.8.1)
-      activesupport (= 7.0.8.1)
+    actionpack (7.0.8.4)
+      actionview (= 7.0.8.4)
+      activesupport (= 7.0.8.4)
       rack (~> 2.0, >= 2.2.4)
       rack-test (>= 0.6.3)
       rails-dom-testing (~> 2.0)
       rails-html-sanitizer (~> 1.0, >= 1.2.0)
-    actionview (7.0.8.1)
-      activesupport (= 7.0.8.1)
+    actionview (7.0.8.4)
+      activesupport (= 7.0.8.4)
       builder (~> 3.1)
       erubi (~> 1.4)
       rails-dom-testing (~> 2.0)
       rails-html-sanitizer (~> 1.1, >= 1.2.0)
-    activemodel (7.0.8.1)
-      activesupport (= 7.0.8.1)
-    activerecord (7.0.8.1)
-      activemodel (= 7.0.8.1)
-      activesupport (= 7.0.8.1)
-    activesupport (7.0.8.1)
+    activemodel (7.0.8.4)
+      activesupport (= 7.0.8.4)
+    activerecord (7.0.8.4)
+      activemodel (= 7.0.8.4)
+      activesupport (= 7.0.8.4)
+    activesupport (7.0.8.4)
       concurrent-ruby (~> 1.0, >= 1.0.2)
       i18n (>= 1.6, < 2)
       minitest (>= 5.1)
@@ -57,7 +57,6 @@ GEM
     method_source (1.0.0)
     mini_portile2 (2.8.5)
     minitest (5.21.2)
-    mysql2 (0.5.5)
     nokogiri (1.15.5)
       mini_portile2 (~> 2.8.2)
       racc (~> 1.4)
@@ -83,9 +82,9 @@ GEM
     rails-html-sanitizer (1.6.0)
       loofah (~> 2.21)
       nokogiri (~> 1.14)
-    railties (7.0.8.1)
-      actionpack (= 7.0.8.1)
-      activesupport (= 7.0.8.1)
+    railties (7.0.8.4)
+      actionpack (= 7.0.8.4)
+      activesupport (= 7.0.8.4)
       method_source
       rake (>= 12.2)
       thor (~> 1.0)
@@ -146,15 +145,14 @@ DEPENDENCIES
   ffaker (~> 2.11)
   generator_spec (~> 0.9.4)
   memory_profiler (~> 0.9.14)
-  mysql2 (~> 0.5)
   pg (>= 0.18, < 2.0)
   pry-byebug (~> 3.7.0)
   rake (~> 13.0)
-  rspec-rails (~> 4.0)
+  rspec-rails
   rswag-ui
   rubocop (~> 0.93)
   rubocop-rspec (~> 1.42.0)
   sqlite3 (~> 1.4)
 
 BUNDLED WITH
-   1.17.3
+   2.4.22

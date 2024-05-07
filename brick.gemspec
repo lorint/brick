@@ -41,20 +41,19 @@ gem_spec = Gem::Specification.new do |s|
   s.add_development_dependency 'generator_spec', '~> 0.9.4'
   s.add_development_dependency 'memory_profiler', '~> 0.9.14'
   s.add_development_dependency 'rake', '~> 13.0'
-  s.add_development_dependency 'rspec-rails', '~> 4.0'
+  s.add_development_dependency 'rspec-rails'
   s.add_development_dependency 'rubocop', '~> 0.93'
   s.add_development_dependency 'rubocop-rspec', '~> 1.42.0'
-  s.add_development_dependency 'rswag-ui'
 
   # Check for presence of libmysqlclient-dev, default-libmysqlclient-dev, libmariadb-dev, mysql-devel, etc
   require 'mkmf'
   have_mysql = false
-  begin
-    ['/usr/local/lib', '/usr/local/opt/mysql/lib', '/usr/lib/mysql', '/opt/homebrew/opt/mysql/lib'].each do |lib_path|
-      break if (have_mysql = find_library('mysqlclient', nil, lib_path))
-    end
-  rescue
-  end
+  # begin
+  #   ['/usr/local/lib', '/usr/local/opt/mysql/lib', '/usr/lib/mysql', '/opt/homebrew/opt/mysql/lib'].each do |lib_path|
+  #     break if (have_mysql = find_library('mysqlclient', nil, lib_path))
+  #   end
+  # rescue
+  # end
   s.add_development_dependency 'mysql2', '~> 0.5' if have_mysql
   s.add_development_dependency 'pg', '>= 0.18', '< 2.0'
   s.add_development_dependency 'sqlite3', '~> 1.4'

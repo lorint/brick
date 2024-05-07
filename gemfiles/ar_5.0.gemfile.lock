@@ -1,7 +1,7 @@
 PATH
   remote: ..
   specs:
-    brick (1.0.214)
+    brick (1.0.217)
       activerecord (>= 3.1.1)
       fancy_gets
 
@@ -59,7 +59,6 @@ GEM
     method_source (1.0.0)
     mini_portile2 (2.8.5)
     minitest (5.21.2)
-    mysql2 (0.5.5)
     nokogiri (1.15.5)
       mini_portile2 (~> 2.8.2)
       racc (~> 1.4)
@@ -129,7 +128,8 @@ GEM
     rubocop-rspec (1.42.0)
       rubocop (>= 0.87.0)
     ruby-progressbar (1.13.0)
-    sqlite3 (1.3.13)
+    sqlite3 (2.0.3)
+      mini_portile2 (~> 2.8.0)
     thor (1.3.0)
     thread_safe (0.3.6)
     tzinfo (1.2.11)
@@ -146,15 +146,14 @@ DEPENDENCIES
   ffaker (~> 2.11)
   generator_spec (~> 0.9.4)
   memory_profiler (~> 0.9.14)
-  mysql2 (~> 0.5)
   pg (>= 0.18, < 2.0)
   pry-byebug (~> 3.7.0)
   rake (~> 13.0)
-  rspec-rails (~> 4.0)
+  rspec-rails
   rswag-ui
   rubocop (~> 0.93)
   rubocop-rspec (~> 1.42.0)
-  sqlite3 (< 1.4)
+  sqlite3
 
 BUNDLED WITH
-   1.17.3
+   2.4.22

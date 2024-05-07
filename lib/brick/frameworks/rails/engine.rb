@@ -292,9 +292,10 @@ function linkSchemas() {
                   if is_2x # Avo 2.x?
                     "::#{class_name}Resource".constantize
                   else # Avo 3.x
-                    unless ::Avo::BaseResource.constants.include?(class_name.to_sym) ||
-                           ::Avo::Resources.constants.include?(class_name.to_sym)
-                      ::Brick.avo_3x_resource(Object.const_get(class_name), class_name)
+                    if ::Avo::BaseResource.constants.exclude?(class_name.to_sym) &&
+                       ::Avo::Resources.constants.exclude?(class_name.to_sym) &&
+                       (klass = Object.const_get(class_name)).is_a?(Class)
+                      ::Brick.avo_3x_resource(klass, class_name)
                     end
                   end
                 end
@@ -581,7 +582,7 @@ window.addEventListener(\"popstate\", linkSchemas);
               alias :_brick_lookup_context :lookup_context
               def lookup_context(*args)
                 ret = _brick_lookup_context(*args)
-                @_lookup_context.instance_variable_set(:@_brick_req_params, params) if self.class < AbstractController::Base && params
+                @_lookup_context.instance_variable_set(:@_brick_req_params, params) if self.class < AbstractController::Base && request && params.present?
                 ret
               end
             end
@@ -778,246 +779,9 @@ window.addEventListener(\"popstate\", linkSchemas);
               table_options << "<option value=\"#{prefix}brick_status\">(Status)</option>".html_safe if ::Brick.config.add_status
               table_options << "<option value=\"#{prefix}brick_orphans\">(Orphans)</option>".html_safe if is_orphans
               table_options << "<option value=\"#{prefix}brick_crosstab\">(Crosstab)</option>".html_safe if is_crosstab
-              css = +"<style>
-#titleSticky {
-  position: sticky;
-  display: inline-block;
-  left: 0;
-  z-index: 2;
-}
-
-.flashNotice {
-  color: green;
-}
-.flashAlert {
-  color: red;
-}
-
-h1, h3 {
-  margin-bottom: 0;
-}
-#rowCount {
-  display: table-cell;
-  height: 32px;
-  vertical-align: middle;
-  font-size: 0.9em;
-  font-family: sans-serif;
-}
-#imgErd {
-  display: table-cell;
-  background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAE0AAABNCAMAAADU1xmCAAAABGdBTUEAALGPC/xhBQAAAAFzUkdCAK7OHOkAAARxaVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJYTVAgQ29yZSA2LjAuMCI+CiAgIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICAgICAgICAgIHhtbG5zOnRpZmY9Imh0dHA6Ly9ucy5hZG9iZS5jb20vdGlmZi8xLjAvIgogICAgICAgICAgICB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIKICAgICAgICAgICAgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiCiAgICAgICAgICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyI+CiAgICAgICAgIDx0aWZmOllSZXNvbHV0aW9uPjcyPC90aWZmOllSZXNvbHV0aW9uPgogICAgICAgICA8dGlmZjpYUmVzb2x1dGlvbj43MjwvdGlmZjpYUmVzb2x1dGlvbj4KICAgICAgICAgPHRpZmY6T3JpZW50YXRpb24+MTwvdGlmZjpPcmllbnRhdGlvbj4KICAgICAgICAgPHhtcE1NOkRlcml2ZWRGcm9tIHJkZjpwYXJzZVR5cGU9IlJlc291cmNlIj4KICAgICAgICAgICAgPHN0UmVmOmluc3RhbmNlSUQ+eG1wLmlpZDoxN0U3OEI3RjAzN0MxMUU3QTZDMDhBQjVCRDc2QkZCQjwvc3RSZWY6aW5zdGFuY2VJRD4KICAgICAgICAgICAgPHN0UmVmOmRvY3VtZW50SUQ+eG1wLmRpZDoxN0U3OEI4MDAzN0MxMUU3QTZDMDhBQjVCRDc2QkZCQjwvc3RSZWY6ZG9jdW1lbnRJRD4KICAgICAgICAgPC94bXBNTTpEZXJpdmVkRnJvbT4KICAgICAgICAgPHhtcE1NOkRvY3VtZW50SUQ+eG1wLmRpZDoxN0U3OEI4MjAzN0MxMUU3QTZDMDhBQjVCRDc2QkZCQjwveG1wTU06RG9jdW1lbnRJRD4KICAgICAgICAgPHhtcE1NOkluc3RhbmNlSUQ+eG1wLmlpZDoxN0U3OEI4MTAzN0MxMUU3QTZDMDhBQjVCRDc2QkZCQjwveG1wTU06SW5zdGFuY2VJRD4KICAgICAgICAgPHhtcDpDcmVhdG9yVG9vbD5BZG9iZSBQaG90b3Nob3AgQ1M1IFdpbmRvd3M8L3htcDpDcmVhdG9yVG9vbD4KICAgICAgPC9yZGY6RGVzY3JpcHRpb24+CiAgIDwvcmRmOlJERj4KPC94OnhtcG1ldGE+ChMBcXgAAAAJcEhZcwAACxMAAAsTAQCanBgAAAL9UExURUdwTDRRc1EVG6ioqFJSUmJiYn+AgURWa2uEkauorszGwmtrawonUKzY7DMRIlFTVWV9m4qKiwaN0G1raJSQiJjV7jWh2HmizPLs6CaV0QohSmdoaVdXWLWsomFdYmIgD4WCfQWa2WIoFUxylldpekeRuGtrajhztIuLizV3qc3DvThDVEyFs31+fiRViVRNViVWjwsvWxIzXxZEekeL1FZIVVRdeEZrk359fj52ppubm3l6e4qbqJOTlBlGfM3k3Nzc3K6lnk9RWaenp0FjikGDyJGRkWJiYk2L0Li4uJubnH5+flFbeNPT02tpac3NzVBGJkCCyMvLy9LS0oxETk2U3tLS0tXV1cPDw+Xl5amDftbX19na2uLj4+jo6dzd3OXl511dXd/g31paWlZXV9TU1HBwcOvr687OzdDQ0u/u7fTx79PSzcrJx6KiooWFhujn5NvW05WUk7S1t3R1d7y9vcLCv37J68vMzVJTVOLY1gMiSpmamnt7e7K6zHq+43LQ9Vyez+Pf3LGyscXGybzD1sXDw46v02vI8I+Pj7vEtNvIx7q4ubnZ54a3it3f5s+8vGS/6L6trK+6qICs1H+33cXc6KiuwAOr48fN20ee0Fao0lyz4W6s1qyrrKKlt3XdkoqnyyFoqzuTy6ixosuVeobA4YHNl8TOv3/Ck9bc4I3P7Uqq3tDIxz2FwzN/vF+VxdDe59mIfU+OxJmovxl+wX7S9WjbhovW9jihyKGalIq31uNyY36exJCatJONhTm36nKj0B2q4Mqxsae2zc/U3tvf1cqKa7zAyJS4npqyyTh2tUhMT1drj5ixtN98cEfC8U2Y5vf39355cSN0s4mDfKaomlrG8b2cmcFvaGx/m2CeZge68HG64YCNntSgoVHUdJzKnIHIh6c+BalVVaPM5qrG2CZZkyaHH3WRtYrdn5nH2rxoP22+gN1VQTyxW1aXl0iO2GaxtFuzaCCAQyXSWDOKlDZwkxIINVZPP52Io3uldtIoC1uGVxmzRP6PHn8AAADVdFJOUwAmEf6t/v4EAQVR/oT+Hl4U/v1bR/7+Kf7+a/76Q4Y2Wf1b4j71sXm0y2hF/bBwbtXN/fyGl8Sxiu382Preqfzia9iIkdP51/Povnineu+9n6H7ov5ksLfYy/7////////+/////////////////////v/////////////////////////////////////////////////////////////////////////////+/////////////////////////////////////////////////////r5xM8kAAA0qSURBVFjDpZh3WFNnG8YDMZOiLEFEsVhn1Vq1Vq1abWv3br+dc5IQsklCSEiIyAoJyAhb9h4ishVQcCAIOLC4UBFxr7bu0X6dX6/vec8JikIptecPVrh+576f5z3vez+HQmGyKBSK28eT4SsL/fiXLiaFwmD/E5NzPmU7wG8s5l/DOXy8+vhxLg8TcN5/yw0JZPwV2GoJH+fjPI7UHBWV/8HzwGIynlkgm+vv788RiURSs06bT6WuJAQynlEgO+JaUzoWhGAWE1X1mkqlmYUEMp5JIBs7ejYz3L4iyN+gy1epVMGvaYI1K5faIIF/nsfuPDr325LMo5XpvCCFThUMrHccY2L85j2TQHZna11kZFGd19lo+4oI/yiqJiYmxtGP7kdf/gwC2bLWuix1RWTX7uzMo+PTI4KkJo0fXPSQkBDxDOc/KZBtaK3P4uLqrPXri+rcz4YjgbpgegidHhIgDhC/6/mnBLLNVTWdclzdmbYTeAMClVS6OCAgQGxnZ0cbM4dBPDKjoh2oqo309ZV3ppWV7UTAur1nw+MrIhRaRzsPsdiDRqN5v+lpO0oc0OrrirLkiWGVZVYeIXBLRFBUsNiH5kHz9vHxeZMxOhxb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);
-  background-repeat: no-repeat;
-  background-size: 100% 100%;
-  width: 28px;
-  height: 32px;
-  cursor: pointer;
-}
-#mermaidErd {
-  display: none;
-}
-#mermaidErd .exclude {
-  position: absolute;
-  color: red;
-  top: 0;
-  right: 0;
-  cursor: pointer;
-}
-.relatedModel {
-  cursor: pointer;
-}
-
-#dropper {
-  background-color: #eee;
-}
-#btnImport {
-  display: none;
-}
-
-#headerTopContainer {
-  position: sticky;
-  display: inline-block;
-  top: 0px;
-  background-color: white;
-  z-index: 1;
-}
-#headerTopAddNew {
-  position: absolute;
-  width: 100%;
-  top: -33px;
-}
-#headerButtonBox {
-  display: inline-block;
-  position: sticky;
-  right: 0px;
-  float: right;
-}
-#headerButtonBox a, #headerButtonBox svg {
-  display: table-cell;
-  height: 24px;
-  width: 24px;
-  padding: 2px;
-}
-#addNew {
-  background-color: #008061;
-}
-
-table {
-  border-collapse: collapse;
-  font-size: 0.9em;
-  font-family: sans-serif;
-}
-table.shadow {
-  min-width: 400px;
-  box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
-}
-
-tr th {
-  background-color: #009879;
-  color: #fff;
-  text-align: left;
-}
-.col-sticky {
-  position: sticky;
-  left: 0;
-}
-#headerTop tr th {
-  position: relative;
-}
-#headerTop tr th .exclude {
-  position: absolute;
-  display: none;
-  top: 0;
-  right: 0;
-  cursor: pointer;
-}
-#headerTop tr th:hover, #headerTop tr th.highlight {
-  background-color: #28B898;
-}
-#exclusions {
-  font-size: 0.7em;
-}
-#exclusions div {
-  border: 1px solid blue;
-  display: inline-block;
-  cursor: copy;
-}
-#headerTop tr th:hover .exclude {
-  display: inline;
-  cursor: pointer;
-  color: red;
-}
-tr th a {
-  color: #80FFB8;
-}
-.add-hm-related {
-  float: right;
-}
-#tblAddCol {
-  position: relative;
-  z-index: 2;
-  border: 2px solid blue;
-}
-tr th, tr td {
-  padding: 0.2em 0.5em;
-}
-
-tr td.highlight {
-  background-color: #B0B0FF;
-}
-
-table tr .col-sticky {
-  background-color: #28B898;
-}
-
-.show-field {
-  background-color: #004998;
-}
-.show-field a {
-  color: #80B8D2;
-}
-
-table.shadow > tbody > tr {
-  border-bottom: thin solid #dddddd;
-}
-
-table tbody tr:nth-of-type(even) {
-  background-color: #f3f3f3;
-}
-table tbody tr:nth-of-type(even) .alternating-gray {
-  background-color: #fff;
-}
-table tbody tr:nth-of-type(odd) .alternating-gray {
-  background-color: #f3f3f3;
-}
-
-table.shadow > tbody > tr:last-of-type {
-  border-bottom: 2px solid #009879;
-}
-
-table tbody tr.active-row {
-  font-weight: bold;
-  color: #009879;
-}
-
-a.show-arrow {
-  font-size: 1.5em;
-  text-decoration: none;
-}
-a.big-arrow {
-  font-size: 2.5em;
-  text-decoration: none;
-}
-.dimmed {
-  background-color: #C0C0C0;
-  text-align: center;
-}
-.right {
-  text-align: right;
-}
-.paddingBottomZero {
-  padding-bottom: 0px;
-}
-.paddingTopZero {
-  padding-top: 0px;
-}
-.orphan {
-  color: red;
-  white-space: nowrap;
-}
-.thumbImg {
-  max-width: 96px;
-  max-height: 96px;
-}
-.danger {
-  background-color: red;
-  color: white;
-}
-.brick-note {
-  font-size: 0.7em;
-  color: #A0FFA0;
-  max-width: 0;
-}
-
-#revertTemplate {
-  display: none;
-}
-svg.revert {
-  display: none;
-  margin-left: 0.25em;
-}
-input+svg.revert {
-  top: 0.5em;
-}
-
-.update {
-  position: sticky;
-  right: 1em;
-  float: right;
-  background-color: #004998;
-  color: #FFF;
-}
-</style>
-<script>
+              css = +''
+              css << ::Brick::Rails::BRICK_CSS
+              css << "<script>
   if (window.history.state && window.history.state.turbo)
     window.addEventListener(\"popstate\", function () { location.reload(true); });
 </script>
@@ -1066,7 +830,7 @@ document.querySelectorAll(\"input[type=submit][data-confirm]\").forEach(function
   "\nbrickTestSchema = \"#{::Brick.test_schema}\";" if ::Brick.test_schema
 }
 function doFetch(method, payload, success) {
-  payload.authenticity_token = <%= session[:_csrf_token].inspect.html_safe %>;
+  payload.authenticity_token = <%= (session[:_csrf_token] || form_authenticity_token).inspect.html_safe %>;
   var action = payload._brick_action || location.href;
   delete payload._brick_action;
   if (!success) {
@@ -1323,10 +1087,11 @@ end
     self.class.class_exec { include ::Brick::Rails::FormTags } unless respond_to?(:brick_grid)
 
     #{# Determine if we should render an N:M representation or the standard "mega_grid"
-      taa = ::Brick.config.treat_as_associative&.fetch(res_name, nil)
+      taa = ::Brick.config.treat_as_associative&.fetch(table_name, nil)
       options = {}
       options[:prefix] = prefix unless prefix.blank?
-      if taa.is_a?(String) # Write out a constellation
+      if taa.is_a?(String) || # Write out a constellation
+         (taa.is_a?(Array) && (options[:axes] = taa[0..-2]) && (options[:dsl] = taa.last))
         representation = :constellation
         "
     brick_constellation(@#{res_name}, #{options.inspect}, bt_descrip: @_brick_bt_descrip, bts: bts)"
@@ -1758,7 +1523,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 "
               end
               if representation == :grid
-                "<script>
+                inline << "<script>
 <% # Make column headers sort when clicked
    # %%% Create a smart javascript routine which can do this client-side %>
 [... document.getElementsByTagName(\"TH\")].forEach(function (th) {

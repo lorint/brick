@@ -429,6 +429,19 @@ module Brick
       end
     end
 
+    def acts_as_list_cols
+      @mutex.synchronize { @acts_as_list || {} }
+    end
+
+    # Get something like:
+    #   { 'on_call_list' => { _brick_default: [:last_name, :first_name] } }
+    #   { 'on_call_list' => { _brick_default: :sequence } }
+    def acts_as_list_cols=(position_cols)
+      @mutex.synchronize do
+        @acts_as_list ||= position_cols
+      end
+    end
+
     def metadata_columns
       @mutex.synchronize { @metadata_columns ||= ['created_at', 'updated_at', 'deleted_at'] }
     end

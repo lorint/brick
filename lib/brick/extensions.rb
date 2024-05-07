@@ -2349,7 +2349,7 @@ class Object
 
             # %%% Allow params to define which columns to use for order_by
             # Overriding the default by providing a querystring param?
-            order_by = params['_brick_order']&.split(',')&.map(&:to_s) || Object.send(:default_ordering, table_name, pk)
+            order_by = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
 
             ar_relation = ActiveRecord.version < Gem::Version.new('4') ? real_model.preload : real_model.all
             params['_brick_is_api'] = true if (is_api = request.format == :js || current_api_root)
@@ -2918,6 +2918,10 @@ module Brick
                       end
       hms = (relation = relations.fetch(primary_table, nil))&.fetch(:fks) { relation[:fks] = {} } unless is_class
 
+      unless fk[4]
+        puts "WARNING:  Foreign key \"#{fk[5]}\" for \"#{"#{fk[0]}." if fk[0]}#{fk[1]}.#{fk[2]}\" does not reference a valid primary key or column(s) configured with a unique constraint."
+        return
+      end
       unless (cnstr_name = fk[5])
         # For any appended references (those that come from config), arrive upon a definitely unique constraint name
         pri_tbl = is_class ? fk[4][:class].underscore : pri_tbl
@@ -2964,8 +2968,9 @@ module Brick
       else
         inverse_table = [primary_table] if polymorphic_class
         assoc_bt = bts[cnstr_name] = { is_bt: true, fk: fk[2], assoc_name: bt_assoc_name, inverse_table: inverse_table || primary_table }
-        assoc_bt[:optional] = true if is_optional ||
-                                      (is_optional.nil? && !relations[fk[1]][:cols][fk[2]][3])
+        assoc_bt[:optional] = true if (is_optional ||
+                                       (is_optional.nil? && !relations[fk[1]][:cols][fk[2]][3])
+                                      ) && ActiveRecord.version >= ::Gem::Version.new('5.0')
         assoc_bt[:polymorphic] = [polymorphic_class] if polymorphic_class
       end
       if is_class

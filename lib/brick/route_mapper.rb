@@ -62,7 +62,14 @@ module Brick
           end
         else
           # puts "#{'  ' * ind}resources :#{res_name} #{options.inspect unless options.blank?}"
-          send(:resources, res_name.to_sym, **options)
+          if options.key(:only) || !Object.const_defined?('Rails') ||
+             !::Rails.application.config.respond_to?(:api_only) || !::Rails.application.config.api_only
+            resources_options = options
+          else # If it's a Rails API app and no :only options are defined, normally routes for :new and :edit
+               # are not supplied.  But by default we may want for them to be shown.
+            resources_options = options.merge(only: [:index, :show, :create, :update, :destroy, :new, :edit])
+          end
+          send(:resources, res_name.to_sym, **resources_options)
         end
       end
 

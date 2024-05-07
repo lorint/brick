@@ -363,8 +363,8 @@ module Brick
               if (idx_name = ActiveRecord::Base.connection.index_name(tbl, {column: col})).length > 63
                 # Try to find a shorter name that hasn't been used yet
                 unless indexes.key?(shorter = idx_name[0..62]) ||
-                      indexes.key?(shorter = idx_name.tr('_', '')[0..62]) ||
-                      indexes.key?(shorter = idx_name.tr('aeio', '')[0..62])
+                       indexes.key?(shorter = idx_name.tr('_', '')[0..62]) ||
+                       indexes.key?(shorter = idx_name.tr('aeio', '')[0..62])
                   puts "Unable to easily find unique name for index #{idx_name} that is shorter than 64 characters,"
                   puts "so have resorted to this GUID-based identifier: #{shorter = "#{tbl[0..25]}_#{::SecureRandom.uuid}"}."
                 end
@@ -379,7 +379,12 @@ module Brick
               rescue NameError => e
                 primary_key = ::Brick.ar_base.primary_key
               end
-              fk_stuff = ", foreign_key: { to_table: #{to_table}#{", primary_key: :#{primary_key}" if primary_key != ::Brick.ar_base.primary_key} }"
+              need_pk_specifics = (primary_key != ::Brick.ar_base.primary_key)
+              fk_stuff = if need_pk_specifics || to_table != ":#{fk[:assoc_name].pluralize}"
+                           ", foreign_key: { to_table: #{to_table}#{", primary_key: :#{primary_key}" if need_pk_specifics} }"
+                         else
+                           ", foreign_key: true"
+                         end
               mig << "      t.references :#{fk[:assoc_name]}#{suffix}#{fk_stuff}\n"
             end
           else
