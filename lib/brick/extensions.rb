@@ -691,7 +691,7 @@ module ActiveRecord
         #     ActiveRecord::StatementInvalid (TinyTds::Error: DBPROCESS is dead or not enabled)
         #     Relevant info here:  https://github.com/rails-sqlserver/activerecord-sqlserver-adapter/issues/402
         is_api = params['_brick_is_api']
-        columns.each do |col|
+        columns[0..450].each do |col|
           next if (col.type.nil? || col.type == :binary) && is_api
 
           col_alias = " AS #{col.name}_" if (col_name = col.name) == 'class'
@@ -1080,7 +1080,16 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
         self.order_values |= final_order_by # Same as:  order!(*final_order_by)
       end
       # By default just 1000 rows
-      row_limit = params['_brick_limit'] || params['_brick_page_size'] || 1000
+      default_row_limit = if columns.length > 300
+                            50
+                          elsif columns.length > 200
+                            100
+                          elsif columns.length > 100
+                            250
+                          else
+                            1000
+                          end
+      row_limit = params['_brick_limit'] || params['_brick_page_size'] || default_row_limit
       offset = if (page = params['_brick_page']&.to_i)
                  page = 1 if page < 1
                  (page - 1) * row_limit.to_i
