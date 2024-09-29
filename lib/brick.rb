@@ -189,6 +189,7 @@ module Brick
       has_uppers = name =~ /[A-Z]+/
       has_lowers = name =~ /[a-z]+/
       name.downcase! if has_uppers && action == :downcase
+      name = "Z#{name}" if name.start_with?('_') # Entity Framework creates a table named __EFMigrationsHistory
       if name.include?(' ')
         # All uppers or all lowers?
         if !has_uppers || !has_lowers
@@ -197,6 +198,9 @@ module Brick
           name.tr(' ', '')
         end
       else
+        # .NET has a background job processor called "Hangfire" which creates several tables,
+        # two of which get named the same as core Ruby classes -- "Set" and "Hash".
+        name = "#{name}x" if ['Hash', 'Set', 'hash', 'set'].include?(name)
         action == :underscore ? name.underscore : name
       end
     end

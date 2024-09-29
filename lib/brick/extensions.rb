@@ -1676,7 +1676,10 @@ class Object
           schema_name = ::Brick.apartment_default_tenant
         end
         # Maybe, just maybe there's a database table that will satisfy this need
-        matching = ::Brick.table_name_lookup&.fetch(class_name, nil)
+        matching = ::Brick.table_name_lookup&.fetch(
+          base_module == Object ? class_name : "#{base_name}::#{class_name}",
+          nil
+        )
         if (matching ||= [table_name, singular_table_name, plural_class_name, model_name, table_name.titleize].find { |m| relations.key?(schema_name ? "#{schema_name}.#{m}" : m) })
           build_model_worker(schema_name, inheritable_name, model_name, singular_table_name, table_name, relations, matching, is_generator)
         end

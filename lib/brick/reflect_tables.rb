@@ -417,7 +417,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
           puts "WARNING:  #{message_start} already exists.\n  Will set up to auto-create model #{v[:class_name]} for table #{k}."
         end
         # Track anything that's out-of-the-ordinary
-        table_name_lookup[v[:class_name]] = k unless v[:class_name].underscore.pluralize == k
+        table_name_lookup[v[:class_name]] = k.split('.').last unless v[:class_name].underscore.pluralize == k
       end
       ::Brick.load_additional_references if ::Brick.initializer_loaded
 
