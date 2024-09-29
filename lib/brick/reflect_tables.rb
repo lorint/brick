@@ -3,6 +3,7 @@ module Brick
     # This is done separately so that during testing it can be called right after a migration
     # in order to make sure everything is good.
     def reflect_tables
+      require 'brick/join_array'
       return unless ::Brick.config.mode == :on
 
       # return if ActiveRecord::Base.connection.current_database == 'postgres'

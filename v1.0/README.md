@@ -29,12 +29,20 @@ Also available is this older video walkthrough that I had done.  Probably want t
 
 https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9f99-412a03cb2cb1.mp4
 
+
+## Testimonials
+
+"While migrating a python+svelte+postgres app to rails, **brick** was crucial for making that a possibility without having to spend a ton of time writing boiler plate models/controllers.  It's been wonderful to use."
+
+- Sean Villars
+
+
 ## General Overview
 
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.217        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.219        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only

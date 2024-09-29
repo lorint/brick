@@ -1387,29 +1387,30 @@ end
     end
     base_module = if self < ActiveRecord::Migration || !self.name
                     brick_root || Object
-                  elsif split_self_name&.length&.> 1 # Classic mode
-                    begin
-                      base = self
-                      unless (base_goal = requested.split('::')[0..-2].join('::')).empty?
-                        base = base.parent while base.name != base_goal && base != Object
-                      end
-                      return base._brick_const_missing(*args)
+                  # elsif split_self_name&.length&.> 1 # Classic mode
+                  #   begin
+                  #     base = self
+                  #     unless (base_goal = requested.split('::')[0..-2].join('::')).empty?
+                  #       base = base.parent while base.name != base_goal && base != Object
+                  #     end
+                  #     binding.pry
+                  #     return base._brick_const_missing(*args)
 
-                    rescue NameError # %%% Avoid the error "____ cannot be autoloaded from an anonymous class or module"
-                      return self.const_get(args.first) if self.const_defined?(args.first)
+                  #   rescue NameError # %%% Avoid the error "____ cannot be autoloaded from an anonymous class or module"
+                  #     return self.const_get(args.first) if self.const_defined?(args.first)
 
-                      # unless self == (prnt = (respond_to?(:parent) ? parent : module_parent))
-                      unless self == Object
-                        begin
-                          return Object._brick_const_missing(*args)
+                  #     # unless self == (prnt = (respond_to?(:parent) ? parent : module_parent))
+                  #     unless self == Object
+                  #       begin
+                  #         return Object._brick_const_missing(*args)
 
-                        rescue NameError
-                          return Object.const_get(args.first) if Object.const_defined?(args.first)
+                  #       rescue NameError
+                  #         return Object.const_get(args.first) if Object.const_defined?(args.first)
 
-                        end
-                      end
-                    end
-                    Object
+                  #       end
+                  #     end
+                  #   end
+                  #   Object
                   else
                     sti_base = (::Brick.config.sti_namespace_prefixes&.fetch("::#{name}::#{requested}", nil) ||
                                 ::Brick.config.sti_namespace_prefixes&.fetch("::#{name}::", nil))&.constantize
