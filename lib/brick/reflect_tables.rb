@@ -8,6 +8,71 @@ module Brick
 
       # return if ActiveRecord::Base.connection.current_database == 'postgres'
 
+      # Utilise Elasticsearch indexes, if any
+      if Object.const_defined?('Elasticsearch')
+        if ::Elasticsearch.const_defined?('Client')
+          # Allow Elasticsearch gem > 7.10 to work with Opensearch
+          ::Elasticsearch::Client.class_exec do
+            alias _original_initialize initialize
+            def initialize(arguments = {}, &block)
+              _original_initialize(arguments,  &block)
+              @verified = true
+              @transport
+            end
+
+            # Auto-create when there is a missing index
+            alias _original_method_missing method_missing
+            def method_missing(name, *args, &block)
+              _original_method_missing(name, *args, &block)
+            rescue Elastic::Transport::Transport::Errors::NotFound => e
+              if (missing_index = args.last&.fetch(:defined_params, nil)&.fetch(:index, nil))
+                self.indices.create({ index: missing_index,
+                                      body: { settings: {}, mappings: { properties: {} } } })
+                puts "Auto-creating missing index \"#{missing_index}\""
+                _original_method_missing(name, *args, &block)
+              else
+                raise e
+              end
+            end
+          end
+        end
+        if ::Elasticsearch.const_defined?('Model')
+          # By setting the environment variable ELASTICSEARCH_URL then you can specify an Elasticsearch/Opensearch host
+          host = (client = ::Elasticsearch::Model.client).transport.hosts.first
+          es_uri = URI.parse("#{host[:protocol]}://#{host[:host]}:#{host[:port]}")
+          es_uri = nil if es_uri.to_s == 'http://localhost:9200'
+          begin
+            cluster_info = client.info.body
+            if (es_ver = cluster_info['version'])
+              ::Brick.elasticsearch_models = :all
+              puts "Found Elasticsearch gem and #{'local ' unless es_uri}#{es_ver['distribution'].titleize} #{es_ver['number']} installation#{" at #{es_uri}" if es_uri}."
+              puts "Enable Elasticsearch support by either setting \"::Brick.elasticsearch_models = :all\" or by picking specific models by name."
+
+              # # Auto-create when trying to import and there is a missing index
+              # ::Elasticsearch::Model::Importing.class_exec do
+              # end
+            end
+          rescue StandardError => e # Errno::ECONNREFUSED
+            puts "Found Elasticsearch gem, but could not connect to #{'local ' unless es_uri}Elasticsearch/Opensearch server#{" at #{es_uri}" if es_uri}."
+          end
+        # require 'net/http'
+        #   begin
+        #     es_uri = ENV['ELASTICSEARCH_URL']
+        #     binding.pry
+        #     cluster_info = JSON.parse(Net::HTTP.get(URI.parse(es_uri || 'http://localhost:9200')))
+        #     if (es_ver = cluster_info['version'])
+        #       ::Brick.elasticsearch_models = :all
+        #       puts "Found Elasticsearch gem and #{'local ' unless es_uri}#{es_ver['distribution'].titleize} #{es_ver['number']} installation#{" at #{es_uri}" if es_uri}."
+        #       puts "Enable Elasticsearch support by either setting \"::Brick.elasticsearch_models = :all\" or by picking specific models by name."
+        #     end
+        #   rescue StandardError => e
+        #   end
+        end
+      end
+      # client = Elasticsearch::Client.new(host: 'https://my-elasticsearch-host.example')
+      # client.ping
+      # client.search(q: 'test')
+
       # Overwrite SQLite's #begin_db_transaction so it opens in IMMEDIATE mode instead of
       # the default DEFERRED mode.
       #   https://discuss.rubyonrails.org/t/failed-write-transaction-upgrades-in-sqlite3/81480/2

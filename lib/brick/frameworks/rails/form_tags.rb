@@ -99,9 +99,10 @@ module Brick::Rails::FormTags
     # proxy = relation.instance_variable_get(:@proxy) || relation.instance_variable_set(:@proxy, {})
     bi = relation.instance_variable_get(:@_brick_includes)
     relation.each do |obj|
-      out << "<tr>\n"
-      out << "<td class=\"col-sticky alternating-gray\">#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym,
-                                                                            pk.map { |pk_part| obj.send(pk_part.to_sym) }), { class: 'big-arrow' })}</td>\n" if pk.present?
+      rid = pk.map { |pk_part| obj.send(pk_part.to_sym) }
+      out << "<tr x-id=\"#{rid.join('/')}\">\n"
+      out << "<td class=\"col-sticky alternating-gray\">#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym, rid),
+                                                                  { class: 'big-arrow' })}</td>\n" if pk.present?
       ac = obj.instance_variable_get(:@association_cache) || obj.instance_variable_set(:@association_cache, {})
       # included = 
       bi&.each do |bi_key|

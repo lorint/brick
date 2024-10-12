@@ -1480,7 +1480,7 @@ end
                begin
                  if plural_class_name == 'BrickOpenapi' ||
                     (
-                      (::Brick.config.add_status || ::Brick.config.add_orphans) &&
+                      (::Brick.config.add_search || ::Brick.config.add_status || ::Brick.config.add_orphans) &&
                       plural_class_name == 'BrickGem'
                     # Was:  ) || (model = self.const_get(full_class_name))
                     ) || (model = Object.const_get(full_class_name))
@@ -1741,6 +1741,52 @@ class Object
       built_model = Class.new(base_model) do |new_model_class|
         (schema_module || Object).const_set(chosen_name, new_model_class) unless is_generator
         @_brick_relation = relation
+        # Enable Elasticsearch for this one?
+        access = ::Brick.elasticsearch_models&.is_a?(Hash) ? ::Brick.elasticsearch_models[name] : ::Brick.elasticsearch_models
+        @_brick_es_crud ||= case access
+                            when String
+                              access
+                            when :all, :full
+                              'icrud' # Auto-create index, and full CRUD
+                            else
+                              ''
+                            end
+        unless @_brick_es_crud.blank?
+          include ::Elasticsearch::Model
+          code << "  include Elasticsearch::Model\n"
+          if @_brick_es_crud.index('i') # Enable auto-creation of indexes on import?
+            class << self
+              alias _original_import import
+              def import(options={}, &block)
+                self.__elasticsearch__.create_index! unless self.__elasticsearch__.index_exists?
+                _original_import(options={}, &block)
+              end
+            end
+          end
+          if @_brick_es_crud.index('c') || @_brick_es_crud.index('u') || @_brick_es_crud.index('d')
+            include ::Elasticsearch::Model::Callbacks
+            code << "  include Elasticsearch::Model::Callbacks\n"
+          end
+          if @_brick_es_crud.index('r')
+            # Customer.__elasticsearch__.search('taco').to_a
+          end
+          # # Need some mappings for text columns
+          # mappings do
+          #   indexes :company_name, type: 'text'
+          #   indexes :country, type: 'text'
+          # end
+          # def self.search(q)
+          #   s = self.__elasticsearch__.search(q)
+          #   binding.pry
+          #   s.to_a
+          # #   class Elasticsearch::Model::Response::Response
+          # #     def to_a
+          # #   end
+          # # rescue Elastic::Transport::Transport::Errors::NotFound => e
+          # #   self.create_index!
+          # #   self.__elasticsearch__.search(q)
+          # end
+        end
         if inheritable_name
           new_model_class.define_singleton_method :inherited do |subclass|
             super(subclass)
@@ -2431,6 +2477,7 @@ class Object
                                s << excl_parts.last
                              end
                            end
+            @_brick_es = real_model.instance_variable_get(:@_brick_es_crud)
             @_brick_bt_descrip = real_model._br_bt_descrip
             @_brick_hm_counts = real_model._br_hm_counts
             @_brick_join_array = join_array
@@ -2530,6 +2577,10 @@ class Object
                 session[:_brick_exclude] = excls
               end
               render json: { result: ::Brick.unexclude_column(table_name, col) }
+            elsif is_json && (q = params['_brick_es']) # Elasticsearch
+              # Make sure that the index is actually present and we allow reading before attempting
+              es_result = model.__elasticsearch__.search(q).to_a if (es_perms = model.instance_variable_get(:@_brick_es_crud)).index('r')
+              render json: { result: es_result }
             else
               real_model = model.real_model(params)
               singular_table_name = real_model.name.underscore.split('/').last

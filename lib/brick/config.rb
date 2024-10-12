@@ -482,6 +482,11 @@ module Brick
       @mutex.synchronize { @ignore_migration_fks = relations }
     end
 
+    # Add search page for general Elasticsearch / Opensearch querying
+    def add_search
+      true
+    end
+
     # Add status page showing all resources and what files have been built out for them
     def add_status
       true

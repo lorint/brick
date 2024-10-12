@@ -110,7 +110,8 @@ module Brick
     attr_accessor :default_schema, :db_schemas, :test_schema,
                   :established_drf,
                   :is_oracle, :is_eager_loading, :auto_models, :initializer_loaded,
-                  :table_name_lookup
+                  :table_name_lookup,
+                  :elasticsearch_models
     ::Brick.auto_models = []
 
     def get_possible_schemas
