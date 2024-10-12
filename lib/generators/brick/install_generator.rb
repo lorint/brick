@@ -342,6 +342,9 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # # user, then you can use model_descrips like this, putting expressions with property references in square brackets:
   # Brick.model_descrips = { 'User' => '[profile.firstname] [profile.lastname]' }
 
+  # # FULL TEXT SEARCH
+  # Brick.elasticsearch_models = :all
+
   # # ERD SETTINGS
 
   # # By default the Entity Relationship Diagram fragment which is available to be shown on the Grid page includes

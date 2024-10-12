@@ -276,6 +276,15 @@ module Brick
       end
 
       if (named_routes = instance_variable_get(:@set).named_routes).respond_to?(:find)
+        # Generic Elasticsearch / Opensearch query page
+        if ::Brick.config.add_search && (search_as = "#{controller_prefix.tr('/', '_')}brick_search".to_sym)
+          (
+            !(search_route = instance_variable_get(:@set).named_routes.find { |route| route.first == search_as }&.last) ||
+            !search_route.ast.to_s.include?("/#{controller_prefix}brick_search/")
+          )
+          get("/#{controller_prefix}brick_search", to: 'brick_gem#search', as: search_as.to_s)
+        end
+
         if ::Brick.config.add_status && (status_as = "#{controller_prefix.tr('/', '_')}brick_status".to_sym)
           (
             !(status_route = instance_variable_get(:@set).named_routes.find { |route| route.first == status_as }&.last) ||

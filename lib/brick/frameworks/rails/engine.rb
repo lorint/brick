@@ -592,6 +592,7 @@ window.addEventListener(\"popstate\", linkSchemas);
             # Used by Rails 5.0 and above
             alias :_brick_template_exists? :template_exists?
             def template_exists?(*args, **options)
+              (::Brick.config.add_search && args.first == 'search') ||
               (::Brick.config.add_status && args.first == 'status') ||
               (::Brick.config.add_orphans && args.first == 'orphans') ||
               (args.first == 'crosstab') ||
@@ -654,6 +655,7 @@ window.addEventListener(\"popstate\", linkSchemas);
             def find_template(*args, **options)
               find_template_err = nil
               unless (model_name = @_brick_model&.name) ||
+                     (is_search = ::Brick.config.add_search && args[0..1] == ['search', ['brick_gem']]) ||
                      (is_status = ::Brick.config.add_status && args[0..1] == ['status', ['brick_gem']]) ||
                      (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']]) ||
                      (is_crosstab = args[0..1] == ['crosstab', ['brick_gem']])
@@ -775,10 +777,14 @@ window.addEventListener(\"popstate\", linkSchemas);
                                 end
                                 s << "<option value=\"#{::Brick._brick_index(rel.first, nil, '/', nil, true)}\">#{rel.first}#{rowcount}</option>"
                               end.html_safe
+              # Options for special Brick pages
               prefix = "#{::Brick.config.path_prefix}/" if ::Brick.config.path_prefix
-              table_options << "<option value=\"#{prefix}brick_status\">(Status)</option>".html_safe if ::Brick.config.add_status
-              table_options << "<option value=\"#{prefix}brick_orphans\">(Orphans)</option>".html_safe if is_orphans
-              table_options << "<option value=\"#{prefix}brick_crosstab\">(Crosstab)</option>".html_safe if is_crosstab
+              [['Search', ::Brick.config.add_search],
+               ['Status', ::Brick.config.add_status],
+               ['Orphans', is_orphans],
+               ['Crosstab', is_crosstab]].each do |table_option, show_it|
+                table_options << "<option value=\"#{prefix}brick_#{table_option.downcase}\">(#{table_option})</option>".html_safe if show_it
+              end
               css = +''
               css << ::Brick::Rails::BRICK_CSS
               css << "<script>
@@ -1048,6 +1054,64 @@ end
       });
     });
   </script>
+<% end
+   # SEARCH BOX
+   if @_brick_es&.index('r') # Must have at least Elasticsearch Read access %>
+  <input type=\"text\" id=\"esSearch\"><a href=\"\">S</a>
+  <script>
+    var esSearch = document.getElementById(\"esSearch\")
+    var isEsFiltered = false;
+    esSearch.addEventListener(\"input\", function () {
+      var gridTrs;
+      if (this.value.length > 2) { # At least 3 letters in the search term
+        var es = doFetch(\"POST\", {_brick_es: this.value},
+          function (p) {p.text().then(function (response) {
+            var result = JSON.parse(response).result;
+            if (result.length > 0) {
+              // Show only rows that have matches
+              gridTrs = [... grid.querySelectorAll(\"tr\")];
+              for (var i = 1; i < gridTrs.length; ++i) {
+                var row = gridTrs[i];
+                // Check all results to see if this one is in the list
+                var rid = row.getAttribute(\"x-id\");
+                var isHit = false;
+                for (var j = 0; j < result.length; ++j) {
+                  if (rid == result[j]._id) {
+                    isHit = true;
+                    break;
+                  }
+                }
+                if (!isHit) row.style.display = \"none\";
+              }
+              isEsFiltered = true;
+            } else {
+              if (isEsFiltered) { // Show all rows and gray the search box
+                gridTrs = [... grid.querySelectorAll(\"tr\")];
+                for (var i = 1; i < gridTrs.length; ++i) {
+                  gridTrs[i].style.display = \"table-row\";
+                }
+              }
+            }
+          });}
+        );
+      } else {
+        if (isEsFiltered) { // Show all rows and gray the search box
+          gridTrs = [... grid.querySelectorAll(\"tr\")];
+          for (var i = 1; i < gridTrs.length; ++i) {
+            gridTrs[i].style.display = \"table-row\";
+          }
+        }
+      }
+    });
+    esSearch.addEventListener(\"keypress\", function (e) {
+      if (e.keyCode == 13) {
+//        debugger
+        // Go to search results page
+//        var es = doFetch(\"POST\", {_brick_es: this.value});
+//        console.log(es);
+      }
+    });
+  </script>
 <% end %>
 </div></div>
 #{::Brick::Rails.erd_markup(@_brick_model, prefix) if @_brick_model}
@@ -1112,6 +1176,32 @@ end
 </body>
 </html>
 "
+
+
+                       when 'search'
+                         if is_search
+# Search page - query across all indexes that appear to be related to models
++"#{css}
+<p class=\"flashNotice\"><%= notice if request.respond_to?(:flash) %></p>#{"
+#{schema_options}" if schema_options}
+<select id=\"tbl\">#{table_options}</select>
+<h1>Search</h1>
+<table id=\"resourceName\" class=\"shadow\"><thead><tr>
+  <th>Resource</th>
+  <th>Description</th>
+  <th>ID</th>
+</tr></thead>
+<tbody>
+<% # @results.each do |r| %>
+  <tr>
+  <td><%= %></td>
+  <td<%=  %></td>
+  <td<%=  %></td>
+  </tr>
+<% # end %>
+</tbody></table>
+#{script}"
+                         end
 
                        when 'status'
                          if is_status
