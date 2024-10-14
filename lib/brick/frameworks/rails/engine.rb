@@ -1167,7 +1167,7 @@ end
                %></td>
   <td<%= ' class=\"dimmed\"'.html_safe unless r[6] %>><%= # Views
                %></td>
-  <tr>
+  </tr>
 <% end %>
 </tbody></table>
 #{script}"
@@ -1237,7 +1237,7 @@ end
 end %>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
-<table id=\"resourceName\"><td><h1><%= page_title %></h1></td>
+<table id=\"resourceName\"><tr><td><h1><%= page_title %></h1></td>
 <% rel = Brick.relations[#{model_name}.table_name]
    if (in_app = rel.fetch(:existing, nil)&.fetch(:show, nil))
      begin
@@ -1270,7 +1270,7 @@ end %>#{"
  ) %></td>
 <%   end
    end %>
-</table>
+</tr></table>
 <%
 if (description = rel&.fetch(:description, nil)) %>
   <span class=\"__brick\"><%= description %></span><br><%
