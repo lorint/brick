@@ -582,7 +582,7 @@ window.addEventListener(\"popstate\", linkSchemas);
               alias :_brick_lookup_context :lookup_context
               def lookup_context(*args)
                 ret = _brick_lookup_context(*args)
-                @_lookup_context.instance_variable_set(:@_brick_req_params, params) if self.class < AbstractController::Base && request && params.present?
+                @_lookup_context.instance_variable_set(:@_brick_req_params, params) if self.class < AbstractController::Base && respond_to?(:request) && request && params.present?
                 ret
               end
             end
