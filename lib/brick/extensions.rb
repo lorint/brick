@@ -744,7 +744,6 @@ module ActiveRecord
         end
       end
 
-      # core_selects = selects.dup
       id_for_tables = Hash.new { |h, k| h[k] = [] }
       field_tbl_names = Hash.new { |h, k| h[k] = {} }
       used_col_aliases = {} # Used to make sure there is not a name clash
@@ -758,7 +757,6 @@ module ActiveRecord
         if @_brick_rel_dup.respond_to?(k) # Name already taken?
           # %%% Use ensure_unique here in this kind of fashion:
           # cnstr_name = ensure_unique(+"(brick) #{for_tbl}_#{pri_tbl}", nil, bts, hms)
-          # binding.pry
           next
         end
 

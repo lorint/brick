@@ -44,6 +44,8 @@ GEM
     concurrent-ruby (1.2.3)
     crass (1.0.6)
     diff-lcs (1.5.0)
+    duty_free (1.0.10)
+      activerecord (>= 3.0)
     erubi (1.12.0)
     fancy_gets (0.1.10)
     ffaker (2.21.0)
@@ -111,9 +113,9 @@ GEM
       rspec-mocks (~> 3.10)
       rspec-support (~> 3.10)
     rspec-support (3.12.1)
-    rswag-ui (2.13.0)
-      actionpack (>= 3.1, < 7.2)
-      railties (>= 3.1, < 7.2)
+    rswag-ui (2.16.0)
+      actionpack (>= 5.2, < 8.1)
+      railties (>= 5.2, < 8.1)
     rubocop (0.93.1)
       parallel (~> 1.10)
       parser (>= 2.7.1.5)
@@ -128,7 +130,7 @@ GEM
     rubocop-rspec (1.42.0)
       rubocop (>= 0.87.0)
     ruby-progressbar (1.13.0)
-    sqlite3 (1.6.9)
+    sqlite3 (1.7.3)
       mini_portile2 (~> 2.8.0)
     thor (1.3.0)
     thread_safe (0.3.6)
@@ -143,6 +145,7 @@ DEPENDENCIES
   activerecord (~> 5.2)
   appraisal (~> 2.2)
   brick!
+  duty_free
   ffaker (~> 2.11)
   generator_spec (~> 0.9.4)
   memory_profiler (~> 0.9.14)
@@ -153,7 +156,7 @@ DEPENDENCIES
   rswag-ui
   rubocop (~> 0.93)
   rubocop-rspec (~> 1.42.0)
-  sqlite3 (~> 1.4)
+  sqlite3 (~> 1.7.0)
 
 BUNDLED WITH
    2.4.22

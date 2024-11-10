@@ -135,3 +135,7 @@ end
 appraise 'ar-7.2' do
   gem 'activerecord', '~> 7.2'
 end
+
+appraise 'ar-8.0' do
+  gem 'activerecord', '~> 8.0'
+end

@@ -76,7 +76,7 @@ module Brick
       # Overwrite SQLite's #begin_db_transaction so it opens in IMMEDIATE mode instead of
       # the default DEFERRED mode.
       #   https://discuss.rubyonrails.org/t/failed-write-transaction-upgrades-in-sqlite3/81480/2
-      if ActiveRecord::Base.connection.adapter_name == 'SQLite'
+      if ActiveRecord::Base.connection.adapter_name == 'SQLite' && ActiveRecord.version >= Gem::Version.new('5.1')
         arca = ::ActiveRecord::ConnectionAdapters
         db_statements = arca::SQLite3.const_defined?('DatabaseStatements') ? arca::SQLite3::DatabaseStatements : arca::SQLite3::SchemaStatements
         # Rails 7.1 and later
@@ -475,7 +475,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         v[:resource] = proposed_name_parts.last.underscore
         if colliding_thing
           message_start = if colliding_thing.is_a?(Module) && Object.const_defined?(:Rails) &&
-                             colliding_thing.constants.find { |c| colliding_thing.const_get(c) < ::Rails::Application }
+                             colliding_thing.constants.find { |c| (ctc = colliding_thing.const_get(c)).is_a?(Class) && ctc < ::Rails::Application }
                             "The module for the Rails application itself, \"#{colliding_thing.name}\","
                           else
                             "Non-AR #{colliding_thing.class.name.downcase} \"#{colliding_thing.name}\""

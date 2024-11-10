@@ -334,9 +334,9 @@ To configure additional options, such as defining related columns that you want 
 Inside the generated file many options exist, for instance if you wish to have a prefix for all auto-generated paths, you can
 un-comment the line:
 
-    ::Brick.path_prefix = 'admin'
+    ::Brick.path_prefix = 'brick'
 
-and it will affect all routes.  In this case, instead of http://localhost:3000/hr/job_history, you would navigate to http://localhost:3000/admin/hr/job_history, and so forth for all routes.  This kind of prefix is very useful when you drop **The Brick** into an existing project and want a full set of administration pages tucked away into their own namespace.  If you are placing this in an existing project then as well you might want to add the very intelligent **link_to_brick** form helper into the `<body>` portion of your `layouts/application.html.erb` file like this:
+and it will affect all routes.  In this case, instead of http://localhost:3000/hr/job_history, you would navigate to http://localhost:3000/brick/hr/job_history, and so forth for all routes.  This kind of prefix is very useful when you drop **The Brick** into an existing project and want a full set of administration pages tucked away into their own namespace.  If you are placing this in an existing project then as well you might want to add the very intelligent **link_to_brick** form helper into the `<body>` portion of your `layouts/application.html.erb` file like this:
 
     <%= link_to_brick %>
 

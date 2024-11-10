@@ -582,7 +582,10 @@ window.addEventListener(\"popstate\", linkSchemas);
               alias :_brick_lookup_context :lookup_context
               def lookup_context(*args)
                 ret = _brick_lookup_context(*args)
-                @_lookup_context.instance_variable_set(:@_brick_req_params, params) if self.class < AbstractController::Base && respond_to?(:request) && request && params.present?
+                if self.class < AbstractController::Base
+                  request if respond_to?(:request) # ActionMailer does not have +request+
+                  @_lookup_context.instance_variable_set(:@_brick_req_params, params) if request && params.present?
+                end
                 ret
               end
             end
@@ -597,8 +600,9 @@ window.addEventListener(\"popstate\", linkSchemas);
               (::Brick.config.add_orphans && args.first == 'orphans') ||
               (args.first == 'crosstab') ||
               _brick_template_exists?(*args, **options) ||
-              # Do not auto-create a template when it's searching for an application.html.erb, which comes in like:  ["edit", ["games", "application"]]
-              ((args[1].length == 1 || args[1][-1] != 'application') &&
+              # By default do not auto-create a template when it's searching for an application.html.erb, which comes in like:  ["edit", ["games", "application"]]
+              # (Although specifying a class name for controllers_inherit_from will override this.)
+              ((args[1].length == 1 || ::Brick.config.controllers_inherit_from.present? || args[1][-1] != 'application') &&
                set_brick_model(args, @_brick_req_params))
             end
 

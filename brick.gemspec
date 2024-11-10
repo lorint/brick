@@ -56,7 +56,7 @@ gem_spec = Gem::Specification.new do |s|
   # end
   s.add_development_dependency 'mysql2', '~> 0.5' if have_mysql
   s.add_development_dependency 'pg', '>= 0.18', '< 2.0'
-  s.add_development_dependency 'sqlite3', '~> 1.4'
+  s.add_development_dependency 'sqlite3', '~> 2.3.0'
 end
 
 gem_spec
