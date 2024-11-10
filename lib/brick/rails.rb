@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-# require 'brick/frameworks/rails/controller'
-require 'brick/frameworks/rails/engine'
+# require 'brick/rails/controller'
+require 'brick/rails/engine'
 
 module ::Brick::Rails
   class << self

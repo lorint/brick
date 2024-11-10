@@ -92,7 +92,7 @@ require 'brick/config'
 require 'brick/reflect_tables'
 if Gem::Dependency.new('rails').matching_specs.present?
   require 'rails'
-  require 'brick/frameworks/rails'
+  # require 'brick/rails'
 end
 module Brick
   ALL_API_ACTIONS = [:index, :show, :create, :update, :destroy]

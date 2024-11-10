@@ -1290,8 +1290,9 @@ Might want to add this in your brick.rb:
 end
 
 if Object.const_defined?('ActionView')
-  require 'brick/frameworks/rails/form_tags'
-  require 'brick/frameworks/rails/form_builder'
+  require 'brick/rails'
+  require 'brick/rails/form_tags'
+  require 'brick/rails/form_builder'
   module ::ActionView::Helpers
     module FormTagHelper
       include ::Brick::Rails::FormTags
