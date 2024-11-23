@@ -67,7 +67,12 @@ require 'brick/frameworks/rspec'
 require 'ffaker'
 
 RSpec.configure do |config|
-  config.fixture_path = "#{::Rails.root}/spec/fixtures"
+  fp = "#{::Rails.root}/spec/fixtures"
+  if config.respond_to?(:fixture_paths)
+    config.fixture_paths = [fp]
+  else
+    config.fixture_path = fp
+  end
 
   # %%% In rails < 5, some tests could require truncation
   if ActiveRecord.version < ::Gem::Version.new('5')

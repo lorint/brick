@@ -9,6 +9,9 @@ require 'csv'
 
 RSpec.describe 'Parent', type: :model do
   before(:each) do
+    # %%% Weirdly ::Brick.relations.keys ends up with only [:db_name] when running:
+    #   bundle exec appraisal ar-7.0 rspec --seed 51355
+    # so Brick can't auto-create any models.
     Parent.destroy_all
   end
 
@@ -61,7 +64,7 @@ RSpec.describe 'Parent', type: :model do
 
       # Perform the import on CSV data
       # Get the suggested default import template for the Parent model
-      template_with_children = Parent.suggest_template(true, true, 1, false, false)
+      template_with_children = Parent.suggest_template(1, true, true)
       # Initially we only force uniqueness on the first string column of Parent
       expect(template_with_children[:uniques]).to eq([:firstname])
       # Add in uniqueness for the Child portion of each incoming row.  (Without this then
@@ -125,7 +128,7 @@ RSpec.describe 'Parent', type: :model do
 
       # Perform the import on CSV data
       # Get the suggested default import template for the Parent model
-      template_with_parents = Child.suggest_template(false, true, 1, false, false)
+      template_with_parents = Child.suggest_template(1, true, false)
       # Initially we only force uniqueness on the first string column of Child
       expect(template_with_parents[:uniques]).to eq([:firstname])
       # Add in uniqueness for the Parent portion of each incoming row.
