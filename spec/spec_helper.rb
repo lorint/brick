@@ -67,7 +67,12 @@ require 'brick/frameworks/rspec'
 require 'ffaker'
 
 RSpec.configure do |config|
-  config.fixture_path = "#{::Rails.root}/spec/fixtures"
+  fp = "#{::Rails.root}/spec/fixtures"
+  if config.respond_to?(:fixture_paths)
+    config.fixture_paths = [fp]
+  else
+    config.fixture_path = fp
+  end
 
   # %%% In rails < 5, some tests could require truncation
   if ActiveRecord.version < ::Gem::Version.new('5')
@@ -83,12 +88,12 @@ RSpec.configure do |config|
 end
 
 def unload_class(name)
-  # if Object.const_defined?(name)
-  #   klass = Object.const_get(name)
-  #   if klass.is_a?(ActiveRecord::Base)
-  #     klass.reflect_on_all_associations { |a| a.reset }
-  #   end
   mod = (klass_names = name.split('::')).length > 1 ? Object.const_get(klass_names.first) : Object
-  mod.send(:remove_const, klass_names.last) if mod.const_defined?(klass_names.last)
-  # end
+  if mod.const_defined?(klass_names.last)
+    # klass = mod.const_get(klass_names.last)
+    # if klass.is_a?(ActiveRecord::Base)
+    #   klass.reflect_on_all_associations { |a| a.reset }
+    # end
+    mod.send(:remove_const, klass_names.last)
+  end
 end
