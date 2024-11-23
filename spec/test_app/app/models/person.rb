@@ -52,5 +52,5 @@ class Person < ActiveRecord::Base
     end
   end
 
-  serialize :time_zone, TimeZoneSerializer.new
+  serialize({ time_zone: TimeZoneSerializer.new })
 end

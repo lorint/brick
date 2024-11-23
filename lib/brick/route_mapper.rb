@@ -1,10 +1,6 @@
 # frozen_string_literal: true
 
 module Brick
-  class << self
-    attr_accessor :routes_done
-  end
-
   module RouteMapper
     def add_brick_routes
       routeset_to_use = ::Rails.application.routes

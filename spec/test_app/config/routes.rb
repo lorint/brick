@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-if ActiveRecord.version > ::Gem::Version.new('4.2')
+if ActiveRecord.version > ::Gem::Version.new('4.2') && Object.const_defined?('Rswag')
   TestApp::Application.routes.draw do
     # resources :articles, only: [:create]
     # resources :widgets, only: %i[create update destroy]
