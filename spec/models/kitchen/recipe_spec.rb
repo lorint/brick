@@ -58,7 +58,7 @@ module Kitchen
         # #suggest_template does not enumerate has_many associations in older versions of Rails.
         unless ActiveRecord.version < ::Gem::Version.new('4.2')
           # rubocop:disable Layout/MultilineArrayBraceLayout
-          expect(described_class.suggest_template(true, true, 2, false, false)).to eq(
+          expect(described_class.suggest_template(2, true, true)).to eq(
             {
               uniques: [:name],
               required: [],

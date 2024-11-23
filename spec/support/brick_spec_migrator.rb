@@ -8,7 +8,10 @@ class BrickSpecMigrator
   def migrate
     if ::ActiveRecord.const_defined?(:MigrationContext)
       options = [@migrations_path]
-      options << ::ActiveRecord::SchemaMigration if ::ActiveRecord.version >= ::Gem::Version.new('6.0')
+      if ::ActiveRecord.version >= ::Gem::Version.new('6.0') &&
+         ::ActiveRecord.version < ::Gem::Version.new('7.2')
+        options << ::ActiveRecord::SchemaMigration
+      end
       armc = ::ActiveRecord::MigrationContext.new(*options)
       armc.migrate if armc.needs_migration?
     else
