@@ -64,6 +64,8 @@ module Brick
       stuck = {}
       indexes = {} # Track index names to make sure things are unique
       ar_base = Object.const_defined?(:ApplicationRecord) ? ApplicationRecord : Class.new(ActiveRecord::Base)
+      atrt_idx = 0    # ActionText::RichText unique index number
+      @has_atrts = nil # Any ActionText::RichText present?
       # Start by making entries for fringe models (those with no foreign keys).
       # Continue layer by layer, creating entries for models that reference ones already done, until
       # no more entries can be created.  (At that point hopefully all models are accounted for.)
@@ -88,6 +90,16 @@ module Brick
                       end
             ).present?
         seeds << "\n"
+        # Search through the fringe to see if we should bump special dependent classes forward to the next fringe.
+        # (Currently only ActiveStorage::Attachment if there's also an ActiveStorage::VariantRecord in the same
+        # fringe, and always have ActionText::EncryptedRichText at the very end.)
+        fringe_classes = fringe.map { |f| f.klass.name }
+        unless (asa_idx = fringe_classes.index('ActiveStorage::Attachment')).nil?
+          fringe.slice!(asa_idx) if fringe_classes.include?('ActiveStorage::VariantRecord')
+        end
+        unless (atert_idx = fringe_classes.index('ActionText::EncryptedRichText')).nil?
+          fringe.slice!(atert_idx) if fringe_classes.length > 1
+        end
         fringe.each do |seed_model|
           tbl = seed_model.table_name
           next unless ::Brick.config.exclude_tables.exclude?(tbl) &&
@@ -122,12 +134,14 @@ module Brick
           klass.order(*pkey_cols).each do |obj|
             unless has_rows
               has_rows = true
-              seeds << "  puts 'Seeding: #{seed_model.klass.name}'\n"
+              seeds << "  puts 'Seeding: #{klass.name}'\n"
             end
             is_empty = false
             pk_val = obj.send(pkey_cols.first)
+            var_name = "#{tbl.gsub('.', '__')}_#{brick_escape(pk_val)}"
             fk_vals = []
             data = []
+            updates = []
             relation[:cols].each do |col, _col_type|
               next if !(fk = fkeys.find { |assoc| col == assoc[:fk] }) &&
                       pkey_cols.include?(col)
@@ -142,11 +156,52 @@ module Brick
                 inv_tbl = fk[:inverse_table].gsub('.', '__')
                 fk_vals << "#{fk[:assoc_name]}: #{inv_tbl}_#{brick_escape(val)}" if val
               else
-                val = val.to_s if val.is_a?(ActiveStorage::Filename)
-                data << "#{col}: #{val.inspect}"
+                val = case val.class.name
+                      when 'ActiveStorage::Filename'
+                        val.to_s.inspect
+                      when 'ActionText::RichText'
+                        ensure_has_atrts(updates)
+                        atrt_var = "atrt#{atrt_idx += 1}"
+                        atrt_create = "(#{atrt_var} = #{val.class.name}.create(name: #{val.name.inspect}, body: #{val.to_trix_html.inspect
+                                      }, record_type: #{val.record_type.inspect}, record_id: #{var_name}.#{pkey_cols.first
+                                      }, created_at: DateTime.parse('#{val.created_at.inspect}'), updated_at: DateTime.parse('#{val.updated_at.inspect}')))"
+                        updates << "#{var_name}.update(#{col}: #{atrt_create})\n"
+                        # obj.send(col)&.embeds_blobs&.each do |blob|
+                          updates << "atrt_ids[[#{val.id}, '#{val.class.name}']] = #{atrt_var}.id\n"
+                        # end
+                        next
+                      else
+                        val.inspect
+                      end
+                data << "#{col}: #{val}" unless val == 'nil'
               end
             end
-            seeds << "#{tbl.gsub('.', '__')}_#{brick_escape(pk_val)} = #{seed_model.klass.name}.create(#{(fk_vals + data).join(', ')})\n"
+            case klass.name
+            when 'ActiveStorage::VariantRecord'
+              ensure_has_atrts(updates)
+              updates << "atrt_ids[[#{obj.id}, '#{klass.name}']] = #{var_name}.id\n"
+            end
+            # Make sure that ActiveStorage::Attachment and ActionText::EncryptedRichText get
+            # wired up to the proper record_id
+            if klass.name == 'ActiveStorage::Attachment' || klass.name == 'ActionText::EncryptedRichText'
+              record_class = data.find { |d| d.start_with?('record_type: ') }[14..-2]
+              record_id = data.find { |d| d.start_with?('record_id: ') }[11..-1]
+              data.reject! { |d| d.start_with?('record_id: ') || d.start_with?('created_at: ') || d.start_with?('updated_at: ') }
+              data << "record_id: atrt_ids[[#{record_id}, '#{record_class}']]"
+              seeds << "#{var_name} = #{klass.name}.find_or_create_by(#{(fk_vals + data).join(', ')}) do |asa|
+  asa.created_at = DateTime.parse('#{obj.created_at.inspect}')#{"
+  asa.updated_at = DateTime.parse('#{obj.updated_at.inspect}')" if obj.respond_to?(:updated_at)}
+end\n"
+            else
+              seeds << "#{var_name} = #{seed_model.klass.name}.create(#{(fk_vals + data).join(', ')})\n"
+              klass.attachment_reflections.each do |k, v|
+                if (attached = obj.send(k))
+                  ensure_has_atrts(updates)
+                  updates << "atrt_ids[[#{obj.id}, '#{klass.name}']] = #{var_name}.id\n"
+                end
+              end
+            end
+            updates.each { |update| seeds << update } # Anything that needs patching up after-the-fact
           end
           seeds << "  # (Skipping #{seed_model.klass.name} as it has no rows)\n" unless has_rows
           File.open(seed_file_path, "w") { |f| f.write seeds }
@@ -188,6 +243,13 @@ module Brick
         ret
       else
         val
+      end
+    end
+
+    def ensure_has_atrts(array)
+      unless @has_atrts
+        array << "atrt_ids = {}\n"
+        @has_atrts = true
       end
     end
   end
