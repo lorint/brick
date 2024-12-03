@@ -482,6 +482,14 @@ module Brick
       @mutex.synchronize { @ignore_migration_fks = relations }
     end
 
+    def salesforce_mode
+      @mutex.synchronize { @salesforce_mode }
+    end
+
+    def salesforce_mode=(true_or_false)
+      @mutex.synchronize { @salesforce_mode = true_or_false }
+    end
+
     # Add search page for general Elasticsearch / Opensearch querying
     def add_search
       true
