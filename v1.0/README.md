@@ -334,9 +334,9 @@ To configure additional options, such as defining related columns that you want 
 Inside the generated file many options exist, for instance if you wish to have a prefix for all auto-generated paths, you can
 un-comment the line:
 
-    ::Brick.path_prefix = 'admin'
+    ::Brick.path_prefix = 'brick'
 
-and it will affect all routes.  In this case, instead of http://localhost:3000/hr/job_history, you would navigate to http://localhost:3000/admin/hr/job_history, and so forth for all routes.  This kind of prefix is very useful when you drop **The Brick** into an existing project and want a full set of administration pages tucked away into their own namespace.  If you are placing this in an existing project then as well you might want to add the very intelligent **link_to_brick** form helper into the `<body>` portion of your `layouts/application.html.erb` file like this:
+and it will affect all routes.  In this case, instead of http://localhost:3000/hr/job_history, you would navigate to http://localhost:3000/brick/hr/job_history, and so forth for all routes.  This kind of prefix is very useful when you drop **The Brick** into an existing project and want a full set of administration pages tucked away into their own namespace.  If you are placing this in an existing project then as well you might want to add the very intelligent **link_to_brick** form helper into the `<body>` portion of your `layouts/application.html.erb` file like this:
 
     <%= link_to_brick %>
 
@@ -595,7 +595,12 @@ Brick also knows how to deal with model namespacing via modules, building out th
 
 If you'd like to have a set of migration files built out to match the data structure from an
 installation of Salesforce, first obtain the WSDL file, confirm that it has an .xml file
-extension, put it into the root of your Rails project, and then run this generator:
+extension, put it into the root of your Rails project, uncomment this line in your config/initializers/brick.rb file (which accommodates table and model names having multiple underscores):
+```
+Brick.config.salesforce_mode = true
+```
+
+And then run this generator:
 
     bin/rails g brick:salesforce_migrations
 

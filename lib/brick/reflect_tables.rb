@@ -8,6 +8,9 @@ module Brick
 
       # return if ActiveRecord::Base.connection.current_database == 'postgres'
 
+      # Accommodate funky table names for Salesforce mode
+      ::Brick.apply_double_underscore_patch if ::Brick.config.salesforce_mode
+
       # Utilise Elasticsearch indexes, if any
       if Object.const_defined?('Elasticsearch')
         if ::Elasticsearch.const_defined?('Client')
