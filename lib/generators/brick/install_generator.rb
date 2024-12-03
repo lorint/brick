@@ -395,6 +395,19 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # Brick.default_route_fallback = 'customers'
   # Brick.default_route_fallback = 'orders#outstanding' # Example of a non-RESTful route
   # Brick.default_route_fallback = '' # Omits setting a default route in the absence of any other
+
+  # # GENERATORS
+  # # ==========
+
+  # # MIGRATIONS
+
+  # # Salesforce has table names which use multiple underscores in a row, more than two at a time.  This can greatly
+  # # confuse some of the other underscore support put into place for Oracle table names which can have up to two
+  # # underscores at a time.
+  # #
+  # # Setting this +true+ turns on \"salesforce mode\" which means that auto-created migrations will convert
+  # # underscores in filenames and class names to the letter 'x' in order to keep the peace.
+  # Brick.config.salesforce_mode = true
 end
 ")
       end
