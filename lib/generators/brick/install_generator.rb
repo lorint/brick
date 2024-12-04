@@ -119,15 +119,18 @@ module Brick
         end
         resembles_fks = resembles_fks.values.flatten
 
+        # Brick additional references
+        # Used to have:  ActiveRecord::Base.connection.current_database  -- but this doesn't work with SQLite3Adapter
+        current_db = ActiveRecord::Base.connection&.instance_variable_get(:@config)&.fetch(:database, nil)
         bar = case (possible_additional_references = possible_additional_references.values.flatten).length
               when 0
 +"  # Brick.additional_references = [['orders', 'customer_id', 'customer'],
   #                                ['customer', 'region_id', 'regions']]"
               when 1
-+"  # # Here is a possible additional reference that has been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
++"  # # Here is a possible additional reference that has been auto-identified for the #{current_db} database:
   # Brick.additional_references = [#{possible_additional_references.first}]"
               else
-+"  # # Here are possible additional references that have been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
++"  # # Here are possible additional references that have been auto-identified for the #{current_db} database:
   # Brick.additional_references = [
   #   #{possible_additional_references.join(",\n  #   ")}
   # ]"
@@ -146,12 +149,12 @@ module Brick
   #                      }"
       when 1
 ".
-  # # Here is a possible polymorphic association that has been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
+  # # Here is a possible polymorphic association that has been auto-identified for the #{current_db} database:
   # Brick.polymorphics = { #{possible_additional_references.first} }"
 
       else
 ".
-  # # Here are possible polymorphic associations that have been auto-identified for the #{ActiveRecord::Base.connection.current_database} database:
+  # # Here are possible polymorphic associations that have been auto-identified for the #{current_db} database:
   # Brick.polymorphics = {
   #   #{possible_polymorphics.join(",\n  #   ")}
   # }"
