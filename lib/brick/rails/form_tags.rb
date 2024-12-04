@@ -69,7 +69,7 @@ module Brick::Rails::FormTags
                options[col[1].inheritance_column] = col[1].name unless col[1] == col[1].base_class
                x_order = " x-order=\"#{col_name}\"" if true
                s << "#{x_order}>#{col[2]} "
-               s << (col.first ? col[3].to_s : "#{link_to(col[3], send("#{col[1]._brick_index}_path", options))}")
+               s << ((col.first || !col[1].table_exists?) ? col[3].to_s : "#{link_to(col[3], send("#{col[1]._brick_index}_path", options))}")
              elsif cust_cols.key?(col_name) # Custom column
                x_order = " x-order=\"#{col_name}\"" if true
                s << "#{x_order}>#{col_name}"
@@ -99,6 +99,8 @@ module Brick::Rails::FormTags
     # proxy = relation.instance_variable_get(:@proxy) || relation.instance_variable_set(:@proxy, {})
     bi = relation.instance_variable_get(:@_brick_includes)
     relation.each do |obj|
+      next unless klass.table_exists?
+
       rid = pk.map { |pk_part| obj.send(pk_part.to_sym) }
       out << "<tr x-id=\"#{rid.join('/')}\">\n"
       out << "<td class=\"col-sticky alternating-gray\">#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym, rid),
@@ -785,6 +787,9 @@ function onImagesLoaded(event) {
         end
         klass_or_obj = klass_or_obj.klass
       end
+      klass = klass_or_obj.is_a?(ActiveRecord::Base) ? klass_or_obj.class : klass_or_obj
+      return unless klass.table_exists?
+
       if klass_or_obj.is_a?(Class) && klass_or_obj <= ActiveRecord::Base
         type_col = klass_or_obj.inheritance_column
         if klass_or_obj.column_names.include?(type_col) && klass_or_obj.name != klass_or_obj.base_class.name
@@ -793,7 +798,6 @@ function onImagesLoaded(event) {
       end
       filter = "?#{filter_parts.join('&')}" if filter_parts.present?
       app_routes = Rails.application.routes # In case we're operating in another engine, reference the application since Brick routes are placed there.
-      klass = klass_or_obj.is_a?(ActiveRecord::Base) ? klass_or_obj.class : klass_or_obj
       relation = ::Brick.relations.fetch(rel_name || klass.table_name, nil)
       if (klass_or_obj&.is_a?(Class) && klass_or_obj < ActiveRecord::Base) ||
          (klass_or_obj&.is_a?(ActiveRecord::Base) && klass_or_obj.new_record? && (klass_or_obj = klass_or_obj.class))
