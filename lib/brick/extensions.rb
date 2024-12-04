@@ -192,7 +192,7 @@ module ActiveRecord
         # If there's no DSL yet specified, just try to find the first usable column on this model
         unless (dsl = ::Brick.config.model_descrips[name])
           skip_columns = _brick_get_fks + (::Brick.config.metadata_columns || []) + [primary_key]
-          dsl = if (descrip_col = columns.find { |c| [:boolean, :binary, :xml].exclude?(c.type) && skip_columns.exclude?(c.name) })
+          dsl = if table_exists? && (descrip_col = columns.find { |c| [:boolean, :binary, :xml].exclude?(c.type) && skip_columns.exclude?(c.name) })
                   "[#{descrip_col.name}]"
                 else
                   "#{name} ##{_pk_as_array.map { |pk_part| "[#{pk_part}]" }.join(', ')}"
@@ -383,7 +383,7 @@ module ActiveRecord
 
     # Providing a relation object allows auto-modules built from table name prefixes to work
     def self._brick_index(mode = nil, separator = nil, relation = nil, not_path = nil)
-      return if abstract_class?
+      return if abstract_class? || !table_exists?
 
       ::Brick._brick_index(table_name, mode, separator, relation, not_path)
     end
@@ -467,7 +467,7 @@ module ActiveRecord
       end
       skip_klass_hms = ::Brick.config.skip_index_hms[self.name] || {}
       hms.each do |k, hm|
-        next if skip_klass_hms.key?(k)
+        next if skip_klass_hms.key?(k) || !hm.klass.table_exists?
 
         if hm.macro == :has_one
           # For our purposes a :has_one is similar enough to a :belongs_to that we can just join forces
