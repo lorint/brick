@@ -69,7 +69,7 @@ module Brick::Rails::FormTags
                options[col[1].inheritance_column] = col[1].name unless col[1] == col[1].base_class
                x_order = " x-order=\"#{col_name}\"" if true
                s << "#{x_order}>#{col[2]} "
-               s << (col.first ? col[3].to_s : "#{link_to(col[3], send("#{col[1]._brick_index}_path", options))}")
+               s << ((col.first || !col[1].table_exists?) ? col[3].to_s : "#{link_to(col[3], send("#{col[1]._brick_index}_path", options))}")
              elsif cust_cols.key?(col_name) # Custom column
                x_order = " x-order=\"#{col_name}\"" if true
                s << "#{x_order}>#{col_name}"
