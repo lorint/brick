@@ -1657,8 +1657,8 @@ class Object
                        base_name.pluralize].find { |s| Brick.db_schemas&.include?(s) }
       end
       plural_class_name = ActiveSupport::Inflector.pluralize(model_name = class_name)
-      # If it's namespaced then we turn the first part into what would be a schema name
-      singular_table_name = ActiveSupport::Inflector.underscore(model_name).gsub('/', '.')
+      # gsub is so that if it's namespaced then we turn the first part into what would be a schema name
+      singular_table_name = ::Brick.table_name_lookup&.fetch(model_name, nil) || ActiveSupport::Inflector.underscore(model_name).gsub('/', '.')
 
       if base_model
         table_name = base_model.table_name
@@ -2518,10 +2518,11 @@ class Object
             code << "  def show\n"
             code << "    #{find_by_name = "find_#{singular_table_name}"}\n"
             code << "  end\n"
+            find_obj = "find_#{singular_table_name}"
             self.define_method :show do
               _schema, @_is_show_schema_list = ::Brick.set_db_schema(params)
               _, singular_table_name = model.real_singular(params)
-              instance_variable_set("@#{singular_table_name}".to_sym, find_obj)
+              instance_variable_set("@#{singular_table_name}".to_sym, send(find_obj))
               add_csp_hash("'unsafe-inline'")
             end
           end
@@ -2614,7 +2615,7 @@ class Object
             self.define_method :edit do
               _schema, @_is_show_schema_list = ::Brick.set_db_schema(params)
               _, singular_table_name = model.real_singular(params)
-              instance_variable_set("@#{singular_table_name}".to_sym, find_obj)
+              instance_variable_set("@#{singular_table_name}".to_sym, send(find_obj))
               add_csp_hash
             end
 
@@ -2642,7 +2643,7 @@ class Object
               end
 
               _, singular_table_name = model.real_singular(params)
-              instance_variable_set("@#{singular_table_name}".to_sym, (obj = find_obj))
+              instance_variable_set("@#{singular_table_name}".to_sym, (obj = send(find_obj)))
               upd_params = send(params_name_sym)
               json_overrides = ::Brick.config.json_columns&.fetch(table_name, nil)
               if model.respond_to?(:devise_modules)
@@ -2688,7 +2689,7 @@ class Object
             code << "  end\n"
             self.define_method :destroy do
               ::Brick.set_db_schema(params)
-              if (obj = find_obj).send(:destroy)
+              if (obj = send(find_obj)).send(:destroy)
                 redirect_to send("#{model._brick_index}_path".to_sym)
               else
                 redirect_to send("#{model._brick_index(:singular)}_path".to_sym, obj)
@@ -2699,11 +2700,11 @@ class Object
           code << "private\n" if pk.present? || is_need_params
 
           if pk.present?
-            code << "  def find_#{singular_table_name}
+            code << "  def #{find_obj}
     id = params[:id]&.split(/[\\/,_]/)
     @#{singular_table_name} = #{model.name}.find(id.is_a?(Array) && id.length == 1 ? id.first : id)
   end\n"
-            self.define_method :find_obj do
+            self.define_method(find_obj) do
               id = if pk.length == 1 # && model.columns_hash[pk.first]&.type == :string
                      params[:id].gsub('^^sl^^', '/')
                    else
@@ -2723,6 +2724,7 @@ class Object
                 model.find(id_simplified)
               end
             end
+            private find_obj
           end
 
           if is_need_params

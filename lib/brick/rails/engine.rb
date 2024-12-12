@@ -106,6 +106,16 @@ function linkSchemas() {
           load inflections
         end
         require 'brick/join_array'
+
+        # Load it once at the start for Rails >= 7.2 ...
+        Module.class_exec &::Brick::ADD_CONST_MISSING if ActiveRecord.version >= Gem::Version.new('7.2.0')
+        # ... and also for Rails >= 5.0, whenever the app gets reloaded
+        if ::Rails.application.respond_to?(:reloader)
+          ::Rails.application.reloader.to_prepare { Module.class_exec &::Brick::ADD_CONST_MISSING }
+        else
+          Module.class_exec &::Brick::ADD_CONST_MISSING # Older Rails -- just load at the start
+        end
+
         # Now the Brick initializer since there may be important schema things configured
         if !::Brick.initializer_loaded && File.exist?(brick_initializer = ::Rails.root&.join('config/initializers/brick.rb') || '')
           ::Brick.initializer_loaded = load brick_initializer
@@ -179,12 +189,6 @@ function linkSchemas() {
             end
             ::Brick.established_drf = "/#{::Brick.config.path_prefix}#{action[action.index('#')..-1]}"
           end
-        end
-
-        if ::Rails.application.respond_to?(:reloader)
-          ::Rails.application.reloader.to_prepare { Module.class_exec &::Brick::ADD_CONST_MISSING }
-        else # For Rails < 5.0, just load it once at the start
-          Module.class_exec &::Brick::ADD_CONST_MISSING
         end
       end
 

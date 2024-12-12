@@ -88,6 +88,7 @@ def unload_class(name)
   #   if klass.is_a?(ActiveRecord::Base)
   #     klass.reflect_on_all_associations { |a| a.reset }
   #   end
-  Object.send(:remove_const, name) if Object.const_defined?(name)
+  mod = (klass_names = name.split('::')).length > 1 ? Object.const_get(klass_names.first) : Object
+  mod.send(:remove_const, klass_names.last) if mod.const_defined?(klass_names.last)
   # end
 end
