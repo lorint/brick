@@ -1657,8 +1657,8 @@ class Object
                        base_name.pluralize].find { |s| Brick.db_schemas&.include?(s) }
       end
       plural_class_name = ActiveSupport::Inflector.pluralize(model_name = class_name)
-      # If it's namespaced then we turn the first part into what would be a schema name
-      singular_table_name = ActiveSupport::Inflector.underscore(model_name).gsub('/', '.')
+      # gsub is so that if it's namespaced then we turn the first part into what would be a schema name
+      singular_table_name = ::Brick.table_name_lookup[model_name] || ActiveSupport::Inflector.underscore(model_name).gsub('/', '.')
 
       if base_model
         table_name = base_model.table_name

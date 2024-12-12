@@ -147,7 +147,8 @@ module Brick
                       pkey_cols.include?(col)
 
               begin
-                if (val = obj.send(col)) && (val.is_a?(Time) || val.is_a?(Date))
+                # Used to be:  obj.send(col)
+                if (val = obj.attributes_before_type_cast[col]) && (val.is_a?(Time) || val.is_a?(Date))
                   val = val.to_s
                 end
               rescue StandardError => e # ActiveRecord::Encryption::Errors::Configuration

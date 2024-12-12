@@ -181,10 +181,10 @@ function linkSchemas() {
           end
         end
 
+        Module.class_exec &::Brick::ADD_CONST_MISSING # Load it once at the start ...
+        # ... and also for Rails >= 5.0, whenever the app gets reloaded
         if ::Rails.application.respond_to?(:reloader)
           ::Rails.application.reloader.to_prepare { Module.class_exec &::Brick::ADD_CONST_MISSING }
-        else # For Rails < 5.0, just load it once at the start
-          Module.class_exec &::Brick::ADD_CONST_MISSING
         end
       end
 
