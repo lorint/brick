@@ -76,8 +76,12 @@ module Brick::Rails::FormBuilder
           out << self.hidden_field(method.to_sym, html_options)
           out << "<trix-editor input=\"#{self.field_id(method)}\"></trix-editor>"
         end
-        out << self.text_field(method.to_sym, html_options) if spit_out_text_field
-      when :boolean
+        if spit_out_text_field
+          # %%% Need to update the max-width with javascript when page width is adjusted?
+          html_options.merge!(style: 'min-width: 154px;field-sizing: content;') # max-width: auto;
+          out << self.text_field(method.to_sym, html_options)
+        end
+        when :boolean
         out << self.check_box(method.to_sym)
       when :integer, :decimal, :float
         if model.respond_to?(:attribute_types) && (enum_type = model.attribute_types[method]).is_a?(ActiveRecord::Enum::EnumType)
