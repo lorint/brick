@@ -167,7 +167,7 @@ erDiagram
 %>    <%= \"#\{through_name} }o--|| #\{hm_name}\".html_safe %> : \"\"
     <%= \"#{model_short_name} }o..o{ #\{hm_name} : \\\"#\{hm.first}\\\"\".html_safe %><%
      else # has_many
-%>  <%= \"#{model_short_name} ||--o{ #\{hm_name} : \\\"#\{
+%>  <%= \"#{model_short_name} #\{hm.last.macro == :has_and_belongs_to_many ? '}o' : '||'}--o{ #\{hm_name} : \\\"#\{
             hm.first.to_s unless (last_hm = hm.first.to_s).downcase == hm_class.name.underscore.pluralize.tr('/', '_')
           }\\\"\".html_safe %><%
      end %>

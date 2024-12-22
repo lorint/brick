@@ -636,10 +636,17 @@ window.addEventListener(\"popstate\", linkSchemas);
 
             def path_keys(hm_assoc, fk_name, pk)
               pk.map!(&:to_sym)
-              keys = if fk_name.is_a?(Array) && pk.is_a?(Array) # Composite keys?
-                       fk_name.zip(pk)
+              keys = if hm_assoc.macro == :has_and_belongs_to_many
+                       # %%% Can a HABTM use composite keys?
+                       # (If so then this should be rewritten to do a .zip() )
+                       name_from_other_direction = hm_assoc.klass.reflect_on_all_associations.find { |a| a.join_table == hm_assoc.join_table }&.name
+                       [["#{name_from_other_direction}.#{pk.first}", pk.first]]
                      else
-                       [[fk_name, pk.length == 1 ? pk.first : pk.inspect]]
+                       if fk_name.is_a?(Array) && pk.is_a?(Array) # Composite keys?
+                         fk_name.zip(pk)
+                       else
+                         [[fk_name, pk.length == 1 ? pk.first : pk.inspect]]
+                       end
                      end
               if hm_assoc.options.key?(:as) && !(hmaar = hm_assoc.active_record).abstract_class?
                 poly_type = if hmaar.column_names.include?(hmaar.inheritance_column)
@@ -693,7 +700,14 @@ window.addEventListener(\"popstate\", linkSchemas);
                 skip_klass_hms = ::Brick.config.skip_index_hms[model_name] || {}
                 hms_headers = hms.each_with_object([]) do |hm, s|
                   hm_stuff = [(hm_assoc = hm.last),
-                              "H#{hm_assoc.macro == :has_one ? 'O' : 'M'}#{'T' if hm_assoc.options[:through]}",
+                              "H#{case hm_assoc.macro
+                                  when :has_one
+                                    'O'
+                                  when :has_and_belongs_to_many
+                                    'ABTM'
+                                  else
+                                    'M'
+                                  end}#{'T' if hm_assoc.options[:through]}",
                               (assoc_name = hm.first)]
                   hm_fk_name = if (through = hm_assoc.options[:through])
                                  next unless @_brick_model.instance_methods.include?(through) &&

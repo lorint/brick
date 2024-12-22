@@ -296,7 +296,7 @@ module Brick
               puts "  due to invalid source #{a.source_reflection_name.inspect}."
               next
             end
-          else
+          elsif a.macro != :has_and_belongs_to_many
             this_fks = (this_fk = a.foreign_key).is_a?(Array) ? this_fk.uniq : [this_fk.to_s]
             if !a.options.key?(:as) && a.klass.table_exists? && (this_fks - a.klass.column_names).length.positive?
               options = ", #{a.options.map { |k, v| "#{k.inspect} => #{v.inspect}" }.join(', ')}" if a.options.present?
