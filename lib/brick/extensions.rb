@@ -3166,8 +3166,10 @@ module Brick
           begin
             if bt.key?(:polymorphic)
               pri_pk = for_pk
-              pri_tables = Brick.config.polymorphics["#{frn_tbl}.#{bt[:fk]}"]
-                                .each_with_object(Hash.new { |h, k| h[k] = [] }) do |pri_class, s|
+              pri_models = ((frn_class = Object.const_get(v[1][:class_name])).respond_to?(poly_types_method = "#{bt[:assoc_name]}_types") &&
+                            frn_class.send(poly_types_method) # Trust what was set by #delegated_type
+                           ) || Brick.config.polymorphics["#{frn_tbl}.#{bt[:fk]}"]
+              pri_tables = pri_models.each_with_object(Hash.new { |h, k| h[k] = [] }) do |pri_class, s|
                 s[Object.const_get(pri_class).table_name] << pri_class
               end
               fk_id_col = "#{bt[:fk]}_id"
