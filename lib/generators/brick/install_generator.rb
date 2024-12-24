@@ -386,6 +386,10 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   Brick.config.schema_behavior[:multitenant]&.fetch(:schema_to_analyse, nil).inspect}" :
 "  # Brick.schema_behavior = { multitenant: { schema_to_analyse: 'engineering'"
 } } }
+#{"
+  # # Note that if you have a real polymorphic model configured then it is better to set the list of classes up in the
+  # # model file itself with a line like:
+  # delegated_type :commentable, type: ['Post', 'Comment']" if ActiveRecord::Base.respond_to?(:delegated_type)}
 
   # # DEFAULT ROOT ROUTE
 
