@@ -248,10 +248,14 @@ module Brick
 
         if a.belongs_to?
           if a.polymorphic?
-            rel_poly_bt = relations[model.table_name][:fks].find { |_k, fk| fk[:assoc_name] == a.name.to_s }
-            if (primary_tables = rel_poly_bt&.last&.fetch(:inverse_table, [])).is_a?(Array)
-              models = rel_poly_bt[1][:polymorphic]&.map { |table| table.singularize.camelize.constantize }
-              s.first[a.foreign_key.to_s] = [a.name, models, true]
+            if (pri_models = (model.respond_to?(poly_types_method = "#{a.name}_types") &&
+                              model.send(poly_types_method)
+                             ) ||
+                             (rel_poly_bt = relations[model.table_name][:fks].find { |_k, fk| fk[:assoc_name] == a.name.to_s } &&
+                              (rel_poly_bt[1][:polymorphic] || rel_poly_bt&.last&.fetch(:inverse_table, [])&.map { |table| table.singularize.camelize })
+                             )
+               ).is_a?(Array)
+              s.first[a.foreign_key.to_s] = [a.name, pri_models.map(&:constantize), true]
             else
               # This will come up when using Devise invitable when invited_by_class_name is not
               # specified because in that circumstance it adds a polymorphic :invited_by association,
@@ -267,11 +271,19 @@ module Brick
                 puts "Missing any real indication as to which models \"has_many\" this polymorphic BT in model #{a.active_record.name}:"
                 puts "  belongs_to :#{a.name}, polymorphic: true"
               else
-                puts "Having analysed all currently-loaded models to infer the various polymorphic has_many associations for #{model.name}, here are the current results:"
-                puts "::Brick.polymorphics = { \"#{model.table_name}.#{a.name}\" =>
+                puts "Having analyzed all currently-loaded models to infer the various polymorphic has_many associations,"
+                if ActiveRecord::Base.respond_to?(:delegated_type)
+                  puts "in your #{model.name} model file, you can change this line:
+  belongs_to :#{a.name}#{a.options.map { |k, v| ", #{k}: #{v}" }.join}
+to instead be this:
+  delegated_type :#{a.name}, types: #{hm_models.map(&:name).inspect}#{a.options.reject { |k| [:polymorphic, :inverse_of].include?(k) }.map { |k, v| ", #{k}: #{v}" }.join}\n"
+                else
+                  puts "to support the #{model.name} model, you can add this into your brick.rb:
+::Brick.polymorphics = { \"#{model.table_name}.#{a.name}\" =>
                          #{hm_models.map(&:name).inspect}
                        }"
-                puts 'If you add the above to your brick.rb, it will "cement" these options into place, and avoid this lookup process.'
+                puts "and it will \"cement\" these options into place, and avoid this lookup process.\n"
+                end
                 s.first[a.foreign_key.to_s] = [a.name, hm_models, true]
               end
             end
