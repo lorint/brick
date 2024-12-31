@@ -289,7 +289,7 @@ erDiagram
 
   # CONSTANTS
 
-  BRICK_CSS = "<style>
+  BRICK_CSS = "
 #titleSticky {
   position: sticky;
   display: inline-block;
@@ -527,7 +527,6 @@ input+svg.revert {
   background-color: #004998;
   color: #FFF;
 }
-</style>
 "
 
   AVO_SVG = "<svg version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 84 90\" height=\"30\" fill=\"#3096F7\">

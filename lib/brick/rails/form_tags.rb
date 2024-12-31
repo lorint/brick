@@ -517,7 +517,7 @@ module Brick::Rails::FormTags
 
   # All the standard CSS with teal colouration for use with Brick
   def brick_css(theme = nil)
-    ::Brick::Rails::BRICK_CSS.html_safe
+    "<style>#{::Brick::Rails::BRICK_CSS}</style>".html_safe
   end
 
   # -----------------------------------------------------------------------------------------------

@@ -2142,7 +2142,7 @@ class Object
                 cspd.select! { |val| val == "'self'" }
                 cspd << style_value
               else
-                cspd << "'sha256-0Vb7j3kDGE3oNfwMpRLClTSCUo/q74bvbt3p6kG/gkM='"
+                cspd << "'sha256-#{Base64.encode64(Digest.const_get(:SHA256).digest(::Brick::Rails::BRICK_CSS)).chomp}'"
               end
               cspd << 'https://cdn.jsdelivr.net'
             end

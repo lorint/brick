@@ -53,7 +53,7 @@ module Brick
           # else
           #   puts "#{'  ' * ind}scope #{scope_options.inspect}"
           # end
-          send(:scope, scope_options) do
+          send(:scope, **scope_options) do
             brick_namespace_create.call(path_names, res_name, options, ind + 1)
           end
         else
@@ -243,7 +243,7 @@ module Brick
             { :index => 'get', :create => 'post' }.each do |action, method|
               if actions.include?(action)
                 # Normally goes to something like:  /api/v1/employees
-                send(method, "#{api_root}#{unversioned.tr('.', '/')}", { to: "#{controller_prefix}#{controller_name}##{action}" })
+                send(method, "#{api_root}#{unversioned.tr('.', '/')}", to: "#{controller_prefix}#{controller_name}##{action}")
               end
             end
             # %%% We do not yet surface the #show action
@@ -251,7 +251,7 @@ module Brick
               { :update => ['put', 'patch'], :destroy => ['delete'] }.each do |action, methods|
                 if actions.include?(action)
                   methods.each do |method|
-                    send(method, "#{api_root}#{unversioned.tr('.', '/')}/:#{id_col}", { to: "#{controller_prefix}#{controller_name}##{action}" })
+                    send(method, "#{api_root}#{unversioned.tr('.', '/')}/:#{id_col}", to: "#{controller_prefix}#{controller_name}##{action}")
                   end
                 end
               end
