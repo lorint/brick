@@ -807,9 +807,10 @@ window.addEventListener(\"popstate\", linkSchemas);
                ['Crosstab', is_crosstab]].each do |table_option, show_it|
                 table_options << "<option value=\"#{prefix}brick_#{table_option.downcase}\">(#{table_option})</option>".html_safe if show_it
               end
-              css = +''
+              css = +'<style>'
               css << ::Brick::Rails::BRICK_CSS
-              css << "<script>
+              css << "</style>
+<script>
   if (window.history.state && window.history.state.turbo)
     window.addEventListener(\"popstate\", function () { location.reload(true); });
 </script>

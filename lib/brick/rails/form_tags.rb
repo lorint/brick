@@ -94,7 +94,17 @@ module Brick::Rails::FormTags
     #     (After restarting the server it worked fine again.)
     row_count = 0
     # if @_brick_join_array&.include?()
-    enumerator = relation.each # Runs the SQL query
+    begin
+      enumerator = relation.each # Runs the SQL query
+    rescue ActiveRecord::SubclassNotFound => e
+      # If there is a missing STI class then keep the show on the road by temporarily modifying the inheritance column.
+      inh_col = klass.inheritance_column
+      puts "WARNING:  At least one row in the \"#{klass.table_name}\" table has an invalid value in the inheritance column \"#{inh_col}\"."
+      puts e.message
+      klass.inheritance_column = '^\/^' # Some impossible column name
+      enumerator = relation.each
+      klass.inheritance_column = inh_col
+    end
     # Add proxied info for @_brick_includes
     # proxy = relation.instance_variable_get(:@proxy) || relation.instance_variable_set(:@proxy, {})
     bi = relation.instance_variable_get(:@_brick_includes)
@@ -517,7 +527,7 @@ module Brick::Rails::FormTags
 
   # All the standard CSS with teal colouration for use with Brick
   def brick_css(theme = nil)
-    ::Brick::Rails::BRICK_CSS.html_safe
+    "<style>#{::Brick::Rails::BRICK_CSS}</style>".html_safe
   end
 
   # -----------------------------------------------------------------------------------------------

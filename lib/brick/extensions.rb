@@ -459,7 +459,7 @@ module ActiveRecord
 
         # join_array will receive this relation name when calling #brick_parse_dsl
         _br_bt_descrip[bt.first] = if bt[1].is_a?(Array)
-                                     # Last params here:  "true" is for yes, we are polymorphic
+                                     # Last param here:  "true" is for yes, we are polymorphic
                                      bt[1].each_with_object({}) { |bt_class, s| s[bt_class] = bt_class.brick_parse_dsl(join_array, bt.first, translations, true) }
                                    else
                                      { bt.last => bt[1].brick_parse_dsl(join_array, bt.first, translations) }
@@ -2142,7 +2142,7 @@ class Object
                 cspd.select! { |val| val == "'self'" }
                 cspd << style_value
               else
-                cspd << "'sha256-0Vb7j3kDGE3oNfwMpRLClTSCUo/q74bvbt3p6kG/gkM='"
+                cspd << "'sha256-#{Base64.encode64(Digest.const_get(:SHA256).digest(::Brick::Rails::BRICK_CSS)).chomp}'"
               end
               cspd << 'https://cdn.jsdelivr.net'
             end
