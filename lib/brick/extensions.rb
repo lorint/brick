@@ -2099,7 +2099,7 @@ class Object
     def build_controller(namespace, class_name, plural_class_name, model, relations)
       if (is_avo = (namespace.name == 'Avo' && Object.const_defined?('Avo')))
         # Basic Avo functionality is available via its own generic controller.
-        # (More information on https://docs.avohq.io/2.0/controllers.html)
+        # (More information on https://docs.avohq.io/3.0/controllers.html)
         controller_base = Avo::ResourcesController
       end
       if !model&.table_exists? && (tn = model&.table_name)
@@ -2117,7 +2117,6 @@ class Object
         puts
       end
       table_name = model&.table_name || ActiveSupport::Inflector.underscore(plural_class_name)
-      singular_table_name = ActiveSupport::Inflector.singularize(ActiveSupport::Inflector.underscore(plural_class_name))
       pk = model&._brick_primary_key(relations.fetch(table_name, nil))
       is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
       is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name)
@@ -2279,7 +2278,9 @@ class Object
         end
 
         self.protect_from_forgery unless: -> { self.request.format.js? }
-        plural_table_name = table_name.split('.').last.pluralize
+        tn_start = (pcn_split = plural_class_name.split('::')).length > 1 ? -2 : -1
+        plural_table_name = pcn_split[tn_start..-1].join.underscore.pluralize
+        singular_table_name = plural_table_name.singularize
         unless is_avo
           self.define_method :index do
             request_ver = request.path.split('/')[-2]
