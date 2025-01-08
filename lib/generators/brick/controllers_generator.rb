@@ -63,8 +63,8 @@ module Brick
                     else
                       Object
                     end
-        controller_parts[controller_parts.length - 1] = (controller_name = "#{controller_parts.last}Controller")
-        _built_controller, code = Object.send(:build_controller, namespace, controller_name, controller_name, controller_option.model, relations)
+        _built_controller, code = Object.send(:build_controller, namespace, (controller_name = "#{controller_parts.last}Controller"), controller_parts.last, controller_option.model, relations)
+        controller_parts[-1] = controller_name
         path = ['controllers']
         path.concat(controller_parts.map(&:underscore))
         dir = +"#{::Rails.root}/app"

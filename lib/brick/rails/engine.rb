@@ -691,7 +691,10 @@ window.addEventListener(\"popstate\", linkSchemas);
 
               if @_brick_model
                 pk = @_brick_model._brick_primary_key(::Brick.relations.fetch((table_name = @_brick_model.table_name.split('.').last), nil))
-                obj_name = model_name.split('::').last.underscore
+                rn_start = (mn_split = model_name.split('::')).length > 1 ? -2 : -1
+                obj_name = mn_split[rn_start..-1].join.underscore.singularize
+                res_name = obj_name.pluralize
+
                 path_obj_name = @_brick_model._brick_index(:singular)
                 table_name ||= obj_name.pluralize
                 template_link = nil
@@ -1041,7 +1044,7 @@ end %>#{"
   end
   \"<tr><td colspan=\\\"#\{td_count}\\\">Children: #\{child_links.join(' ')}</tr>\".html_safe
 end
-%><%= if (page_num = @#{res_name = table_name.pluralize}&._brick_page_num)
+%><%= if (page_num = @#{res_name}&._brick_page_num)
            \"<tr><td colspan=\\\"#\{td_count}\\\">Page #\{page_num}</td></tr>\".html_safe
          end %></table>#{template_link}<%
    if description.present? %><span class=\"__brick\"><%=
