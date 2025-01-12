@@ -681,7 +681,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                 rescue StandardError => e
                   # Search through the routes to confirm that something might match (Devise stuff for instance, which has its own view templates),
                   # and bubble the same exception (probably an ActionView::MissingTemplate) if a legitimate option is found.
-                  raise if ActionView.version >= ::Gem::Version.new('5.0') &&
+                  raise if ActionView.version >= ::Gem::Version.new('5.0') && args[1] &&
                            ::Rails.application.routes.set.find { |x| args[1].include?(x.defaults[:controller]) && args[0] == x.defaults[:action] }
 
                   find_template_err = e
