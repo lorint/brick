@@ -587,8 +587,9 @@ window.addEventListener(\"popstate\", linkSchemas);
               def lookup_context(*args)
                 ret = _brick_lookup_context(*args)
                 if self.class < AbstractController::Base
-                  request if respond_to?(:request) # ActionMailer does not have +request+
-                  @_lookup_context.instance_variable_set(:@_brick_req_params, params) if request && params.present?
+                  if respond_to?(:request) # ActionMailer does not have +request+
+                    @_lookup_context.instance_variable_set(:@_brick_req_params, params) if request && params.present?
+                  end
                 end
                 ret
               end
