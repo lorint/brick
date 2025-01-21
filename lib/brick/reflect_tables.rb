@@ -28,7 +28,8 @@ module Brick
             def method_missing(name, *args, &block)
               _original_method_missing(name, *args, &block)
             rescue Elastic::Transport::Transport::Errors::NotFound => e
-              if (missing_index = args.last&.fetch(:defined_params, nil)&.fetch(:index, nil))
+              if (missing_index = args.last&.fetch(:defined_params, nil)&.fetch(:index, nil)) &&
+                 ::Brick.elasticsearch_models&.fetch(missing_index, nil)&.include?('i')
                 self.indices.create({ index: missing_index,
                                       body: { settings: {}, mappings: { properties: {} } } })
                 puts "Auto-creating missing index \"#{missing_index}\""
@@ -47,34 +48,19 @@ module Brick
           begin
             cluster_info = client.info.body
             if (es_ver = cluster_info['version'])
-              ::Brick.elasticsearch_models = :all
               puts "Found Elasticsearch gem and #{'local ' unless es_uri}#{es_ver['distribution'].titleize} #{es_ver['number']} installation#{" at #{es_uri}" if es_uri}."
-              puts "Enable Elasticsearch support by either setting \"::Brick.elasticsearch_models = :all\" or by picking specific models by name."
-
-              # # Auto-create when trying to import and there is a missing index
-              # ::Elasticsearch::Model::Importing.class_exec do
-              # end
+              if ::Brick.elasticsearch_models.empty?
+                puts "Enable Elasticsearch support by either setting \"::Brick.elasticsearch_models = :all\" or by picking specific models by name."
+              end
+            else
+              ::Brick.elasticsearch_models = nil
             end
           rescue StandardError => e # Errno::ECONNREFUSED
+            ::Brick.elasticsearch_models = nil
             puts "Found Elasticsearch gem, but could not connect to #{'local ' unless es_uri}Elasticsearch/Opensearch server#{" at #{es_uri}" if es_uri}."
           end
-        # require 'net/http'
-        #   begin
-        #     es_uri = ENV['ELASTICSEARCH_URL']
-        #     binding.pry
-        #     cluster_info = JSON.parse(Net::HTTP.get(URI.parse(es_uri || 'http://localhost:9200')))
-        #     if (es_ver = cluster_info['version'])
-        #       ::Brick.elasticsearch_models = :all
-        #       puts "Found Elasticsearch gem and #{'local ' unless es_uri}#{es_ver['distribution'].titleize} #{es_ver['number']} installation#{" at #{es_uri}" if es_uri}."
-        #       puts "Enable Elasticsearch support by either setting \"::Brick.elasticsearch_models = :all\" or by picking specific models by name."
-        #     end
-        #   rescue StandardError => e
-        #   end
         end
       end
-      # client = Elasticsearch::Client.new(host: 'https://my-elasticsearch-host.example')
-      # client.ping
-      # client.search(q: 'test')
 
       # Overwrite SQLite's #begin_db_transaction so it opens in IMMEDIATE mode instead of
       # the default DEFERRED mode.
@@ -524,6 +510,52 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
           # %%% What is the default schema here?
           prefix = "#{tblcount['nspname']}." unless tblcount['nspname'] == (schema || 'public')
           relations.fetch("#{prefix}#{tblcount['relname']}", nil)&.[]=(:rowcount, tblcount['rowcount'].to_i.round)
+        end
+      end
+
+      if ems = ::Brick.elasticsearch_models # ['comments']
+        access = case ems
+                 when Hash, String # Hash is a list of resource names and ES permissions such as 'r' or 'icr'
+                   ems
+                 when :all
+                   'crud' # All CRUD
+                 when :full
+                   'icrud' # Also able to auto-create indexes
+                 else
+                   ''
+                 end
+        # Rewriting this to have all valid indexes and their perms
+        ::Brick.elasticsearch_models = unless access.blank?
+          # Find all existing indexes
+          client = Elastic::Transport::Client.new
+          ::Brick.elasticsearch_existings = client.perform_request('GET', '_aliases').body.each_with_object({}) do |entry, s|
+            rel_name = entry.first.tr('-', '.')
+            s[entry.first] = rel_name if relations.include?(entry.first)
+            s[entry.first] = rel_name.singularize if relations.include?(rel_name.singularize)
+            entry.last.fetch('aliases', nil)&.each do |k, _v|
+              rel_name = k.tr('-', '.')
+              s[k] = rel_name if relations.include?(rel_name)
+              s[k] = rel_name.singularize if relations.include?(rel_name.singularize)
+            end
+          end
+          # Add this either if...
+          if access.is_a?(String) # ...they have permissions over absolutely anything,
+            relations.each_with_object({}) do |rel, s|
+              next if rel.first.is_a?(Symbol)
+
+              perms = rel.last.fetch(:isView, nil) ? access.tr('cud', '') : access
+              s[rel.first] = perms
+            end
+          else # or there are specific permissions for each resource, so find the matching indexes
+            client = Elastic::Transport::Client.new
+            ::Brick.elasticsearch_existings.each_with_object({}) do |index, s|
+              this_access = access.is_a?(String) ? access : access[index.first] || '' # Look up permissions from above
+              next unless (rel = relations.fetch(index.first, nil))
+
+              perms = rel&.fetch(:isView, nil) ? this_access.tr('cud', '') : this_access
+              s[index.first] = perms unless perms.blank?
+            end
+          end
         end
       end
 

@@ -346,7 +346,18 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
   # Brick.model_descrips = { 'User' => '[profile.firstname] [profile.lastname]' }
 
   # # FULL TEXT SEARCH
+  # # You can enable Elasticsearch support by adding the elasticsearch-model and elasticsearch-rails gems, and either
+  # # having a copy of Opensearch or Elasticsearch locally installed on the same machine listening on port 9200, or by
+  # # setting the ELASTICSEARCH_URL environment variable to point to the URI of a search machine.
+  # # With that configured, you can pick specific table names and permissions for search and update by putting them in
+  # # a hash like this:
+  # Brick.elasticsearch_models = { 'notes' => 'crud', 'issues' => 'cru', 'orders' => 'r' }
+  # # or to blanketly enable all models to have auto-updating CRUD behaviour when there are ActiveRecord changes, use:
   # Brick.elasticsearch_models = :all
+  # # As well there is another permission available -- the 'i' permission -- which will auto-create an index if it
+  # # is missing.  If you set 'icrud' for a model it will auto-create an index, or to always do this for all models
+  # # then you can specify \"full control\" like this:
+  # Brick.elasticsearch_models = :full
 
   # # ERD SETTINGS
 

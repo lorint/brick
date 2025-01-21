@@ -1116,8 +1116,7 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
 
     # Build out an AR relation that queries for a list of objects, and include all the appropriate JOINs to later apply DSL using #brick_descrip
     def brick_list
-      pks = klass.primary_key.is_a?(String) ? [klass.primary_key] : klass.primary_key
-      selects = pks.each_with_object([]) { |pk, s| s << pk unless s.include?(pk) }
+      selects = klass._pk_as_array.each_with_object([]) { |pk, s| s << pk unless s.include?(pk) }
       # Get foreign keys for anything marked to be auto-preloaded, or a self-referencing JOIN
       klass_cols = klass.column_names
       reflect_on_all_associations.each do |a|
@@ -1750,52 +1749,6 @@ class Object
       built_model = Class.new(base_model) do |new_model_class|
         (schema_module || Object).const_set(chosen_name, new_model_class) unless is_generator
         @_brick_relation = relation
-        # Enable Elasticsearch for this one?
-        access = ::Brick.elasticsearch_models&.is_a?(Hash) ? ::Brick.elasticsearch_models[name] : ::Brick.elasticsearch_models
-        @_brick_es_crud ||= case access
-                            when String
-                              access
-                            when :all, :full
-                              'icrud' # Auto-create index, and full CRUD
-                            else
-                              ''
-                            end
-        unless @_brick_es_crud.blank?
-          include ::Elasticsearch::Model
-          code << "  include Elasticsearch::Model\n"
-          if @_brick_es_crud.index('i') # Enable auto-creation of indexes on import?
-            class << self
-              alias _original_import import
-              def import(options={}, &block)
-                self.__elasticsearch__.create_index! unless self.__elasticsearch__.index_exists?
-                _original_import(options={}, &block)
-              end
-            end
-          end
-          if @_brick_es_crud.index('c') || @_brick_es_crud.index('u') || @_brick_es_crud.index('d')
-            include ::Elasticsearch::Model::Callbacks
-            code << "  include Elasticsearch::Model::Callbacks\n"
-          end
-          if @_brick_es_crud.index('r')
-            # Customer.__elasticsearch__.search('taco').to_a
-          end
-          # # Need some mappings for text columns
-          # mappings do
-          #   indexes :company_name, type: 'text'
-          #   indexes :country, type: 'text'
-          # end
-          # def self.search(q)
-          #   s = self.__elasticsearch__.search(q)
-          #   binding.pry
-          #   s.to_a
-          # #   class Elasticsearch::Model::Response::Response
-          # #     def to_a
-          # #   end
-          # # rescue Elastic::Transport::Transport::Errors::NotFound => e
-          # #   self.create_index!
-          # #   self.__elasticsearch__.search(q)
-          # end
-        end
         if inheritable_name
           new_model_class.define_singleton_method :inherited do |subclass|
             super(subclass)
@@ -1865,6 +1818,59 @@ class Object
             code << "  self.primary_key = #{possible_pk.inspect}\n"
           else
             code << "  # Could not identify any column(s) to use as a primary key\n"
+          end
+        end
+
+        # Enable Elasticsearch based on the table name?
+        if (@_brick_es_crud = ::Brick.elasticsearch_models&.fetch(matching, nil))
+          include ::Elasticsearch::Model
+          if @_brick_es_crud.index('i') # Enable auto-creation of indexes on import?
+            class << self
+              alias _original_import import
+              def import(options={}, &block)
+                unless self.__elasticsearch__.index_exists?
+                  self.__elasticsearch__.create_index!
+                  ::Brick.elasticsearch_existings[self.table_name] = self.table_name.tr('.', '-').pluralize
+                end
+                _original_import(options={}, &block)
+              end
+            end
+          end
+          if ::Elasticsearch::Model.const_defined?('Callbacks') &&
+             @_brick_es_crud.index('c') || @_brick_es_crud.index('u') || @_brick_es_crud.index('d')
+            include ::Elasticsearch::Model::Callbacks
+            is_include_es_callbacks = true
+          end
+          # Create mappings for all text columns
+          mappings do
+            has_mappings = nil
+            new_model_class.columns.select { |col| [:string, :text].include?(col.type) }.each do |string_col|
+              unless has_mappings
+                code << "  include Elasticsearch::Model\n"
+                code << "  include Elasticsearch::Model::Callbacks\n" if is_include_es_callbacks
+                code << "  mappings do\n"
+                has_mappings = true
+              end
+              code << "    indexes :#{string_col.name}, type: 'text'\n"
+              indexes string_col.name.to_sym, type: 'text'
+            end
+            code << "  end\n" if has_mappings
+          end
+          if @_brick_es_crud.index('r')
+            class << self
+              # Search and hydrate records using only Elasticsearch data
+              define_method :search do |q|
+                self.__elasticsearch__.search(q).raw_response.body['hits']['hits'].map do |hit|
+                  obj = self.new(hit['_source'])
+                  obj.instance_variable_set(:@new_record, false) # Don't want to accidentally save a new one
+                  obj
+                end
+              rescue Elastic::Transport::Transport::Errors::NotFound => e
+                self.__elasticsearch__.create_index! if @_brick_es_crud.index('i')
+                ::Brick.elasticsearch_existings[self.table_name] = self.table_name.tr('.', '-').pluralize
+                []
+              end
+            end
           end
         end
 
@@ -2282,6 +2288,39 @@ class Object
             render json: { data: result } # [ver, result]
           end
 
+          self.define_method :search do
+            # TODO: Make sure at least one index is actually present which allows for reading before attempting
+            if (@qry = params['qry'] || params['_brick_es']) # Elasticsearch query?
+              @indexes = ::Brick.elasticsearch_existings&.keys
+              hits = Elasticsearch::Model.client.search({index: @indexes.join(','), q: @qry, size: 100})
+              model_infos = {}
+              # Number of indexes used:  hits.body['_shards']['total']
+              @count = hits.body['hits']['total']['value']
+              @results = hits.body['hits']['hits'].map do |x|
+                klass = ::Brick.relations[::Brick.elasticsearch_existings[x['_index']]][:class_name].constantize
+                model_info = model_infos[klass] ||= [
+                  klass.primary_key,
+                  klass.brick_parse_dsl(join_array = ::Brick::JoinArray.new, [], translations = {}, false, nil, true)
+                ]
+                obj = klass.new(x['_source'])
+                [
+                  klass.name,
+                  obj.send(model_info.first),
+                  obj.brick_descrip(
+                    model_info.last&.first&.map { |col2| obj.send(col2.last) },
+                    obj.send(klass.primary_key)
+                  ),
+                  send("#{klass._brick_index(:singular)}_path".to_sym, obj),
+                  x['_score']
+                ]
+              end
+              respond_to do |format|
+                format.js { render json: { result: @results } }
+                format.any {}
+              end
+            end
+          end
+
           return [new_controller_class, code + "end # BrickGem controller\n"]
         when 'BrickOpenapi'
           is_openapi = true
@@ -2594,7 +2633,26 @@ class Object
               render json: { result: ::Brick.unexclude_column(table_name, col) }
             elsif is_json && (q = params['_brick_es']) # Elasticsearch
               # Make sure that the index is actually present and we allow reading before attempting
-              es_result = model.__elasticsearch__.search(q).to_a if (es_perms = model.instance_variable_get(:@_brick_es_crud)).index('r')
+              if (es_perms = model.instance_variable_get(:@_brick_es_crud) ||
+                             # If a perms instance variable is missing for this model, get the perms ...
+                             (set = true && ::Brick.elasticsearch_models&.fetch(model.table_name, nil))
+                 ) && (
+                  # ... then set it on the model
+                  (set && model.instance_variable_set(:@_brick_es_crud, es_perms)) || es_perms
+                 )&.index('r')
+                es_result = begin
+                              model.__elasticsearch__.search(q)
+                            rescue Elastic::Transport::Transport::Errors::NotFound => e
+                              if @_brick_es_crud.index('i')
+                                self.__elasticsearch__.create_index!
+                                # model.import
+                                ::Brick.elasticsearch_existings[self.table_name] = self.table_name.tr('.', '-').pluralize
+                                model.__elasticsearch__.search(q)
+                              else
+                                []
+                              end
+                            end
+              end
               render json: { result: es_result }
             else
               real_model = model.real_model(params)

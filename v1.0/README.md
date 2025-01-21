@@ -42,7 +42,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.228        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.229        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -127,7 +127,7 @@ the various "Autogenerate ___ Files" sections.
   - [1.b. Installation](#1b-installation)
   - [1.c. Displaying an ERD](#1c-displaying-an-erd)
   - [1.d. Exposing an API](#1d-exposing-an-api)
-  - [1.e. Using rails g df_export](#1e-using-rails-g-df-export)
+  - [1.e. Full-Text Search with Opensearch or Elasticsearch](#1e-full-text-search-with-opensearch-or-elasticsearch)
   - [1.f. Autogenerate Model Files](#1f-autogenerate-model-files)
   - [1.g. Autogenerate Migration Files](#1g-autogenerate-migration-files)
   - [1.h. Autogenerate Seeds File](#1h-autogenerate-seeds-file)
@@ -479,6 +479,62 @@ having 20 items:
 
 In this request, not having specified any column for ordering, by default the system will order by
 the primary key if one is available.
+
+### 1.e. Full-Text Search with Opensearch or Elasticsearch
+
+**ENABLING SEARCH BEHAVIOR**
+
+If you add the **elasticsearch-model** and **elasticsearch-rails** gems, then Brick will recognize this and
+try connecting to an Opensearch or Elasticsearch server, first just to see what version is running in order
+to make mention of this as the environment is starting.  If you've set the ELASTICSEARCH_URL environment
+variable to point to the URI of a search machine then it will honour this, and if not then it will try just
+connecting on port 9200 on the local machine to learn more about what search options are available.
+
+If you have also enabled Elasticsearch support by configuring `Brick.elasticsearch_models` in your Brick
+initializer file, then it will go further and do a second query to get a list of all the indexes and their
+aliases to find those that match with any table names found in your database.  For a table to be considered
+useful to pair with an index, it must have at least one CHAR, VARCHAR, or TEXT column.
+
+The elasticsearch_models setting controls what permissions each search index will have -- you have the
+options of individually setting **CRUD** permissions, and also there is a special **I** permission which
+allows for an index to be auto-created if it does not yet exist.  These settings are configured in a hash like this:
+
+    Brick.elasticsearch_models = { 'notes' => 'crud', 'issues' => 'cru', 'orders' => 'r' }
+
+To blanketly enable all models to have auto-updating CRUD behaviour when there are ActiveRecord changes, use:
+
+    Brick.elasticsearch_models = :all
+
+If you set 'icrud' for a model then it will auto-create an empty index if missing, and also automatically
+update existing documents when any ActiveRecord **create**, **update**, or **destroy** operations take place.
+
+When an index is auto-created then it starts out empty -- so if you want to populate that given index,
+say for the articles index which is associated with the Article model, then you would run this once:
+```
+Article.import
+```
+There is a "full control" kind of permission which is all-encompassing, to always auto-create and
+auto-populate indexes whenever they are found to be missing for a given table.  It is specified like this:
+```
+Brick.elasticsearch_models = :full
+```
+
+**ACTUAL SEARCHING**
+
+When search is enabled then there are two ways to carry out a search in the UI -- either from a normal _grid
+page_ for a resource, or from a _master Search page_.
+
+1. For searches on a _grid page_ for a specific resource, say **articles**, you can use a querystring in the URL
+like this:  http://localhost:3000/article?qry=hamsters
+
+Or as well on the normal Article grid page you could type in the initially dimmed text box at the top and
+after at least 3 characters are provided then with every keypress an AJAX request goes back to the server to
+retrieve any Elasticsearch hits.  Existing grid content is nearly-instantaneously filtered and unfiltered
+based on this, all via Javascript.
+
+2. To search using the _master Search page_, use the table selection drop-down on a grid page and pick `(Search)`,
+or just go to http://localhost:3000/brick_search.  From there searching on a term will use all indexes
+available, and bring back up to 100 results.
 
 ### 1.f. Autogenerate Model Files
 

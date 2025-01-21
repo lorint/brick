@@ -671,7 +671,9 @@ window.addEventListener(\"popstate\", linkSchemas);
             def find_template(*args, **options)
               find_template_err = nil
               unless (model_name = @_brick_model&.name) ||
-                     (is_search = ::Brick.config.add_search && args[0..1] == ['search', ['brick_gem']]) ||
+                     (is_search = ::Brick.config.add_search && args[0..1] == ['search', ['brick_gem']] &&
+                                  ::Brick.elasticsearch_existings&.length&.positive?
+                     ) ||
                      (is_status = ::Brick.config.add_status && args[0..1] == ['status', ['brick_gem']]) ||
                      (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']]) ||
                      (is_crosstab = args[0..1] == ['crosstab', ['brick_gem']])
@@ -805,7 +807,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                               end.html_safe
               # Options for special Brick pages
               prefix = "#{::Brick.config.path_prefix}/" if ::Brick.config.path_prefix
-              [['Search', ::Brick.config.add_search],
+              [['Search', is_search],
                ['Status', ::Brick.config.add_status],
                ['Orphans', is_orphans],
                ['Crosstab', is_crosstab]].each do |table_option, show_it|
@@ -1084,13 +1086,14 @@ end
 <% end
    # SEARCH BOX
    if @_brick_es&.index('r') # Must have at least Elasticsearch Read access %>
-  <input type=\"text\" id=\"esSearch\"><a href=\"\">S</a>
+  <input type=\"text\" id=\"esSearch\" class=\"dimmed\">
   <script>
-    var esSearch = document.getElementById(\"esSearch\")
+    var esSearch = document.getElementById(\"esSearch\");
+    var usedTerms = {};
     var isEsFiltered = false;
     esSearch.addEventListener(\"input\", function () {
       var gridTrs;
-      if (this.value.length > 2) { # At least 3 letters in the search term
+      if (this.value.length > 2 && usedTerms[this.value] !== null) { // At least 3 letters in the search term
         var es = doFetch(\"POST\", {_brick_es: this.value},
           function (p) {p.text().then(function (response) {
             var result = JSON.parse(response).result;
@@ -1111,13 +1114,16 @@ end
                 if (!isHit) row.style.display = \"none\";
               }
               isEsFiltered = true;
+              esSearch.className = \"\";
             } else {
               if (isEsFiltered) { // Show all rows and gray the search box
+                usedTerms[this.value] = null; // No results for this term
                 gridTrs = [... grid.querySelectorAll(\"tr\")];
                 for (var i = 1; i < gridTrs.length; ++i) {
                   gridTrs[i].style.display = \"table-row\";
                 }
               }
+              esSearch.className = \"dimmed\";
             }
           });}
         );
@@ -1127,6 +1133,7 @@ end
           for (var i = 1; i < gridTrs.length; ++i) {
             gridTrs[i].style.display = \"table-row\";
           }
+          esSearch.className = \"dimmed\";
         }
       }
     });
@@ -1211,21 +1218,28 @@ end
 +"#{css}
 <p class=\"flashNotice\"><%= notice if request.respond_to?(:flash) %></p>#{"
 #{schema_options}" if schema_options}
-<select id=\"tbl\">#{table_options}</select>
-<h1>Search</h1>
+<select id=\"tbl\">#{table_options}</select><br><br>
+<form method=\"get\">
+  <input type=\"text\" name=\"qry\"<%= \" value=\\\"#\{@qry}\\\"\".html_safe unless @qry.blank? %>><input type=\"submit\", value=\"Search\">
+</form>
+<% if @results.present? %>
+<div id=\"rowCount\"><b><%= @count %> results from: </b><%= @indexes.sort.join(', ') %></div>
+<% end %>
 <table id=\"resourceName\" class=\"shadow\"><thead><tr>
   <th>Resource</th>
   <th>Description</th>
-  <th>ID</th>
+  <th>Score</th>
 </tr></thead>
 <tbody>
-<% # @results.each do |r| %>
+<% @results&.each do |r| %>
   <tr>
-  <td><%= %></td>
-  <td<%=  %></td>
-  <td<%=  %></td>
+  <td><%= link_to (r[3]) do %><%= r[0] %><br>
+      <%= r[1] %><% end %>
+  </td>
+  <td><%= r[2] %></td>
+  <td><%= '%.3f' % r[4] %></td>
   </tr>
-<% # end %>
+<% end %>
 </tbody></table>
 #{script}"
                          end
