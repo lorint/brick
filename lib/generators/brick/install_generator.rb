@@ -377,18 +377,19 @@ if ActiveRecord::Base.respond_to?(:brick_select) && !::Brick.initializer_loaded
 
   # # Polymorphic associations are set up by providing a model name and polymorphic association name#{poly}
 
-  # # For multi-tenant databases that use a separate schema for each tenant, a single representative database schema
-  # # can be analysed to determine the range of polymorphic classes that can be used for each association.  Hopefully
-  # # the schema chosen is one loaded with existing data that is representative of all possible polymorphic
-  # # associations.
+  # # MULTITENANCY VIA THE ROS-APARTMENT GEM
+
+  # # If you are using the ros-apartment gem along with Postgres then you can have automatic detection of polymorphic
+  # # type names (model class names listed in a column such as imageable_type) by choosing a schema that is loaded up
+  # # with data that represents the full range of the various polymorphic has_many classes that should be associated.
   # Brick.schema_behavior = :namespaced
 #{Brick.config.schema_behavior.present? ? "  Brick.schema_behavior = { multitenant: { schema_to_analyse: #{
   Brick.config.schema_behavior[:multitenant]&.fetch(:schema_to_analyse, nil).inspect}" :
 "  # Brick.schema_behavior = { multitenant: { schema_to_analyse: 'engineering'"
 } } }
 #{"
-  # # Note that if you have a real polymorphic model configured then it is better to set the list of classes up in the
-  # # model file itself with a line like:
+  # # Note that for each polymorphic model configured then it is better to set the list of classes up in the model
+  # # file itself with a line like:
   # delegated_type :commentable, type: ['Post', 'Comment']" if ActiveRecord::Base.respond_to?(:delegated_type)}
 
   # # DEFAULT ROOT ROUTE

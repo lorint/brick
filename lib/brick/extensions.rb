@@ -979,7 +979,8 @@ module ActiveRecord
           next
         end
 
-        tbl_alias = unique63("b_r_#{hm.name}", previous)
+        tbl_alias = "b_r_#{hm.name}"
+        tbl_alias = unique63(tbl_alias, previous) if is_postgres
         on_clause = []
         hm_selects = if !pri_key.is_a?(Array) # Probable standard key?
                        if fk_col.is_a?(Array) # Foreign is composite but not Primary?  OK, or choose the first part of the foreign key if nothing else

@@ -792,7 +792,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                                 b[0] = '' if b[0].is_a?(Symbol)
                                 a.first <=> b.first
                               end.each_with_object(+'') do |rel, s|
-                                next if rel.first.blank? || rel.last[:cols].empty? ||
+                                next if rel.first.is_a?(Symbol) || rel.first.blank? || rel.last[:cols].empty? ||
                                         ::Brick.config.exclude_tables.include?(rel.first)
 
                                 # %%% When table_name_prefixes are use then during rendering empty non-TNP
@@ -1645,9 +1645,13 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
    # %%% Create a smart javascript routine which can do this client-side %>
 [... document.getElementsByTagName(\"TH\")].forEach(function (th) {
   th.addEventListener(\"click\", function (e) {
-    var xOrder;
-    if (xOrder = this.getAttribute(\"x-order\"))
+    var xOrder,
+        currentOrder;
+    if (xOrder = this.getAttribute(\"x-order\")) {
+      if ((currentOrder = changeout(location.href, \"_brick_order\")) === xOrder)
+        xOrder = \"-\" + xOrder;
       location.href = changeout(location.href, \"_brick_order\", xOrder);
+    }
   });
 });
 document.querySelectorAll(\"input, select\").forEach(function (inp) {

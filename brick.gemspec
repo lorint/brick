@@ -34,6 +34,12 @@ gem_spec = Gem::Specification.new do |s|
   s.add_dependency 'activerecord', ['>= 3.1.1']
   s.add_dependency 'fancy_gets'
 
+  if ::Gem::Version.new(RUBY_VERSION) >= ::Gem::Version.new('3.4.0')
+    s.add_dependency 'mutex_m'
+    s.add_dependency 'base64'
+    s.add_dependency 'bigdecimal'
+  end
+
   s.add_development_dependency 'appraisal', '~> 2.2'
   s.add_development_dependency 'pry-byebug', '~> 3.7.0'
   # s.add_development_dependency 'byebug'

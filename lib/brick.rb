@@ -292,6 +292,10 @@ to instead be this:
             s.first[bt_key] = [a.name, a.klass]
           end
         else # This gets all forms of has_many and has_one
+          if a.scope&.arity&.> 0
+            puts "Skipping HM column \"#{a.name}\" because it has a scope which requires #{a.scope.arity} #{'argument'.pluralize(a.scope.arity)}"
+            next
+          end
           if through # has_many :through or has_one :through
             is_invalid_source = nil
             begin
