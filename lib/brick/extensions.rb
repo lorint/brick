@@ -1032,19 +1032,28 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
       unless wheres.empty?
         # Rewrite the wheres to reference table and correlation names built out by AREL
         where_nots = {}
+        where_comparisons = []
         wheres2 = wheres.each_with_object({}) do |v, s|
           is_not = if v.first[-1] == '!'
                      v[0] = v[0][0..-2] # Take off ending ! from column name
                    end
-          if (v_parts = v.first.split('.')).length == 1
-            (is_not ? where_nots : s)[v.first] = v.last
+          tbl_and_col_name = if (v_parts = v.first.split('.')).length == 1
+                               []
+                             else
+                               [brick_links[v_parts[0..-2].join('.')].split('.').last]
+                             end
+          tbl_and_col_name << v_parts.last
+          if ['>', '<'].include?(first_char = v.last.first[0]) # Greater than or less than?
+            col_name = v.last.first[1..-1]
+            col_name = "'#{col_name}'" unless [:integer, :boolean, :decimal, :float].include?(klass.columns_hash[v.first].type)
+            where_comparisons << "#{tbl_and_col_name.join('.')} #{first_char} #{col_name}"
           else
-            tbl_name = brick_links[v_parts[0..-2].join('.')].split('.').last
-            (is_not ? where_nots : s)["#{tbl_name}.#{v_parts.last}"] = v.last
+            (is_not ? where_nots : s)[tbl_and_col_name.join('.')] = v.last
           end
         end
         if respond_to?(:where!)
           where!(wheres2) if wheres2.present?
+          where_comparisons.each { |wc| where!(wc) }
           if where_nots.present?
             self.where_clause += WhereClause.new(predicate_builder.build_from_hash(where_nots)).invert
           end
