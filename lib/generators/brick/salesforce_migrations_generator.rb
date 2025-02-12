@@ -3,7 +3,7 @@
 require 'brick'
 require 'rails/generators'
 require 'fancy_gets'
-require 'generators/brick/migration_builder'
+require 'generators/brick/migrations_builder'
 require 'generators/brick/salesforce_schema'
 
 module Brick
@@ -23,7 +23,7 @@ module Brick
       relations = nil
       end_document_proc = lambda do |salesforce_tables|
         # p [:end_document]
-        mig_path, is_insert_versions, is_delete_versions = ::Brick::MigrationBuilder.check_folder
+        mig_path, is_insert_versions, is_delete_versions = ::Brick::MigrationsBuilder.check_folder
         return unless mig_path
 
         # Generate a list of tables that can be chosen
@@ -73,7 +73,7 @@ module Brick
                       }
                     end
         # Build but do not have foreign keys established yet, and do not put version entries info the schema_migrations table
-        ::Brick::MigrationBuilder.generate_migrations(chosen, mig_path, is_insert_versions, is_delete_versions, relations,
+        ::Brick::MigrationsBuilder.generate_migrations(chosen, mig_path, is_insert_versions, is_delete_versions, relations,
                                                       do_fks_last: 'Separate', do_schema_migrations: false)
       end
       parser = Nokogiri::XML::SAX::Parser.new(::Brick::SalesforceSchema.new(end_document_proc))

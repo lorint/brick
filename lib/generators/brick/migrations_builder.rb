@@ -1,5 +1,7 @@
+# frozen_string_literal: true
+
 module Brick
-  module MigrationBuilder
+  module MigrationsBuilder
     # Many SQL types are the same as their migration data type name:
     #   text, integer, bigint, date, boolean, decimal, float
     # These however are not:
@@ -147,7 +149,7 @@ module Brick
                                         key_type, is_4x_rails, ar_version, do_fks_last, versions_to_create)
             after_fks.concat(add_fks) if do_fks_last
             current_mig_time[0] += 1.minute
-            versions_to_create << migration_file_write(mig_path, "create_#{::Brick._brick_index(tbl, nil, separator)}", current_mig_time, ar_version, mig)
+            versions_to_create << migration_file_write(mig_path, "create_#{::Brick._brick_index(tbl, nil, separator, relations[tbl])}", current_mig_time, ar_version, mig)
           end
           done.concat(fringe)
           chosen -= done
@@ -160,7 +162,9 @@ module Brick
                                         key_type, is_4x_rails, ar_version, do_fks_last, versions_to_create)
             after_fks.concat(add_fks)
             current_mig_time[0] += 1.minute
-            versions_to_create << migration_file_write(mig_path, "create_#{::Brick._brick_index(tbl, :migration, separator)}", current_mig_time, ar_version, mig)
+            versions_to_create << migration_file_write(mig_path, "create_#{
+              ::Brick._brick_index(tbl, :migration, separator, relations[tbl])
+            }", current_mig_time, ar_version, mig)
           end
           done.concat(chosen)
           chosen.clear

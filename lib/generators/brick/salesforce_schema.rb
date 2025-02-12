@@ -2,7 +2,7 @@
 
 module Brick
   class SalesforceSchema < Nokogiri::XML::SAX::Document
-    include ::Brick::MigrationBuilder
+    include ::Brick::MigrationsBuilder
 
     attr_reader :end_document_proc
 
