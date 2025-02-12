@@ -3322,7 +3322,7 @@ module Brick
         # Rails applies an _index suffix to that route when the resource name isn't something plural
         index << '_index' if mode != :singular && !not_path &&
                              index == (
-                                        index2 + [relation[:class_name][(relation&.fetch(:auto_prefixed_class, nil)&.length&.+ 2) || 0..-1]&.underscore&.tr('/', '_') || '_']
+                                        index2 + [relation[:class_name]&.[]((relation&.fetch(:auto_prefixed_class, nil)&.length&.+ 2) || 0..-1)&.underscore&.tr('/', '_') || '_']
                                       ).join(separator)
       end
       index

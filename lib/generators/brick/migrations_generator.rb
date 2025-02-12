@@ -4,12 +4,12 @@ require 'brick'
 require 'rails/generators'
 require 'rails/generators/active_record'
 require 'fancy_gets'
-require 'generators/brick/migration_builder'
+require 'generators/brick/migrations_builder'
 
 module Brick
   # Auto-generates migration files
   class MigrationsGenerator < ::Rails::Generators::Base
-    include ::Brick::MigrationBuilder
+    include ::Brick::MigrationsBuilder
     include FancyGets
 
     desc 'Auto-generates migration files for an existing database.'
@@ -25,13 +25,13 @@ module Brick
         return
       end
 
-      mig_path, is_insert_versions, is_delete_versions = ::Brick::MigrationBuilder.check_folder
+      mig_path, is_insert_versions, is_delete_versions = ::Brick::MigrationsBuilder.check_folder
       return unless mig_path
 
       # Generate a list of tables that can be chosen
       chosen = gets_list(list: tables, chosen: tables.dup)
 
-      ::Brick::MigrationBuilder.generate_migrations(chosen, mig_path, is_insert_versions, is_delete_versions)
+      ::Brick::MigrationsBuilder.generate_migrations(chosen, mig_path, is_insert_versions, is_delete_versions)
     end
   end
 end
