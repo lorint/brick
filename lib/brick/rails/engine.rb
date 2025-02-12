@@ -671,12 +671,16 @@ window.addEventListener(\"popstate\", linkSchemas);
             def find_template(*args, **options)
               find_template_err = nil
               unless (model_name = @_brick_model&.name) ||
-                     (is_search = ::Brick.config.add_search && args[0..1] == ['search', ['brick_gem']] &&
-                                  ::Brick.elasticsearch_existings&.length&.positive?
-                     ) ||
-                     (is_status = ::Brick.config.add_status && args[0..1] == ['status', ['brick_gem']]) ||
-                     (is_orphans = ::Brick.config.add_orphans && args[0..1] == ['orphans', ['brick_gem']]) ||
-                     (is_crosstab = args[0..1] == ['crosstab', ['brick_gem']])
+                     (
+                      args[1].first == 'brick_gem' &&
+                      ((is_search = ::Brick.config.add_search && args[0] == 'search' &&
+                                    ::Brick.elasticsearch_existings&.length&.positive?
+                       ) ||
+                       (is_status = ::Brick.config.add_status && args[0] == 'status') ||
+                       (is_orphans = ::Brick.config.add_orphans && args[0] == 'orphans') ||
+                       (is_crosstab = args[0] == 'crosstab')
+                      )
+                     )
                 begin
                   if (possible_template = _brick_find_template(*args, **options))
                     return possible_template

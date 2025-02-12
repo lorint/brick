@@ -125,7 +125,10 @@ module Brick
                    end
 
           # %%% For the moment we're skipping polymorphics
-          fkeys = relation[:fks].values.select { |assoc| assoc[:is_bt] && !assoc[:polymorphic] }
+          # Used to be:  fkeys = relation[:fks].values.select { |assoc| assoc[:is_bt] && !assoc[:polymorphic] }
+          fkeys = klass.reflect_on_all_associations.select { |a| a.belongs_to? && !a.polymorphic? }.map do |fk|
+            { fk: fk.foreign_key, assoc_name: fk.name.to_s, inverse_table: fk.table_name }
+          end
           # Refer to this table name as a symbol or dotted string as appropriate
           # tbl_code = tbl_parts.length == 1 ? ":#{tbl_parts.first}" : "'#{tbl}'"
 

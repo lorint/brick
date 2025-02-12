@@ -529,7 +529,7 @@ like this:  http://localhost:3000/article?qry=hamsters
 
 Or as well on the normal Article grid page you could type in the initially dimmed text box at the top and
 after at least 3 characters are provided then with every keypress an AJAX request goes back to the server to
-retrieve any Elasticsearch hits.  Existing grid content is nearly-instantaneously filtered and unfiltered
+retrieve any Elasticsearch hits.  Existing grid content is nearly instantaneously filtered and unfiltered
 based on this, all via Javascript.
 
 2. To search using the _master Search page_, use the table selection drop-down on a grid page and pick `(Search)`,
