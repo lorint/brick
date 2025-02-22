@@ -132,7 +132,8 @@ the various "Autogenerate ___ Files" sections.
   - [1.g. Autogenerate Migration Files](#1g-autogenerate-migration-files)
   - [1.h. Autogenerate Seeds File](#1h-autogenerate-seeds-file)
   - [1.i. Autogenerate Controller Files](#1i-autogenerate-controller-files)
-  - [1.j. Autogenerate Migration Files based on a Salesforce WSDL file](#1j-autogenerate-migration-files-from-a-salesforce-installation)
+  - [1.j. Autogenerate Migration Files based on a Salesforce WSDL file](#1j-autogenerate-migration-files-based-on-a-salesforce-wsdl-file)
+  - [1.k. Autogenerate Migration and Seed Files based on an Existing Airtable Base](#1j-autogenerate-migration-and-seed-files-based-on-an-existing-airtable-base)
 - [2. Programmatic Enhancements](#2-programmatic-enhancements)
   - [2.a. Using brick_select and brick_pluck](#2a-using-brick_select-and-brick_pluck)
   - [2.b. Using brick_where](#2b-using-brick_where)
@@ -676,6 +677,22 @@ keys in total.
 
 Although the class names and column names do not follow Rails conventions, everything will work,
 and this lets you create a Rails app that fully mirrors a Salesforce installation.
+
+### 1.k. Autogenerate Migration and Seed Files based on an Existing Airtable Base
+
+You can use this to begin a new Rails project based on the schema and data of an existing Airtable base,
+or simply use it as a way to make a backup of your data in Airtable.
+
+* Create an Airtable Personal Access Token (PAT) with **read schema** and **read data** permissions (`schema.bases:read` and `data.records:read`),
+* install [The Brick gem](https://github.com/lorint/brick), and
+* run this to create migrations and a `seeds.rb` file:
+
+```
+bin/rails g brick:airtable_migrations
+bin/rails g brick:airtable_seeds
+```
+
+During each of these two commands you'll be prompted to provide your PAT, pick the **base** you want to use as the source, and finally choose which tables you'd like to import.
 
 
 ## 2. Programmatic Enhancements

@@ -183,7 +183,9 @@ module Brick
               #         to_table               column
               mig << "#{add_fk[0]}, column: :#{add_fk[1]}, primary_key: :#{pk}\n"
             end
-            if after_fks.length > 500
+            # If there are LOTS of foreign keys then give extra database maintenance info and initially
+            # disable the final FK migration by using a ".rbx" file extension.
+            fks_extension = if after_fks.length > 500
               minutes = (after_fks.length + 1000) / 1500
               mig << "    if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'\n"
               mig << "      puts 'NOTE:  It could take around #{minutes} #{'minute'.pluralize(minutes)} on a FAST machine for Postgres to do all the final processing for these foreign keys.  Please be patient!'\n"
@@ -194,14 +196,19 @@ module Brick
       execute('VACUUM FULL')
       execute('BEGIN TRANSACTION')
     end\n"
+              'rbx'
+            else
+              'rb'
             end
             mig << +"  end\n"
             current_mig_time[0] += 1.minute
-            versions_to_create << migration_file_write(mig_path, 'create_brick_fks.rbx', current_mig_time, ar_version, mig)
-            puts "Have written out a final migration called 'create_brick_fks.rbx' which creates #{after_fks.length} foreign keys.
-  This file extension (.rbx) will cause it not to run yet when you do a 'rails db:migrate'.
+            versions_to_create << migration_file_write(mig_path, "create_brick_fks.#{fks_extension}", current_mig_time, ar_version, mig)
+            puts "Have written out a final migration called 'create_brick_fks.#{fks_extension}' which creates #{after_fks.length} foreign keys."
+            if fks_extension == 'rbx'
+              puts "  This file extension (.rbx) will cause it not to run yet when you do a 'rails db:migrate'.
   The idea here is to do all data loading first, and then rename that migration file back
   into having a .rb extension, and run a final db:migrate to put the foreign keys in place."
+            end
 
           when 'Create' # Show additional_references entries that can be added into brick.rb
             puts 'Place this block into your brick.rb file:'
