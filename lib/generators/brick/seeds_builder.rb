@@ -7,12 +7,12 @@ module Brick
     class << self
       include FancyGets
 
-      SeedModel = Struct.new(:table_name, :klass, :is_brick)
+      SeedModel = Struct.new(:table_name, :klass, :is_brick, :airtable_table)
       SeedModel.define_method(:to_s) do
         "#{klass.name}#{' (brick-generated)' if is_brick}"
       end
 
-      def generate_seeds
+      def generate_seeds(relations = nil)
         if File.exist?(seed_file_path = "#{::Rails.root}/db/seeds.rb")
           puts "WARNING: seeds file #{seed_file_path} appears to already be present.\nOverwrite?"
           return unless gets_list(list: ['No', 'Yes']) == 'Yes'
@@ -20,35 +20,40 @@ module Brick
           puts "\n"
         end
 
-        # %%% If Apartment is active and there's no schema_to_analyse, ask which schema they want
+        if relations
+          is_airtable = true # So far the only thing that feeds us relations is Airtable
+          require 'generators/brick/airtable_api_caller'
+          # include ::Brick::MigrationsBuilder
+          chosen = relations.map { |k, v| SeedModel.new(k, nil, false, v[:airtable_table]) }
+        else
+          ::Brick.mode = :on
+          ActiveRecord::Base.establish_connection
+          relations = ::Brick.relations
 
-        ::Brick.mode = :on
-        ActiveRecord::Base.establish_connection
-        relations = ::Brick.relations
+          # Load all models
+          ::Brick.eager_load_classes
 
-        # Load all models
-        ::Brick.eager_load_classes
+          # Generate a list of viable models that can be chosen
+          # First start with any existing models that have been defined ...
+          existing_models = ActiveRecord::Base.descendants.each_with_object({}) do |m, s|
+            s[m.table_name] = SeedModel.new(m.table_name, m, false) if !m.abstract_class? && !m.is_view? && m.table_exists?
+          end
+          models = (existing_models.values +
+                    # ... then add models which can be auto-built by Brick
+                    relations.reject do |k, v|
+                      k.is_a?(Symbol) || (v.key?(:isView) && v[:isView] == true) || existing_models.key?(k)
+                    end.map { |k, v| SeedModel.new(k, v[:class_name].constantize, true) }
+                   ).sort { |a, b| a.to_s <=> b.to_s }
+          if models.empty?
+            puts "No viable models found for database #{ActiveRecord::Base.connection.current_database}."
+            return
+          end
 
-        # Generate a list of viable models that can be chosen
-        # First start with any existing models that have been defined ...
-        existing_models = ActiveRecord::Base.descendants.each_with_object({}) do |m, s|
-          s[m.table_name] = SeedModel.new(m.table_name, m, false) if !m.abstract_class? && !m.is_view? && m.table_exists?
-        end
-        models = (existing_models.values +
-                   # ... then add models which can be auto-built by Brick
-                   relations.reject do |k, v|
-                     k.is_a?(Symbol) || (v.key?(:isView) && v[:isView] == true) || existing_models.key?(k)
-                   end.map { |k, v| SeedModel.new(k, v[:class_name].constantize, true) }
-                 ).sort { |a, b| a.to_s <=> b.to_s }
-        if models.empty?
-          puts "No viable models found for database #{ActiveRecord::Base.connection.current_database}."
-          return
-        end
-
-        chosen = gets_list(list: models, chosen: models.dup)
-        schemas = chosen.each_with_object({}) do |v, s|
-          if (v_parts = v.table_name.split('.')).length > 1
-            s[v_parts.first] = nil unless [::Brick.default_schema, 'public'].include?(v_parts.first)
+          chosen = gets_list(list: models, chosen: models.dup)
+          schemas = chosen.each_with_object({}) do |v, s|
+            if (v_parts = v.table_name.split('.')).length > 1
+              s[v_parts.first] = nil unless [::Brick.default_schema, 'public'].include?(v_parts.first)
+            end
           end
         end
         seeds = +'# Seeds file for '
@@ -63,6 +68,7 @@ module Brick
         indexes = {} # Track index names to make sure things are unique
         ar_base = Object.const_defined?(:ApplicationRecord) ? ApplicationRecord : Class.new(ActiveRecord::Base)
         atrt_idx = 0    # ActionText::RichText unique index number
+        # airtable_pvals = {}
         @has_atrts = nil # Any ActionText::RichText present?
         # Start by making entries for fringe models (those with no foreign keys).
         # Continue layer by layer, creating entries for models that reference ones already done, until
@@ -88,21 +94,23 @@ module Brick
                         end
               ).present?
           seeds << "\n"
-          # Search through the fringe to see if we should bump special dependent classes forward to the next fringe.
-          # (Currently only ActiveStorage::Attachment if there's also an ActiveStorage::VariantRecord in the same
-          # fringe, and always have ActionText::EncryptedRichText at the very end.)
-          fringe_classes = fringe.map { |f| f.klass.name }
-          unless (asa_idx = fringe_classes.index('ActiveStorage::Attachment')).nil?
-            fringe.slice!(asa_idx) if fringe_classes.include?('ActiveStorage::VariantRecord')
-          end
-          unless (atert_idx = fringe_classes.index('ActionText::EncryptedRichText')).nil?
-            fringe.slice!(atert_idx) if fringe_classes.length > 1
+          unless is_airtable
+            # Search through the fringe to see if we should bump special dependent classes forward to the next fringe.
+            # (Currently only ActiveStorage::Attachment if there's also an ActiveStorage::VariantRecord in the same
+            # fringe, and always have ActionText::EncryptedRichText at the very end.)
+            fringe_classes = fringe.map { |f| f.klass.name }
+            unless (asa_idx = fringe_classes.index('ActiveStorage::Attachment')).nil?
+              fringe.slice!(asa_idx) if fringe_classes.include?('ActiveStorage::VariantRecord')
+            end
+            unless (atert_idx = fringe_classes.index('ActionText::EncryptedRichText')).nil?
+              fringe.slice!(atert_idx) if fringe_classes.length > 1
+            end
           end
           fringe.each do |seed_model|
             tbl = seed_model.table_name
             next unless ::Brick.config.exclude_tables.exclude?(tbl) &&
                         (relation = relations.fetch(tbl, nil))&.fetch(:cols, nil)&.present? &&
-                        (klass = seed_model.klass).table_exists?
+                        (is_airtable || (klass = seed_model.klass).table_exists?)
 
             pkey_cols = (rpk = relation[:pkey].values.flatten) & (arpk = [ar_base.primary_key].flatten.sort)
             # In case things aren't as standard
@@ -122,7 +130,7 @@ module Brick
                        end
                      end
 
-            # # Had considered doing this:
+            # # Had considered doing this for non-Airtable:
             # # For the moment we're skipping polymorphics
             # fkeys = klass.reflect_on_all_associations.select { |a| a.belongs_to? && !a.polymorphic? }.map do |fk|
             #   { fk: fk.foreign_key, assoc_name: fk.name.to_s, inverse_table: fk.table_name }
@@ -135,35 +143,57 @@ module Brick
 
             has_rows = false
             is_empty = true
-            klass_name = klass.name
+            klass_name = is_airtable ? ::Brick::AirtableApiCaller.sane_table_name(relation[:airtable_table]&.name)&.singularize&.camelize : klass.name
             # Pull the records
-            collection = klass.order(*pkey_cols)
+            collection = if is_airtable
+              next unless (airtable_table = relation[:airtable_table])
 
+              ::Brick::AirtableApiCaller.https_get("https://api.airtable.com/v0/#{airtable_table.base_id}/#{airtable_table.id}").fetch('records', nil)
+            else
+              klass.order(*pkey_cols)
+            end
             collection.each do |obj|
+              if is_airtable
+                fields = obj['fields'].each_with_object({}) do |field, s|
+                  if relation[:cols].keys.include?(col_name = ::Brick::AirtableApiCaller.sane_name(field.first))
+                    s[col_name] = obj['fields'][field.first]
+                  end
+                end
+                # airtable_pvals[obj['id'][3..-1]] = fields[pkey_cols.first]
+                objects = relation[:airtable_table].objects
+                obj = objects[airtable_id = obj['id']] = AirtableObject.new(seed_model, obj['fields'], obj['createdTime'])
+              end
               unless has_rows
                 has_rows = true
                 seeds << "  puts 'Seeding: #{klass_name}'\n"
               end
               is_empty = false
-              pk_val = brick_escape(orig_pk_val = obj.attributes_before_type_cast[pkey_cols.first])
+              # For Airtable, take off the "rec___" prefix
+              pk_val = is_airtable ? airtable_id[3..-1] : brick_escape(orig_pk_val = obj.attributes_before_type_cast[pkey_cols.first])
               var_name = "#{tbl.singularize.gsub('.', '__')}_#{pk_val}"
               fk_vals = []
               data = []
               updates = []
               relation[:cols].each do |col, _col_type|
                 # Skip primary key columns, unless they are part of a foreign key.
+                # (But always add all columns if it's Airtable!)
                 next if !(fk = fkeys.find { |assoc| col == assoc[:fk] }) &&
+                        !is_airtable &&
                         pkey_cols.include?(col) && orig_pk_val.is_a?(Integer)
 
-                begin
-                  # Used to be:  obj.send(col)
-                  if (val = obj.attributes_before_type_cast[col]) && (val.is_a?(Time) || val.is_a?(Date))
-                    val = val.to_s
-                  end
-                rescue StandardError => e # ActiveRecord::Encryption::Errors::Configuration
+                # Used to be:  obj.send(col)
+                # (and with that it was possible to raise ActiveRecord::Encryption::Errors::Configuration...)
+                #  %%% should test further and see if that is possible with this code!)
+                if (val = obj.attributes_before_type_cast[col]) && (val.is_a?(Time) || val.is_a?(Date))
+                  val = val.to_s
                 end
                 if fk
-                  fk_val = brick_escape(val)
+                  fk_val = if is_airtable
+                    # The (3..-1) is to take off the "rec___" prefix
+                    obj.attributes_before_type_cast[fk[:assoc_name]]&.first&.[](3..-1)
+                  else
+                    brick_escape(val)
+                  end
                   fk_vals << "#{fk[:assoc_name]}: #{fk[:inverse_table].singularize.gsub('.', '__')}_#{fk_val}" if fk_val
                 else
                   val = case val.class.name
@@ -204,12 +234,14 @@ module Brick
 end\n"
               else
                 seeds << "#{var_name} = #{klass_name}.create(#{(fk_vals + data).join(', ')})\n"
-                klass.attachment_reflections.each do |k, v|
-                  if (attached = obj.send(k))
-                    ensure_has_atrts(updates)
-                    updates << "atrt_ids[[#{obj.id}, '#{klass_name}']] = #{var_name}.id\n"
-                  end
-                end if klass.respond_to?(:attachment_reflections)
+                unless is_airtable
+                  klass.attachment_reflections.each do |k, v|
+                    if (attached = obj.send(k))
+                      ensure_has_atrts(updates)
+                      updates << "atrt_ids[[#{obj.id}, '#{klass_name}']] = #{var_name}.id\n"
+                    end
+                  end if klass.respond_to?(:attachment_reflections)
+                end
               end
               updates.each { |update| seeds << update } # Anything that needs patching up after-the-fact
             end
@@ -262,6 +294,15 @@ end\n"
         unless @has_atrts
           array << "atrt_ids = {}\n"
           @has_atrts = true
+        end
+      end
+
+      class AirtableObject
+        attr_accessor :table, :attributes_before_type_cast, :created_at
+        def initialize(table, attributes, created_at)
+          self.table = table
+          self.attributes_before_type_cast = attributes.each_with_object({}) { |a, s| s[::Brick::AirtableApiCaller.sane_name(a.first)] = a.last }
+          self.created_at = created_at
         end
       end
     end
