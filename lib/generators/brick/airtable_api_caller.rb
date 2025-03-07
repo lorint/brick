@@ -48,12 +48,12 @@ Please provide your Airtable PAT:"
                                           chosen.find { |t| t.id == col['options']['linkedTableId'] }&.name
                                         ))
                             if col['options']['prefersSingleRecordLink'] # 1:M
-                              fks << [frn_tbl, col_name, tbl_name, col_name]
+                              fks << [frn_tbl, "#{col_name}_id", tbl_name, col_name]
                             else # N:M
                               # Queue up to build associative table with two foreign keys
                               camelized = (assoc_name = "#{tbl_name}_#{col_name}_#{frn_tbl}").camelize
                               if associatives.keys.any? { |a| a.camelize == camelized }
-                                puts "Strangely have found two columns in \"#{table.name}\" with a name similar to \"#{col_name}\".  Skipping this to avoid a conflict."
+                                puts "Strangely have found two columns in \"#{table.name}\" with a name similar to \"#{col_name}\".  Skipping one to avoid a conflict."
                                 next
 
                               end
@@ -90,24 +90,20 @@ Please provide your Airtable PAT:"
                       }
                     end
         associatives.each do |k, v|
-          pri_pk_col = relations[v[1]][:pkey]&.first&.last&.first
-          frn_pk_col = relations[v[2]][:pkey]&.first&.last&.first
           pri_fk_name = "#{v[1]}_id"
-          frn_fk_name = "#{v[2]}_id"
-          if frn_fk_name == pri_fk_name # Self-referencing N:M?
-            frn_fk_name = "#{v[2]}_2_id"
-          end
+          frn_fk_base = (v[1] == v[2]) ? "#{v[2]}_2" : v[2] # Accommodates self-referencing N:Ms
+          frn_fk_name = "#{frn_fk_base}_id"
           relations[k] = {
             pkey: { "#{k}_pkey" => ['id'] },
             cols: { 'id' => ['integer', nil, false, false],
                     pri_fk_name => [relations[v[1]][:cols][pri_pk_col][0], nil, nil, false],
                     frn_fk_name => [relations[v[2]][:cols][frn_pk_col][0], nil, nil, false] }
           }
-          fks << [v[2], pri_fk_name, k]
-          fks << [v[1], frn_fk_name, k]
+          fks << [v[1], pri_fk_name, k, v[0].underscore]
+          fks << [v[2], frn_fk_name, k, frn_fk_base.underscore]
         end
         fk_idx = 0
-        fks.each do |pri_tbl, fk_col, frn_tbl|
+        fks.each do |pri_tbl, fk_col, frn_tbl, airtable_col|
           # Confirm that this is a 1:M
           # Make a FK column
           pri_pk_col = relations[pri_tbl][:pkey].first.last.first
@@ -118,7 +114,7 @@ Please provide your Airtable PAT:"
           frn_fks["fk_airtable_#{fk_idx += 1}"] = {
             is_bt: true,
             fk: fk_col,
-            assoc_name: "#{pri_tbl}_#{fk_idx}",
+            assoc_name: airtable_col,
             inverse_table: pri_tbl
           }
         end
