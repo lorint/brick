@@ -42,7 +42,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.229        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.233        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -133,7 +133,7 @@ the various "Autogenerate ___ Files" sections.
   - [1.h. Autogenerate Seeds File](#1h-autogenerate-seeds-file)
   - [1.i. Autogenerate Controller Files](#1i-autogenerate-controller-files)
   - [1.j. Autogenerate Migration Files based on a Salesforce WSDL file](#1j-autogenerate-migration-files-based-on-a-salesforce-wsdl-file)
-  - [1.k. Autogenerate Migration and Seed Files based on an Existing Airtable Base](#1j-autogenerate-migration-and-seed-files-based-on-an-existing-airtable-base)
+  - [1.k. Autogenerate Migration and Seed Files based on an Existing Airtable Base](#1k-autogenerate-migration-and-seed-files-based-on-an-existing-airtable-base)
 - [2. Programmatic Enhancements](#2-programmatic-enhancements)
   - [2.a. Using brick_select and brick_pluck](#2a-using-brick_select-and-brick_pluck)
   - [2.b. Using brick_where](#2b-using-brick_where)
@@ -680,19 +680,75 @@ and this lets you create a Rails app that fully mirrors a Salesforce installatio
 
 ### 1.k. Autogenerate Migration and Seed Files based on an Existing Airtable Base
 
-You can use this to begin a new Rails project based on the schema and data of an existing Airtable base,
-or simply use it as a way to make a backup of your data in Airtable.
+You can use this to begin a new Rails project based on the schema and data of an existing Airtable
+base, or simply use it as a way to make a backup of your data in Airtable.
 
 * Create an Airtable Personal Access Token (PAT) with **read schema** and **read data** permissions (`schema.bases:read` and `data.records:read`),
-* install [The Brick gem](https://github.com/lorint/brick), and
-* run this to create migrations and a `seeds.rb` file:
+* install [The Brick gem](https://github.com/lorint/brick),
+* run this to create migrations:
 
 ```
 bin/rails g brick:airtable_migrations
+```
+* and run this to create a `seeds.rb` file:
+```
 bin/rails g brick:airtable_seeds
 ```
 
-During each of these two commands you'll be prompted to provide your PAT, pick the **base** you want to use as the source, and finally choose which tables you'd like to import.
+During each of these two commands you'll be prompted to provide your PAT, pick the **base** you want
+to use as the source, and finally choose which tables you'd like to import.
+
+A **multipleRecordLinks** relationship in Airtable can express either a 1:N or an N:M association. The
+difference between these two depends on if you have the "Allow linking to multiple records" option
+chosen.  If not then it is a 1:N and Brick will build this out with a foreign key on the "N" side
+of the 1:N, for instance if you have **customers** and **orders** with a **multipleRecordLinks** relationship
+then each order needs to know the customer it is for, so Airtable will have an array of order links
+on each customer.  When Brick builds out migrations then it will cause that **orders** table will have
+a foreign key so that each order can point back to its related customer.
+
+If instead you enable "Allow linking to multiple records", say for something like **artists** and **songs**
+where one song can be recorded with multiple artists, and each artist can create multiple songs
+(therefore an N:M association), then in Airtable each link is expressed twice -- data is stored
+once from the perspective of the originating table, and again from the perspective of the
+destination.  Or say if you have **recipes** and **ingredients**, it ends up something like this,
+with (A) each recipe considering the ingredients used for that recipe, and (B) each ingredient considering
+the recipes in which it is used:
+
+```
+      /‾ingredients_for_recipe‾‾‾‾‾‾\
+Recipe                               Ingredient
+      \____recipes_using_ingredient_/
+```
+
+On each side Airtable stores these key values in an array in order to track this -- each row in
+Recipe will have an array of associated ingredients, and each row in ingredient will have a mirror
+of the same information just going the other way, an array that knows all of the recipes where an
+ingredient is used.  Relational databases usually store this kind of N:M data using an associative
+table, and Brick creates these tables automatically.  In the case of Recipe and Ingredient, there
+would be two associative tables built, each having foreign keys which point to Recipe and
+Ingredient.  When Brick builds out a seeds.rb file, it analyzes the data to identify cases when
+this mirrored data is exactly the same, and will place a comment on the _second_ table that
+contains these pure duplicates, something like this:
+
+```
+  ...
+  if ActiveRecord::Migration.table_exists?('ingredient_recipes_recipes')
+    # Duplicate data found in: recipe_ingredients_ingredients
+    puts 'Seeding Airtable associations for IngredientRecipesRecipe'
+IngredientRecipesRecipe.create(recipes: recipe_LXcKbfWHht1p7E, ingredients: ingredient_PfqPdarEPsmlKS)
+IngredientRecipesRecipe.create(recipes: recipe_whsSsphFtAUbHB, ingredients: ingredient_PfqPdarEPsmlKS)
+IngredientRecipesRecipe.create(recipes: recipe_bAf2Zi1Fg8RlIs, ingredients: ingredient_RbGsAgLF3ABZev)
+IngredientRecipesRecipe.create(recipes: recipe_bAf2Zi1Fg8RlIs, ingredients: ingredient_qd2yuVPam0CGKd)
+    ...
+```
+
+From this you can see that you would want to remove either the **ingredient_recipes_recipes** table or
+the **recipe_ingredients_ingredients** table.  Pick to keep whichever one sounds most logical to you.
+Personally I would omit **ingredient_recipes_recipes**, but pick either one -- each would hold exactly
+the same data.  By deleting the migration file that would build this table, it won't then exist in
+the database, and when `bin/rake db:seed` is run then this generated code is built to be sensitive to this
+and not create seed data for any missing N:M table.  (Notice the `if` statement in the block above -- this
+check is is included at the start of each block of N:M seeding commands.)
 
 
 ## 2. Programmatic Enhancements
