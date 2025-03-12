@@ -57,6 +57,7 @@ Please provide your Airtable PAT:"
 
                               end
                               associatives[assoc_name] = [col_name, frn_tbl, tbl_name]
+                              fks << [assoc_name, frn_tbl, frn_tbl, col_name.underscore, tbl_name]
                             end
                           end
                         else
@@ -72,9 +73,13 @@ Please provide your Airtable PAT:"
                             'boolean'
                           when 'date'
                             'date'
-                          # multipleSelects
+                          when 'multipleSelects'
+                            # Sqlite3 can do json
+                            'json'
                           when 'formula', 'count', 'rollup', 'multipleAttachments'
                             next
+                          # else
+                          #   binding.pry
                           end
                           cols[col_name] = [dt, nil, true, false] # true is the col[:nillable]
                         end
@@ -97,28 +102,27 @@ Please provide your Airtable PAT:"
             : "#{v[2]}_id" # Standard N:M
           relations[k] = {
             pkey: { "#{k}_pkey" => ['id'] },
-            cols: { 'id' => ['integer', nil, false, false],
-                    pri_fk_name => [relations[v[1]][:cols][pri_pk_col][0], nil, nil, false],
-                    frn_fk_name => [relations[v[2]][:cols][frn_pk_col][0], nil, nil, false] }
+            cols: { 'id' => ['integer', nil, false, false] }
           }
-          fks << [v[2], pri_fk_name, k] # %%%
-          fks << [v[1], frn_fk_name, k]
+          fks << [v[1], pri_fk_name, k, pri_fk_name.underscore]
+          fks << [v[2], frn_fk_name, k, frn_fk_name.underscore]
         end
         fk_idx = 0
-        fks.each do |pri_tbl, fk_col, frn_tbl, airtable_col|
-          # Confirm that this is a 1:M
-          # Make a FK column
+        fks.each do |pri_tbl, fk_col, frn_tbl, airtable_col, assoc_tbl|
           pri_pk_col = relations[pri_tbl][:pkey].first.last.first
           # binding.pry unless relations.key?(frn_tbl) && relations[pri_tbl][:cols][pri_pk_col]
-          relations[frn_tbl][:cols][fk_col] = [relations[pri_tbl][:cols][pri_pk_col][0], nil, true, false]
+          unless assoc_tbl # It's a 1:M -- make a FK column
+            relations[frn_tbl][:cols][fk_col] = [relations[pri_tbl][:cols][pri_pk_col][0], nil, true, false]
+          end
           # And the actual relation
           frn_fks = ((relations[frn_tbl] ||= {})[:fks] ||= {})
-          frn_fks["fk_airtable_#{fk_idx += 1}"] = {
-            is_bt: true,
+          this_fk = frn_fks["fk_airtable_#{fk_idx += 1}"] = {
+            is_bt: !assoc_tbl, # Normal foreign key is true, and N:M is really a has_many, so false
             fk: fk_col,
             assoc_name: airtable_col,
             inverse_table: pri_tbl
           }
+          this_fk[:assoc_tbl] = assoc_tbl if assoc_tbl
         end
 
         relations

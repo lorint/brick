@@ -70,7 +70,7 @@ module Brick
         indexes = {} # Track index names to make sure things are unique
         ar_base = Object.const_defined?(:ApplicationRecord) ? ApplicationRecord : Class.new(ActiveRecord::Base)
         atrt_idx = 0    # ActionText::RichText unique index number
-        # airtable_pvals = {}
+        airtable_assoc_recids = Hash.new { |h, k| h[k] = [] }
         @has_atrts = nil # Any ActionText::RichText present?
         # Start by making entries for fringe models (those with no foreign keys).
         # Continue layer by layer, creating entries for models that reference ones already done, until
@@ -134,7 +134,8 @@ module Brick
 
             # %%% For the moment we're skipping polymorphics
             fkeys = if is_airtable
-              relation[:fks].values.select { |assoc| assoc[:is_bt] && !assoc[:polymorphic] }
+              tbl = tbl.singularize
+              relation[:fks]&.values&.select { |assoc| assoc[:is_bt] && !assoc[:polymorphic] }
             else
               klass.reflect_on_all_associations.select { |a| a.belongs_to? && !a.polymorphic? }.map do |fk|
                 { fk: fk.foreign_key, assoc_name: fk.name.to_s, inverse_table: fk.table_name }
@@ -148,20 +149,30 @@ module Brick
             klass_name = is_airtable ? ::Brick::AirtableApiCaller.sane_table_name(relation[:airtable_table]&.name)&.singularize&.camelize : klass.name
             # Pull the records
             collection = if is_airtable
-              next unless (airtable_table = relation[:airtable_table])
-
-              ::Brick::AirtableApiCaller.https_get("https://api.airtable.com/v0/#{airtable_table.base_id}/#{airtable_table.id}").fetch('records', nil)
+              if (airtable_table = relation[:airtable_table])
+                ::Brick::AirtableApiCaller.https_get("https://api.airtable.com/v0/#{airtable_table.base_id}/#{airtable_table.id}").fetch('records', nil)
+              end
             else
               klass.order(*pkey_cols)
             end
-            collection.each do |obj|
+            collection&.each do |obj|
               if is_airtable
                 fields = obj['fields'].each_with_object({}) do |field, s|
                   if relation[:cols].keys.include?(col_name = ::Brick::AirtableApiCaller.sane_name(field.first))
                     s[col_name] = obj['fields'][field.first]
+                  else # Consider N:M fks
+                    nm_fk = relation[:fks].find do |_k, fk1|
+                      relations[fk1[:assoc_tbl]]&.fetch(:fks, nil)&.find { |_k, fk2| fk2[:assoc_name] == col_name }
+                    end&.last
+                    if (t_table = nm_fk&.fetch(:inverse_table, nil))
+                      field.last.each do |nm_rec|
+                        nm_fk_col = nm_fk[:assoc_tbl]
+                        airtable_assoc_recids[t_table] << "#{nm_fk[:fk]}: #{nm_fk[:fk].singularize}_#{obj['id'][3..-1]}, " \
+                                                          "#{nm_fk_col}: #{nm_fk_col.singularize}_#{nm_rec[3..-1]}"
+                      end
+                    end
                   end
                 end
-                # airtable_pvals[obj['id'][3..-1]] = fields[pkey_cols.first]
                 objects = relation[:airtable_table].objects
                 obj = objects[airtable_id = obj['id']] = AirtableObject.new(seed_model, obj['fields'], obj['createdTime'])
               end
@@ -193,9 +204,8 @@ module Brick
                   inv_tbl = fk[:inverse_table].gsub('.', '__')
                   fk_val = if is_airtable
                     # Used to be:  fk[:airtable_col]
-                    airtable_id = obj.attributes_before_type_cast[fk[:assoc_name]]&.first
-                    # airtable_pvals[airtable_id&.[](3..-1)]
-                    airtable_id&.[](3..-1) # For Airtable, take off the "rec___" prefix
+                    # Take off the "rec___" prefix
+                    obj.attributes_before_type_cast[fk[:assoc_name]]&.first&.[](3..-1)
                   else
                     brick_escape(val)
                   end
@@ -251,11 +261,17 @@ end\n"
               updates.each { |update| seeds << update } # Anything that needs patching up after-the-fact
             end
             seeds << "  # (Skipping #{klass_name} as it has no rows)\n" unless has_rows
-            File.open(seed_file_path, "w") { |f| f.write seeds }
           end
           done.concat(fringe)
           chosen -= done
         end
+        airtable_assoc_recids.each do |k, v| # N:M links
+          v.each do |link|
+            seeds << "#{k.singularize.camelize}.create(#{link})\n"
+          end
+        end
+
+        File.open(seed_file_path, "w") { |f| f.write seeds }
         stuck_counts = Hash.new { |h, k| h[k] = 0 }
         chosen.each do |leftover|
           puts "Can't do #{leftover.klass_name} because:\n  #{stuck[leftover.table_name].map do |snag|
