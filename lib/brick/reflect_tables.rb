@@ -26,10 +26,13 @@ module Brick
             # Auto-create when there is a missing index
             alias _original_method_missing method_missing
             def method_missing(name, *args, &block)
+              return if name == :transport # Avoid infinite loop if Elasticsearch isn't yet initialized
+
               _original_method_missing(name, *args, &block)
             rescue Elastic::Transport::Transport::Errors::NotFound => e
               if (missing_index = args.last&.fetch(:defined_params, nil)&.fetch(:index, nil)) &&
-                 ::Brick.elasticsearch_models&.fetch(missing_index, nil)&.include?('i')
+                 (es_table_name = ::Brick.elasticsearch_possible&.fetch(missing_index, nil)) &&
+                 ::Brick.elasticsearch_models&.fetch(es_table_name, nil)&.include?('i')
                 self.indices.create({ index: missing_index,
                                       body: { settings: {}, mappings: { properties: {} } } })
                 puts "Auto-creating missing index \"#{missing_index}\""
@@ -40,9 +43,10 @@ module Brick
             end
           end
         end
-        if ::Elasticsearch.const_defined?('Model')
-          # By setting the environment variable ELASTICSEARCH_URL then you can specify an Elasticsearch/Opensearch host
-          host = (client = ::Elasticsearch::Model.client).transport.hosts.first
+        if ::Elasticsearch.const_defined?('Model') && 
+           # By setting the environment variable ELASTICSEARCH_URL then you can specify an Elasticsearch/Opensearch
+           # host that is picked up here
+           (host = (client = ::Elasticsearch::Model.client).transport&.hosts&.first)
           es_uri = URI.parse("#{host[:protocol]}://#{host[:host]}:#{host[:port]}")
           es_uri = nil if es_uri.to_s == 'http://localhost:9200'
           begin
@@ -513,7 +517,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         end
       end
 
-      if ems = ::Brick.elasticsearch_models # ['comments']
+      if (ems = ::Brick.elasticsearch_models)
         access = case ems
                  when Hash, String # Hash is a list of resource names and ES permissions such as 'r' or 'icr'
                    ems
@@ -544,6 +548,9 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
               next if rel.first.is_a?(Symbol)
 
               perms = rel.last.fetch(:isView, nil) ? access.tr('cud', '') : access
+              unless ::Brick.elasticsearch_existings[es_index = rel.first.tr('.', '-').pluralize]
+                (::Brick.elasticsearch_possible ||= {})[es_index] = rel.first
+              end
               s[rel.first] = perms
             end
           else # or there are specific permissions for each resource, so find the matching indexes

@@ -42,7 +42,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.233        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.237        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -706,13 +706,13 @@ then each order needs to know the customer it is for, so Airtable will have an a
 on each customer.  When Brick builds out migrations then it will cause that **orders** table will have
 a foreign key so that each order can point back to its related customer.
 
-If instead you enable "Allow linking to multiple records", say for something like **artists** and **songs**
-where one song can be recorded with multiple artists, and each artist can create multiple songs
-(therefore an N:M association), then in Airtable each link is expressed twice -- data is stored
-once from the perspective of the originating table, and again from the perspective of the
-destination.  Or say if you have **recipes** and **ingredients**, it ends up something like this,
-with (A) each recipe considering the ingredients used for that recipe, and (B) each ingredient considering
-the recipes in which it is used:
+If instead you have a **multipleRecordLinks** relationship with "Allow linking to multiple records" enabled,
+say for something like **artists** and **songs** where one song can be recorded with multiple artists, and
+each artist can create multiple songs (therefore an N:M association), then in Airtable each link is expressed
+twice -- data is stored once from the perspective of the originating table, and again from the perspective of
+the destination.  Or say if you have **recipes** and **ingredients**, it ends up something like this, with
+(A) each recipe considering the ingredients used for that recipe, and (B) each ingredient considering the
+recipes in which it is used:
 
 ```
       /‾ingredients_for_recipe‾‾‾‾‾‾\
@@ -816,7 +816,7 @@ Flight.brick_pluck(:dt, 'departure.code', 'departure.city.name',
 
 ### 2.b. Using brick_where
 
-This works pretty similiarly to **brick_select** and **brick_pluck**, above -- a smart `.brick_where()` which
+This works pretty similiarly to **brick_select** and **brick_pluck** above -- a smart `.brick_where()` which
 operates just like ActiveRecord's normal `.where()` with the addition that if you reference a related table
 then it automatically adds appropriate `.joins()` entries for you.  For instance, if you have **Post** that
 `has_many :user_posts`, and also `has_many :users, through: :user_posts`, then let's say on the associative
