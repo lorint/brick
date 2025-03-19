@@ -2521,6 +2521,7 @@ class Object
             end
             ar_select = ar_relation.respond_to?(:_select!) ? ar_relation.dup._select!(*selects, *counts) : ar_relation.select(selects + counts)
             instance_variable_set("@#{plural_table_name}".to_sym, ar_select)
+            @_lookup_context.instance_variable_set(:@_brick_is_postgres, true) if is_postgres
             table_name_no_schema = singular_table_name.pluralize
             if namespace && (idx = lookup_context.prefixes.index(table_name_no_schema))
               lookup_context.prefixes[idx] = "#{namespace.name.underscore}/#{lookup_context.prefixes[idx]}"
@@ -2665,6 +2666,7 @@ class Object
               @_lookup_context.instance_variable_set(:@_brick_model, real_model)
               if created_obj.errors.empty?
                 instance_variable_set("@#{singular_table_name}".to_sym, created_obj)
+                @_lookup_context.instance_variable_set(:@_brick_is_postgres, true) if is_postgres
                 index
                 render :index
               else # Surface errors to the user in a flash message
