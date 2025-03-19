@@ -111,7 +111,7 @@ module Brick
                   :established_drf,
                   :is_oracle, :is_eager_loading, :auto_models, :initializer_loaded,
                   :table_name_lookup,
-                  :elasticsearch_models, :elasticsearch_existings,
+                  :elasticsearch_models, :elasticsearch_existings, :elasticsearch_possible,
                   :routes_done
     ::Brick.auto_models = []
 
@@ -280,7 +280,7 @@ to instead be this:
                 else
                   puts "to support the #{model.name} model, you can add this into your brick.rb:
 ::Brick.polymorphics = { \"#{model.table_name}.#{a.name}\" =>
-                         #{hm_models.map(&:name).inspect}
+                         #{hm_models.map { |m| "::#{m.name}" }.inspect}
                        }"
                 puts "and it will \"cement\" these options into place, and avoid this lookup process.\n"
                 end

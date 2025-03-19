@@ -626,7 +626,7 @@ window.addEventListener(\"popstate\", linkSchemas);
                          # Only CUD stuff has create / update / destroy
                          (!model.is_view? && ['new', 'create', 'edit', 'update', 'destroy'].include?(find_args.first))
                        )
-                      @_brick_model = model.real_model(params)
+                      @_brick_model = model.find_real_model(params)
                     end
                   rescue
                   end
@@ -672,7 +672,7 @@ window.addEventListener(\"popstate\", linkSchemas);
               find_template_err = nil
               unless (model_name = @_brick_model&.name) ||
                      (
-                      args[1].first == 'brick_gem' &&
+                      args[1]&.first == 'brick_gem' &&
                       ((is_search = ::Brick.config.add_search && args[0] == 'search' &&
                                     ::Brick.elasticsearch_existings&.length&.positive?
                        ) ||
@@ -745,8 +745,10 @@ window.addEventListener(\"popstate\", linkSchemas);
                       hm_entry << if hm_assoc.macro == :has_one
                                     'nil'
                                   else # :has_many or :has_and_belongs_to_many
+                                    b_r_name = "b_r_#{assoc_name}_ct"
                                     # Postgres column names are limited to 63 characters
-                                    "'" + "b_r_#{assoc_name}_ct"[0..62] + "'"
+                                    b_r_name = b_r_name[0..62] if @_brick_is_postgres
+                                    "'#{b_r_name}'"
                                   end
                       hm_entry << ", #{path_keys(hm_assoc, hm_fk_name, pk).inspect}]"
                       hms_columns << hm_entry
@@ -1010,7 +1012,7 @@ if (window.brickFontFamily) {
 +"<html>
 <head>
 #{css}
-<title><%= (model = #{model_name}).name %><%
+<title><%= (model = ::#{model_name}).name %><%
      if (description = (relation = Brick.relations[model.table_name])&.fetch(:description, nil)).present?
        %> - <%= description
 %><% end
@@ -1328,11 +1330,10 @@ end
 
                        when 'crosstab'
                          if is_crosstab && ::Brick.config.license
-                           decipher = OpenSSL::Cipher::AES256.new(:CBC).decrypt
-                           decipher.iv = "\xB4,\r2\x19\xF5\xFE/\aR\x1A\x8A\xCFV\v\x8C"
+                           encrypted = File.binread("#{Gem::Specification.find_by_name('brick').gem_dir}/lib/brick/rails/crosstab.brk")
+                           (decipher = OpenSSL::Cipher::AES256.new(:CBC).decrypt).iv = encrypted[0..15]
                            decipher.key = Digest::SHA256.hexdigest(::Brick.config.license).scan(/../).map { |x| x.hex }.pack('c*')
-                           brick_path = Gem::Specification.find_by_name('brick').gem_dir
-                           decipher.update(File.binread("#{brick_path}/lib/brick/rails/crosstab.brk"))[16..-1]
+                           decipher.update(encrypted[16..-1]) + decipher.final
                          else
                            'Crosstab Charting not yet activated -- enter a valid license key in brick.rb'
                          end
@@ -1342,15 +1343,16 @@ end
 <head>
 #{css}
 <title><%=
-  base_model = (model = (obj = @#{obj_name}).class).base_class
-  see_all_path = send(\"#\{base_model._brick_index}_path\")
+  if (model = (obj = @#{obj_name})&.class || @lookup_context&.instance_variable_get(:@_brick_model))
+    see_all_path = send(\"#\{(base_model = model.base_class)._brick_index}_path\")
 #{(inh_col = @_brick_model.inheritance_column).present? &&
-"  if obj.respond_to?(:#{inh_col}) && (model_name = @#{obj_name}.#{inh_col}) &&
-     !model_name.is_a?(Numeric) && model_name != base_model.name
-    see_all_path << \"?#{inh_col}=#\{model_name}\"
+"    if obj.respond_to?(:#{inh_col}) && (model_name = @#{obj_name}.#{inh_col}) &&
+       !model_name.is_a?(Numeric) && model_name != base_model.name
+      see_all_path << \"?#{inh_col}=#\{model_name}\"
+    end
+    model_name = base_model.name if model_name.is_a?(Numeric)"}
+    model_name = nil if model_name == ''
   end
-  model_name = base_model.name if model_name.is_a?(Numeric)"}
-  model_name = nil if model_name == ''
   page_title = (\"#\{model_name ||= model.name}: #\{obj&.brick_descrip || controller_name}\")
 %></title>
 </head>

@@ -140,7 +140,7 @@ erDiagram
      bt_class = bt[1].first.first
      callbacks[bt_name = bt_class.name.split('::').last] = bt_class
      # Used to have:  &.inverse_of  before  &.macro
-     is_has_one = #{model.name}.reflect_on_association(bt.first)&.macro == :has_one ||
+     is_has_one = ::#{model.name}.reflect_on_association(bt.first)&.macro == :has_one ||
                   ::Brick.config.has_ones&.fetch('#{model.name}', nil)&.key?(bt.first.to_s)
     %>  <%= \"#{model_short_name} #\{is_has_one ? '||--o|' : '}o--||'} #\{bt_name} : \\\"#\{
         bt_underscored = bt[1].first.first.name.underscore.singularize
@@ -151,7 +151,7 @@ erDiagram
    last_hm = nil
    @_brick_hm_counts&.each do |hm|
      # Skip showing self-referencing HM links since they would have already been drawn while evaluating the BT side
-     next if (hm_class = hm.last&.klass) == #{model.name}
+     next if (hm_class = hm.last&.klass) == ::#{model.name}
 
      callbacks[hm_name = hm_class.name.split('::').last] = hm_class
      if (through = hm.last.options[:through]&.to_s) # has_many :through  (HMT)
@@ -180,7 +180,7 @@ erDiagram
        'time without time zone' => 'time',
        'time with time zone' => 'time' }[dt] || dt&.tr(' ', '_') || 'int'
    end
-   callbacks.merge({#{model_short_name.inspect} => #{model.name}}).each do |cb_k, cb_class|
+   callbacks.merge({#{model_short_name.inspect} => ::#{model.name}}).each do |cb_k, cb_class|
      cb_relation = ::Brick.relations[cb_class.table_name]
      pkeys = cb_relation[:pkey]&.first&.last
      fkeys = cb_relation[:fks]&.values&.each_with_object([]) { |fk, s| s << fk[:fk] if fk.fetch(:is_bt, nil) }
@@ -211,7 +211,7 @@ erDiagram
  %>
   </div>#{
  add_column = false # For the moment, disable all schema modification things
- "<%= brick_add_column(#{model.name}, #{prefix.inspect}).html_safe %>" unless add_column == false}
+ "<%= brick_add_column(::#{model.name}, #{prefix.inspect}).html_safe %>" unless add_column == false}
 </div>
 "
     end

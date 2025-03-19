@@ -70,7 +70,8 @@ module ActiveRecord
         false
       end
 
-      def real_model(params)
+      # Accommodate STI
+      def find_real_model(params)
         if params && ((sub_name = params.fetch(inheritance_column, nil)).present? ||
                       (sub_name = params[name.underscore]&.fetch(inheritance_column, nil)))
           sub_name = sub_name.first if sub_name.is_a?(Array) # Support the params style that gets returned from #_brick_querying
@@ -83,10 +84,9 @@ module ActiveRecord
         end
       end
 
-      # Accommodate STI
       def real_singular(params)
-        real_model = real_model(params)
-        [real_model, real_model.name.underscore.split('/').last]
+        real_model = find_real_model(params)
+        [real_model, real_model.name.underscore.tr('/', '_')]
       end
 
       def json_column?(col)
@@ -961,8 +961,12 @@ module ActiveRecord
                          fk_col = (inv = hm.inverse_of)&.foreign_key || hm.foreign_key
                          # %%% Might only need hm.type and not the first part :)
                          poly_type = inv&.foreign_type || hm.type if hm.options.key?(:as)
-                         pk = hm.klass.primary_key
-                         (pk.is_a?(Array) ? pk.first : pk) || '*'
+                         if hm.macro == :has_and_belongs_to_many
+                           '*'
+                         else
+                           pk = hm.klass.primary_key
+                           (pk.is_a?(Array) ? pk.first : pk) || '*'
+                         end
                        end
         next unless count_column # %%% Would be able to remove this when multiple foreign keys to same destination becomes bulletproof
 
@@ -1433,12 +1437,13 @@ end
       if (self.const_defined?(args.first) && (possible = self.const_get(args.first)) &&
           # Reset `possible` if it's a controller request that's not a perfect match
           # Was:  (possible = nil)  but changed to #local_variable_set in order to suppress the "= should be ==" warning
-          (possible&.name == desired_classname || (is_controller && binding.local_variable_set(:possible, nil)))) ||
+          (possible&.name == desired_classname || (is_controller && binding.local_variable_set(:possible, nil)))
+         ) ||
 
          # Try to require the respective Ruby file
          # ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore)) &&
          #  (require_dependency(filename) || true) &&
-         (!anonymous? &&
+         (!anonymous? && # Don't try to find classes first mentioned in .erb or .haml templates
           (filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
                       (self != Object && ActiveSupport::Dependencies.search_for_file((desired_classname = requested).underscore))
           ) && (require_dependency(filename) || true) &&
@@ -1830,7 +1835,7 @@ class Object
               def import(options={}, &block)
                 unless self.__elasticsearch__.index_exists?
                   self.__elasticsearch__.create_index!
-                  ::Brick.elasticsearch_existings[self.table_name] = self.table_name.tr('.', '-').pluralize
+                  ::Brick.elasticsearch_existings[self.table_name.tr('.', '-').pluralize] = self.table_name
                 end
                 _original_import(options={}, &block)
               end
@@ -1867,7 +1872,7 @@ class Object
                 end
               rescue Elastic::Transport::Transport::Errors::NotFound => e
                 self.__elasticsearch__.create_index! if @_brick_es_crud.index('i')
-                ::Brick.elasticsearch_existings[self.table_name] = self.table_name.tr('.', '-').pluralize
+                ::Brick.elasticsearch_existings[self.table_name.tr('.', '-').pluralize] = self.table_name
                 []
               end
             end
@@ -2040,12 +2045,12 @@ class Object
                           (anaf.is_a?(Array) ? anaf.include?(assoc_name) : anaf == assoc_name)
                 macro
               end
-      # Figure out if we need to specially call out the class_name and/or foreign key
-      # (and if either of those then definitely also a specific inverse_of)
       if (singular_table_parts = singular_table_name.split('.')).length > 1 &&
          ::Brick.config.schema_behavior[:multitenant] && singular_table_parts.first == 'public'
         singular_table_parts.shift
       end
+      # Figure out if we need to specially call out the class_name and/or foreign key
+      # (and if either of those then definitely also a specific inverse_of)
       if need_class_name
         options[:class_name] = "::#{assoc[:primary_class]&.name || ::Brick.relations[inverse_table][:class_name]}"
       end
@@ -2054,7 +2059,9 @@ class Object
         if assoc[:fk].is_a?(Array)
           # #uniq works around a bug in CPK where self-referencing belongs_to associations double up their foreign keys
           if (assoc_fk = assoc[:fk].uniq).length > 1
-            options_fk_key = :query_constraints if ActiveRecord.version >= ::Gem::Version.new('7.1')
+            # The :query_constraints option was only valid for Rails 7.1 and 7.2.  Starting in Rails 8 you will get this:
+            #   Setting `query_constraints:` option on `Sales::Specialofferproduct.has_many :sales_salesorderdetails` is not allowed. To get the same behavior, use the `foreign_key` option instead.
+            options_fk_key = :query_constraints if ActiveRecord.version >= ::Gem::Version.new('7.1') && ActiveRecord.version < ::Gem::Version.new('8.0a')
             options[options_fk_key] = assoc_fk
           else
             options[options_fk_key] = assoc_fk.first
@@ -2256,7 +2263,7 @@ class Object
               return
             end
 
-            # Apartment::Tenant.switch!(params['schema'])
+            Apartment::Tenant.switch!(params['_brick_schema']) if Object.const_defined?('Apartment')
             # result = ActiveRecord::Base.connection.query("SELECT #{cols.join(', ')} FROM #{view}")
             col_num = 0
             grouping = []
@@ -2282,7 +2289,7 @@ class Object
                         end
               s << "#{col_def} AS c#{col_num}"
             end
-            sql = "SELECT #{cols.join(', ')} FROM #{first_relation.downcase}"
+            sql = +"SELECT #{cols.join(', ')} FROM #{first_relation.downcase}"
             sql << "\nGROUP BY #{grouping.map(&:to_s).join(',')}" if is_grouped && grouping.present?
             result = ActiveRecord::Base.connection.query(sql)
             render json: { data: result } # [ver, result]
@@ -2441,7 +2448,7 @@ class Object
               return
             end
 
-            real_model = model.real_model(params)
+            real_model = model.find_real_model(params)
 
             if request.format == :csv # Asking for a template?
               require 'csv'
@@ -2520,8 +2527,10 @@ class Object
                    end
             end
             ar_select = ar_relation.respond_to?(:_select!) ? ar_relation.dup._select!(*selects, *counts) : ar_relation.select(selects + counts)
+            # %%% should this be real_singular_name.pluralize?
             instance_variable_set("@#{plural_table_name}".to_sym, ar_select)
-            table_name_no_schema = singular_table_name.pluralize
+            @_lookup_context.instance_variable_set(:@_brick_is_postgres, true) if is_postgres
+            table_name_no_schema = real_model.name.underscore.split('/').last.pluralize # %%% hmmm ...
             if namespace && (idx = lookup_context.prefixes.index(table_name_no_schema))
               lookup_context.prefixes[idx] = "#{namespace.name.underscore}/#{lookup_context.prefixes[idx]}"
             end
@@ -2537,6 +2546,12 @@ class Object
             @_brick_erd = params['_brick_erd']&.to_i
             add_csp_hash
           end
+
+          _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk, true)) if pk
+          code << "  def index\n"
+          code << "    @#{plural_table_name} = #{model.name}#{pk&.present? ? ".order(#{order_by_txt.join(', ')})" : '.all'}\n"
+          code << "    @#{plural_table_name}._brick_querying(params, brick_col_names: true)\n"
+          code << "  end\n"
         end
 
         unless is_openapi || is_avo # Normal controller (non-API)
@@ -2560,12 +2575,6 @@ class Object
             end
           end
 
-          _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk, true)) if pk
-          code << "  def index\n"
-          code << "    @#{plural_table_name} = #{model.name}#{pk&.present? ? ".order(#{order_by_txt.join(', ')})" : '.all'}\n"
-          code << "    @#{plural_table_name}._brick_querying(params, brick_col_names: true)\n"
-          code << "  end\n"
-
           # ----------------------------------------------------------------------------------
 
           if pk.present?
@@ -2575,8 +2584,8 @@ class Object
             find_obj = "find_#{singular_table_name}"
             self.define_method :show do
               _schema, @_is_show_schema_list = ::Brick.set_db_schema(params)
-              _, singular_table_name = model.real_singular(params)
-              instance_variable_set("@#{singular_table_name}".to_sym, send(find_obj))
+              _, real_singular_table_name = model.real_singular(params)
+              instance_variable_set("@#{real_singular_table_name}".to_sym, send(find_obj))
               add_csp_hash("'unsafe-inline'")
             end
           end
@@ -2594,7 +2603,7 @@ class Object
                            send(params_name_sym)
                          rescue
                          end
-            real_model, singular_table_name = model.real_singular(params)
+            real_model, real_singular_table_name = model.real_singular(params)
             new_params ||= real_model.attribute_names.each_with_object({}) do |a, s|
               if (val = params["__#{a}"])
                 # val = case new_obj.class.column_for_attribute(a).type
@@ -2612,7 +2621,7 @@ class Object
                 new_obj.send("#{k}=", ::ActiveStorage::Filename.new('')) if v.is_a?(::ActiveStorage::Filename) && !v.instance_variable_get(:@filename)
               end if Object.const_defined?('ActiveStorage')
             end
-            instance_variable_set("@#{singular_table_name}".to_sym, new_obj)
+            instance_variable_set("@#{real_singular_table_name}".to_sym, new_obj)
             add_csp_hash
           end
 
@@ -2644,9 +2653,9 @@ class Object
                               model.__elasticsearch__.search(q)
                             rescue Elastic::Transport::Transport::Errors::NotFound => e
                               if @_brick_es_crud.index('i')
-                                self.__elasticsearch__.create_index!
+                                model.__elasticsearch__.create_index!
                                 # model.import
-                                ::Brick.elasticsearch_existings[self.table_name] = self.table_name.tr('.', '-').pluralize
+                                ::Brick.elasticsearch_existings[model.table_name.tr('.', '-').pluralize] = model.table_name
                                 model.__elasticsearch__.search(q)
                               else
                                 []
@@ -2655,8 +2664,7 @@ class Object
               end
               render json: { result: es_result }
             else
-              real_model = model.real_model(params)
-              singular_table_name = real_model.name.underscore.split('/').last
+              real_model, real_singular_table_name = model.real_singular(params)
               created_obj = model.send(:new, send(params_name_sym))
               if created_obj.respond_to?(inh_col = model.inheritance_column) && created_obj.send(inh_col) == ''
                 created_obj.send("#{inh_col}=", model.name)
@@ -2664,11 +2672,12 @@ class Object
               created_obj.save
               @_lookup_context.instance_variable_set(:@_brick_model, real_model)
               if created_obj.errors.empty?
-                instance_variable_set("@#{singular_table_name}".to_sym, created_obj)
+                instance_variable_set("@#{real_singular_table_name}".to_sym, created_obj)
+                @_lookup_context.instance_variable_set(:@_brick_is_postgres, true) if is_postgres
                 index
                 render :index
               else # Surface errors to the user in a flash message
-                instance_variable_set("@#{singular_table_name}".to_sym, created_obj)
+                instance_variable_set("@#{real_singular_table_name}".to_sym, created_obj)
                 flash.now.alert = (created_obj.errors.errors.map { |err| "<b>#{err.attribute}</b> #{err.message}" }.join(', '))
                 new
                 render :new
@@ -2687,8 +2696,8 @@ class Object
             code << "  end\n"
             self.define_method :edit do
               _schema, @_is_show_schema_list = ::Brick.set_db_schema(params)
-              _, singular_table_name = model.real_singular(params)
-              instance_variable_set("@#{singular_table_name}".to_sym, send(find_obj))
+              _, real_singular_table_name = model.real_singular(params)
+              instance_variable_set("@#{real_singular_table_name}".to_sym, send(find_obj))
               add_csp_hash
             end
 
@@ -2715,8 +2724,8 @@ class Object
               #   return
               end
 
-              _, singular_table_name = model.real_singular(params)
-              instance_variable_set("@#{singular_table_name}".to_sym, (obj = send(find_obj)))
+              _, real_singular_table_name = model.real_singular(params)
+              instance_variable_set("@#{real_singular_table_name}".to_sym, (obj = send(find_obj)))
               upd_params = send(params_name_sym)
               json_overrides = ::Brick.config.json_columns&.fetch(table_name, nil)
               if model.respond_to?(:devise_modules)
@@ -2744,7 +2753,8 @@ class Object
               end
               # Do not clear out a has_many_attached field if it already has an entry and nothing is supplied
               hoa, hma, rtans = model._activestorage_actiontext_fields
-              all_params = params[singular_table_name]
+              # %%% does this work with STI?
+              all_params = params[real_singular_table_name]
               hma.each do |hma_field|
                 if upd_hash.fetch(hma_field) == [''] && # No new attachments...
                    all_params&.fetch("_brick_attached_#{hma_field}", nil) # ...and there is something existing
@@ -2753,7 +2763,11 @@ class Object
               end
               obj.send(:update, upd_hash)
               if obj.errors.any? # Surface errors to the user in a flash message
-                flash.now.alert = (obj.errors.errors.map { |err| "<b>#{err.attribute}</b> #{err.message}" }.join(', '))
+                flash.now.alert = if obj.errors.respond_to?(:errors)
+                                    obj.errors.errors.map { |err| "<b>#{err.attribute}</b> #{err.message}" }.join(', ')
+                                  else
+                                    obj.errors.messages.map { |k, v| "<b>#{k}</b> #{v}" }.join(', ')
+                                  end
               end
             end
 
