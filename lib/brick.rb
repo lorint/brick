@@ -111,7 +111,7 @@ module Brick
                   :established_drf,
                   :is_oracle, :is_eager_loading, :auto_models, :initializer_loaded,
                   :table_name_lookup,
-                  :elasticsearch_models, :elasticsearch_existings,
+                  :elasticsearch_models, :elasticsearch_existings, :elasticsearch_possible,
                   :routes_done
     ::Brick.auto_models = []
 
