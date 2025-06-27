@@ -416,7 +416,7 @@ module ActiveRecord
         @_br_cust_cols ||= {}
       end
 
-      def _brick_find_permits(model_or_assoc, current_permits, done_permits = [])
+      def _brick_find_permits(model_or_assoc, current_permits, is_for_expects = nil, done_permits = [])
         unless done_permits.include?(model_or_assoc)
           done_permits << model_or_assoc
           self.reflect_on_all_associations.select { |assoc| !assoc.belongs_to? }.each_with_object([]) do |assoc, s|
@@ -430,6 +430,7 @@ module ActiveRecord
                                                        assoc.klass.instance_variable_get(:@friendly_id_config)
               new_attrib_text = assoc.klass._brick_find_permits(assoc, (new_permits = assoc.klass._brick_all_fields), done_permits)
               new_permits << :_destroy
+              new_permits = [new_permits] if is_for_expects
               current_permits << { "#{assoc.name}_attributes".to_sym => new_permits }
               s << "#{assoc.name}_attributes: #{new_attrib_text}"
             end
@@ -2816,12 +2817,23 @@ class Object
 
           if is_need_params
             code << "  def #{params_name}\n"
-            permits_txt = model._brick_find_permits(model, permits = model._brick_all_fields(true))
-            code << "    params.require(:#{model.base_class.name.underscore.tr('/', '_')
-                             }).permit(#{permits_txt.map(&:inspect).join(', ')})\n"
-            code << "  end\n"
-            self.define_method(params_name) do
-              params.require(model.base_class.name.underscore.tr('/', '_').to_sym).permit(permits)
+            require_txt = model.base_class.name.underscore.tr('/', '_')
+            is_for_expects = ::ActiveSupport.version >= ::Gem::Version.new('8.0a')
+            permits_txt = model._brick_find_permits(model, permits = model._brick_all_fields(true), is_for_expects)
+            if is_for_expects
+              code << "    params.expect(#{require_txt
+                              }: #{permits_txt})\n"
+              code << "  end\n"
+              self.define_method(params_name) do
+                params.expect({ model.base_class.name.underscore.tr('/', '_').to_sym => permits })
+              end
+            else
+              code << "    params.require(:#{require_txt
+                              }).permit(#{permits_txt.map(&:inspect).join(', ')})\n"
+              code << "  end\n"
+              self.define_method(params_name) do
+                params.require(model.base_class.name.underscore.tr('/', '_').to_sym).permit(permits)
+              end
             end
             private params_name
             # Get column names for params from relations[model.table_name][:cols].keys
