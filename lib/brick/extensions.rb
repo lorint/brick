@@ -2028,7 +2028,8 @@ class Object
                 else
                   need_fk = "#{ActiveSupport::Inflector.singularize(assoc[:inverse][:inverse_table].split('.').last)}_id" != assoc[:fk]
                 end
-                singular_assoc_name = ActiveSupport::Inflector.singularize(assoc_name.tr('.', '_'))
+                full_assoc_name = assoc_name.tr('.', '_')
+                singular_assoc_name = ActiveSupport::Inflector.singularize(full_assoc_name)
                 has_ones = ::Brick.config.has_ones&.fetch(full_name, nil)
                 macro = if has_ones&.key?(singular_assoc_name)
                           assoc_name = if (custom_assoc_name = has_ones[singular_assoc_name])
@@ -2043,7 +2044,7 @@ class Object
                         end
                 # Auto-create an accepts_nested_attributes_for for this HM?
                 is_anaf = (anaf = ::Brick.config.nested_attributes&.fetch(full_name, nil)) &&
-                          (anaf.is_a?(Array) ? anaf.include?(assoc_name) : anaf == assoc_name)
+                          (anaf.is_a?(Array) ? anaf.include?(full_assoc_name) : anaf == full_assoc_name)
                 macro
               end
       if (singular_table_parts = singular_table_name.split('.')).length > 1 &&
@@ -2104,8 +2105,8 @@ class Object
       code << "  #{macro} #{assoc_name.inspect}#{options.map { |k, v| ", #{k}: #{v.inspect}" }.join}\n"
       self.send(macro, assoc_name, **options)
       if is_anaf
-        code << "  accepts_nested_attributes_for #{assoc_name.inspect}\n"
-        self.send(:accepts_nested_attributes_for, assoc_name)
+        code << "  accepts_nested_attributes_for #{full_assoc_name.to_sym.inspect}\n"
+        self.send(:accepts_nested_attributes_for, full_assoc_name)
       end
     end
 
