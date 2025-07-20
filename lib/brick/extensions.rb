@@ -1803,8 +1803,8 @@ class Object
           # No primary key, but is there anything UNIQUE?
           # (Sort so that if there are multiple UNIQUE constraints we'll pick one that uses the least number of columns.)
           our_pks = relation[:ukeys].values.sort { |a, b| a.length <=> b.length }.first unless our_pks&.present?
-          if has_pk
-            code << "  # Primary key: #{_brick_primary_key.join(', ')}\n" unless _brick_primary_key == ['id']
+          if has_pk && _brick_primary_key != ['id']
+            code << "  # Primary key: #{_brick_primary_key.join(', ')}\n"
           elsif our_pks&.present?
             pk_mutator = if respond_to?(:'primary_keys=')
                            'primary_keys=' # Using the composite_primary_keys gem
