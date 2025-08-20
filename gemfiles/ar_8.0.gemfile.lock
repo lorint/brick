@@ -1,16 +1,16 @@
 PATH
   remote: ..
   specs:
-    brick (1.0.241)
+    brick (1.0.242)
       activerecord (>= 3.1.1)
       fancy_gets
 
 GEM
   remote: https://rubygems.org/
   specs:
-    actionpack (8.0.2)
-      actionview (= 8.0.2)
-      activesupport (= 8.0.2)
+    actionpack (8.0.2.1)
+      actionview (= 8.0.2.1)
+      activesupport (= 8.0.2.1)
       nokogiri (>= 1.8.5)
       rack (>= 2.2.4)
       rack-session (>= 1.0.1)
@@ -18,19 +18,19 @@ GEM
       rails-dom-testing (~> 2.2)
       rails-html-sanitizer (~> 1.6)
       useragent (~> 0.16)
-    actionview (8.0.2)
-      activesupport (= 8.0.2)
+    actionview (8.0.2.1)
+      activesupport (= 8.0.2.1)
       builder (~> 3.1)
       erubi (~> 1.11)
       rails-dom-testing (~> 2.2)
       rails-html-sanitizer (~> 1.6)
-    activemodel (8.0.2)
-      activesupport (= 8.0.2)
-    activerecord (8.0.2)
-      activemodel (= 8.0.2)
-      activesupport (= 8.0.2)
+    activemodel (8.0.2.1)
+      activesupport (= 8.0.2.1)
+    activerecord (8.0.2.1)
+      activemodel (= 8.0.2.1)
+      activesupport (= 8.0.2.1)
       timeout (>= 0.4.0)
-    activesupport (8.0.2)
+    activesupport (8.0.2.1)
       base64
       benchmark (>= 0.3)
       bigdecimal
@@ -112,9 +112,9 @@ GEM
     rails-html-sanitizer (1.6.0)
       loofah (~> 2.21)
       nokogiri (~> 1.14)
-    railties (8.0.2)
-      actionpack (= 8.0.2)
-      activesupport (= 8.0.2)
+    railties (8.0.2.1)
+      actionpack (= 8.0.2.1)
+      activesupport (= 8.0.2.1)
       irb (~> 1.13)
       rackup (>= 1.0.0)
       rake (>= 12.2)

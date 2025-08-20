@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-ruby '3.2.8'
+ruby '3.2.9'
 
 source 'https://rubygems.org'
 gemspec

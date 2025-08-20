@@ -661,6 +661,8 @@ module ActiveRecord
 
       is_distinct = nil
       wheres = {}
+      params = params.to_unsafe_h unless params.is_a?(Hash)
+      params.merge!(args[1]) if args[1]
       params.each do |k, v|
         k = k.to_s # Rails < 4.2 comes in as a symbol
         next unless k.start_with?('__')
@@ -1048,7 +1050,7 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
                                [brick_links[v_parts[0..-2].join('.')].split('.').last]
                              end
           tbl_and_col_name << v_parts.last
-          if ['>', '<'].include?(first_char = v.last.first[0]) # Greater than or less than?
+          if v.last.is_a?(String) && ['>', '<'].include?(first_char = v.last.first[0]) # Greater than or less than?
             col_name = v.last.first[1..-1]
             col_name = "'#{col_name}'" unless [:integer, :boolean, :decimal, :float].include?(klass.columns_hash[v.first].type)
             where_comparisons << "#{tbl_and_col_name.join('.')} #{first_char} #{col_name}"
@@ -1120,7 +1122,7 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
     end
 
     # Build out an AR relation that queries for a list of objects, and include all the appropriate JOINs to later apply DSL using #brick_descrip
-    def brick_list
+    def brick_list(wheres = nil)
       selects = klass._pk_as_array.each_with_object([]) { |pk, s| s << pk unless s.include?(pk) }
       # Get foreign keys for anything marked to be auto-preloaded, or a self-referencing JOIN
       klass_cols = klass.column_names
@@ -1139,6 +1141,9 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
       selects << 'customer_id' if klass.name == 'Pay::Subscription' && Pay::Subscription.columns_hash.key?('customer_id')
 
       pieces, my_dsl = klass.brick_parse_dsl(join_array = ::Brick::JoinArray.new, [], translations = {}, false, nil, true)
+      if wheres
+        where_values_hash = (where_values_hash || {}).merge(wheres)
+      end
       _brick_querying(
         selects, where_values_hash, nil, translations: translations, join_array: join_array,
         cust_col_override: { '_br' => (descrip_cols = [pieces, my_dsl]) },
