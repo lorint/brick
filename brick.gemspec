@@ -38,6 +38,7 @@ gem_spec = Gem::Specification.new do |s|
     s.add_dependency 'mutex_m'
     s.add_dependency 'base64'
     s.add_dependency 'bigdecimal'
+    s.add_dependency 'csv'
   end
 
   s.add_development_dependency 'appraisal', '~> 2.2'

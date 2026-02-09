@@ -150,7 +150,9 @@ module Brick
                 ::Brick::AirtableApiCaller.https_get("https://api.airtable.com/v0/#{airtable_table.base_id}/#{airtable_table.id}").fetch('records', nil)
               end
             else
-              klass.order(*pkey_cols)
+              # Must convert to a symbol when doing ORDER BY due to this ActiveRecord nuance:
+              # https://github.com/rails/rails/issues/2601
+              klass.order(*pkey_cols.map(&:to_sym)) unless relation[:pkey].empty?
             end
             collection&.each do |obj|
               if is_airtable
@@ -182,6 +184,7 @@ module Brick
               is_empty = false
               # For Airtable, take off the "rec___" prefix
               pk_val = is_airtable ? airtable_id[3..-1] : brick_escape(orig_pk_val = obj.attributes_before_type_cast[pkey_cols.first])
+              pk_val = -pk_val if pk_val.is_a?(Numeric) && pk_val < 0
               var_name = "#{tbl.singularize.gsub('.', '__')}_#{pk_val}"
               fk_vals = []
               data = []
@@ -196,8 +199,12 @@ module Brick
                 # Used to be:  obj.send(col)
                 # (and with that it was possible to raise ActiveRecord::Encryption::Errors::Configuration...)
                 #  %%% should test further and see if that is possible with this code!)
-                if (val = obj.attributes_before_type_cast[col]) && (val.is_a?(Time) || val.is_a?(Date))
-                  val = val.to_s
+                if (val = obj.attributes_before_type_cast[col])
+                  if (val.is_a?(Time) || val.is_a?(Date))
+                    val = val.to_s
+                  elsif val.is_a?(Numeric)
+                    val = -val if val < 0
+                  end
                 end
                 if fk
                   fk_val = if is_airtable
