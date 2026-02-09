@@ -13,8 +13,8 @@ module Brick
       end
 
       def generate_seeds(relations = nil)
-        if File.exist?(seed_file_path = "#{::Rails.root}/db/seeds.rb")
-          puts "WARNING: seeds file #{seed_file_path} appears to already be present.\nOverwrite?"
+        if File.exist?((seed_file_path = "#{::Rails.root}/db/seed") + 's.rb')
+          puts "WARNING: seeds file #{seed_file_path}s.rb appears to already be present.\nOverwrite?"
           return unless gets_list(list: ['No', 'Yes']) == 'Yes'
 
           puts "\n"
@@ -56,11 +56,15 @@ module Brick
             end
           end
         end
-        seeds = +'# Seeds file for '
+        batch_num = 1
+        seeds_file = File.open("#{seed_file_path}s.rb", 'w')
+        seeds_len = lines_len = 0
+        seeds_file.write('# Seeds file for ')
+        seed_rows = nil
         if (arbc = ActiveRecord::Base.connection).respond_to?(:current_database) # SQLite3 can't do this!
-          seeds << "#{arbc.current_database}:\n"
+          seeds_file.write("#{arbc.current_database}:\n")
         elsif (filename = arbc.instance_variable_get(:@connection_parameters)&.fetch(:database, nil))
-          seeds << "#{filename}:\n"
+          seeds_file.write("#{filename}:\n")
         end
         done = []
         fks = {}
@@ -93,7 +97,6 @@ module Brick
                           end
                         end
               ).present?
-          seeds << "\n"
           unless is_airtable
             # Search through the fringe to see if we should bump special dependent classes forward to the next fringe.
             # (Currently only ActiveStorage::Attachment if there's also an ActiveStorage::VariantRecord in the same
@@ -154,6 +157,7 @@ module Brick
               # https://github.com/rails/rails/issues/2601
               klass.order(*pkey_cols.map(&:to_sym)) unless relation[:pkey].empty?
             end
+            seed_rows = +''
             collection&.each do |obj|
               if is_airtable
                 fields = obj['fields'].each_with_object({}) do |field, s|
@@ -179,7 +183,8 @@ module Brick
               end
               unless has_rows
                 has_rows = true
-                seeds << "  puts 'Seeding: #{klass_name}'\n"
+                seed_rows << "\n  puts 'Seeding: #{klass_name}'\n"
+                puts "Preparing: #{klass_name}  — #{batch_num}"
               end
               is_empty = false
               # For Airtable, take off the "rec___" prefix
@@ -247,12 +252,12 @@ module Brick
                 record_id = data.find { |d| d.start_with?('record_id: ') }[11..-1]
                 data.reject! { |d| d.start_with?('record_id: ') || d.start_with?('created_at: ') || d.start_with?('updated_at: ') }
                 data << "record_id: atrt_ids[[#{record_id}, '#{record_class}']]"
-                seeds << "#{var_name} = #{klass_name}.find_or_create_by(#{(fk_vals + data).join(', ')}) do |asa|
+                seed_rows << "#{var_name} = #{klass_name}.find_or_create_by(#{(fk_vals + data).join(', ')}) do |asa|
   asa.created_at = DateTime.parse('#{obj.created_at.inspect}')#{"
   asa.updated_at = DateTime.parse('#{obj.updated_at.inspect}')" if obj.respond_to?(:updated_at)}
 end\n"
               else
-                seeds << "#{var_name} = #{klass_name}.create(#{(fk_vals + data).join(', ')})\n"
+                seed_rows << "#{var_name} = #{klass_name}.create(#{(fk_vals + data).join(', ')})\n"
                 unless is_airtable
                   klass.attachment_reflections.each do |k, v|
                     if (attached = obj.send(k))
@@ -262,10 +267,24 @@ end\n"
                   end if klass.respond_to?(:attachment_reflections)
                 end
               end
-              updates.each { |update| seeds << update } # Anything that needs patching up after-the-fact
+              updates.each { |update| seed_rows << update } # Anything that needs patching up after-the-fact
+              seeds_file.write(seed_rows)
+              seeds_len += seed_rows.length
+              if (lines_len += 1) > 50000 || # More than 50K rows? ...
+                 seeds_len > 98000000        # ... or 100 megs total? ...
+                # ... then break it into multiple files
+                seeds_file.close
+                if batch_num == 1 # First one?  Then rename file to seedsx_0001.rb
+                  File.rename("#{seed_file_path}s.rb", "#{seed_file_path}x_0001.rb")
+                end
+                seeds_file = File.open("#{seed_file_path}x_#{(batch_num += 1).to_s.rjust(4, '0')}.rb", 'w')
+                puts "=== File #{batch_num} ===\n"
+                seeds_len = lines_len = 0
+              end
+              seed_rows = +''
             end
             unless has_rows || klass_name.nil?
-              seeds << "  # (Skipping #{klass_name} as it has no rows)\n"
+              seeds_file.write("  # (Skipping #{klass_name} as it has no rows)\n")
             end
           end
           done.concat(fringe)
@@ -278,17 +297,28 @@ end\n"
             dupe_table != table_name && assoc_pairs.length > 0 && assoc_pairs.length == dupe_pairs.length &&
             dupe_pairs.all? { |pair_name, _v3| assoc_pairs.keys.include?(pair_name) }
           end
-          seeds << "  if ActiveRecord::Migration.table_exists?('#{table_name}')\n"
-          seeds << "    # Duplicate data found in: #{dupes.keys.join(', ')}\n" unless dupes.empty?
-          seeds << "    puts 'Seeding Airtable associations for #{table_name.camelize.singularize}'\n"
+          seed_rows << "  if ActiveRecord::Migration.table_exists?('#{table_name}')\n"
+          seed_rows << "    # Duplicate data found in: #{dupes.keys.join(', ')}\n" unless dupes.empty?
+          seed_rows << "    puts 'Seeding Airtable associations for #{table_name.camelize.singularize}'\n"
           assoc_pairs.each do |_k2, pair_values|
-            seeds << "#{table_name.singularize.camelize}.create(#{pair_values})\n"
+            seed_rows << "#{table_name.singularize.camelize}.create(#{pair_values})\n"
           end
-          seeds << "  end\n"
+          seed_rows << "  end\n"
           airtable_assocs_done[table_name] = assoc_pairs
         end
+        seeds_file.write(seed_rows) unless seed_rows.blank?
 
-        File.open(seed_file_path, "w") { |f| f.write seeds }
+        if batch_num > 1
+          seeds_file.close
+
+          # Create a main seeds file in place of the one that was renamed out
+          File.open("#{seed_file_path}s.rb", 'w') do |main_seeds_file|
+            (1..batch_num).each do |num|
+              main_seeds_file.write("load 'db/seedx_#{num.to_s.rjust(4, '0')}.rb'\n")
+            end
+          end
+        end
+
         stuck_counts = Hash.new { |h, k| h[k] = 0 }
         chosen.each do |leftover|
           puts "Can't do #{leftover.klass.name} because:\n  #{stuck[leftover.table_name].map do |snag|
