@@ -625,13 +625,16 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
     end
 
     def ar_tables
-      ar_smtn = if ActiveRecord::Base.respond_to?(:schema_migrations_table_name)
-                  ActiveRecord::Base.schema_migrations_table_name
-                else
-                  'schema_migrations'
-                end
       ar_imtn = ActiveRecord.version >= ::Gem::Version.new('5.0') ? ActiveRecord::Base.internal_metadata_table_name : 'ar_internal_metadata'
-      [ar_smtn, ar_imtn]
+      [self._schema_migrations_table_name, ar_imtn]
+    end
+
+    def _schema_migrations_table_name
+      if ActiveRecord::Base.respond_to?(:schema_migrations_table_name)
+        ActiveRecord::Base.schema_migrations_table_name
+      else
+        'schema_migrations'
+      end
     end
   end
 end

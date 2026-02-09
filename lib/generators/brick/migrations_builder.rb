@@ -248,20 +248,24 @@ module Brick
           }:"
           pp stuck_sorted[0..4]
         elsif do_schema_migrations # Successful, and now we can update the schema_migrations table accordingly
-          unless ActiveRecord::Migration.table_exists?(ActiveRecord::Base.schema_migrations_table_name)
-            ActiveRecord::SchemaMigration.create_table
-          end
-          # Remove to_delete - to_create
-          if ((versions_to_delete_or_append ||= []) - versions_to_create).present? && is_delete_versions
-            ActiveRecord::Base.execute_sql("DELETE FROM #{
-              ActiveRecord::Base.schema_migrations_table_name} WHERE version IN (#{
-              (versions_to_delete_or_append - versions_to_create).map { |vtd| "'#{vtd}'" }.join(', ')}
-            )")
+          smtn = ::Brick._schema_migrations_table_name
+          if ActiveRecord::Migration.table_exists?(smtn)
+            # Remove to_delete - to_create
+            if ((versions_to_delete_or_append ||= []) - versions_to_create).present? && is_delete_versions
+              ActiveRecord::Base.execute_sql("DELETE FROM #{
+                smtn} WHERE version IN (#{
+                (versions_to_delete_or_append - versions_to_create).map { |vtd| "'#{vtd}'" }.join(', ')}
+              )")
+            end
+          else
+            ActiveRecord::Base.connection.create_table(smtn, primary_key: 'version') do |t|
+              t.string :verison
+            end
           end
           # Add to_create - to_delete
-          if is_insert_versions && ((versions_to_create ||= []) - versions_to_delete_or_append).present?
+          if is_insert_versions && (versions_to_delete_or_append ||= []) && ((versions_to_create ||= []) - versions_to_delete_or_append).present?
             ActiveRecord::Base.execute_sql("INSERT INTO #{
-              ActiveRecord::Base.schema_migrations_table_name} (version) VALUES #{
+              smtn} (version) VALUES #{
               (versions_to_create - versions_to_delete_or_append).map { |vtc| "('#{vtc}')" }.join(', ')
             }")
           end
