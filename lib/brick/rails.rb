@@ -80,7 +80,7 @@ module ::Brick::Rails
       end
     end
 
-    def display_binary(val, max_size = 100_000)
+    def display_binary(val, max_size = 100_000, no_escaped_html = nil)
       return unless val
 
       @image_signatures ||= { (+"\xFF\xD8\xFF\xEE").force_encoding('ASCII-8BIT') => 'jpeg',
@@ -111,7 +111,8 @@ module ::Brick::Rails
          val.length < max_size
         "<img src=\"data:image/#{signature.last};base64,#{Base64.encode64(val)}\">"
       else
-        "&lt;&nbsp;#{signature ? "#{signature} image" : 'Binary'}, #{val.length} bytes&nbsp;>"
+        descrip = "#{signature ? "#{signature} image" : 'Binary'}, #{val.length} bytes"
+        no_escaped_html ? "< #{descrip} >" : "&lt;&nbsp;#{descrip}&nbsp;>"
       end
     end
 
@@ -222,7 +223,7 @@ erDiagram
         '(hidden)'
       else
         if val.is_a?(String)
-          return ::Brick::Rails.display_binary(val) unless (val_utf8 = val.dup.force_encoding('UTF-8')).valid_encoding?
+          return ::Brick::Rails.display_binary(val, 100_000, is_xml == false) unless (val_utf8 = val.dup.force_encoding('UTF-8')).valid_encoding?
 
           val = val_utf8.strip
           return CGI.escapeHTML(val) if is_xml

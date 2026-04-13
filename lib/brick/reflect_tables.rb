@@ -553,7 +553,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
               end
               s[rel.first] = perms
             end
-          else # or there are specific permissions for each resource, so find the matching indexes
+          else # or there are specific permissions for each resource, so find the matching indexes.
             client = Elastic::Transport::Client.new
             ::Brick.elasticsearch_existings.each_with_object({}) do |index, s|
               this_access = access.is_a?(String) ? access : access[index.first] || '' # Look up permissions from above

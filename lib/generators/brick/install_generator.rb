@@ -150,7 +150,7 @@ module Brick
       when 1
 ".
   # # Here is a possible polymorphic association that has been auto-identified for the #{current_db} database:
-  # Brick.polymorphics = { #{possible_additional_references.first} }"
+  # Brick.polymorphics = { #{possible_polymorphics.first} }"
 
       else
 ".

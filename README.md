@@ -1058,7 +1058,7 @@ can specify the instance name as part of the **host** parameter like this: **loc
 
 ## Intellectual Property
 
-Copyright (c) 2024 Lorin Thwaits (lorint@gmail.com)
+Copyright (c) 2026 Lorin Thwaits (lorint@gmail.com)
 Released under the MIT licence.
 
 [5]: https://github.com/lorint/brick/blob/master/docs/CONTRIBUTING.md
