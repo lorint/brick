@@ -1498,9 +1498,17 @@ end
           <tr><td<%= ' class=\"orphan\"'.html_safe if err_msg %>><%= err_msg || '(none)' %></td></tr>
      <% else
           collection2.each do |br_#{hm_singular_name}| %>
-            <tr><td><%= br_descrip = if (dc = descrip_cols&.first&.first&.last) && br_#{hm_singular_name}.respond_to?(dc)
+            <tr><td><%= br_descrip = if br_#{hm_singular_name}.respond_to?(descrip_cols&.first&.first&.last)
                                        br_#{hm_singular_name}.brick_descrip(
-                                         descrip_cols&.first&.map { |col| br_#{hm_singular_name}.send(col.last) }
+                                         descrip_cols&.first&.map do |col|
+                                           if (val = br_#{hm_singular_name}.send(col.last)) &&
+                                              ActiveRecord::ConnectionAdapters::Column.instance_methods.include?(:cast_type)
+                                             # With Rails 8.1+ other attributes on an ActiveModel object will NOT automatically +deserialize+ properly
+                                             val = #{hm.first.klass.name}.columns_hash[col.first].send(:cast_type).deserialize(val)
+                                             val = val.force_encoding('UTF-8') if val.is_a?(String)
+                                           end
+                                           val
+                                         end
                                        )
                                      else # If the HM association has a scope, might not have picked up our SELECT detail
                                        pks = (klass = br_#{hm_singular_name}.class).primary_key
