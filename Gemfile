@@ -4,7 +4,7 @@ ruby '3.2.11'
 
 source 'https://rubygems.org'
 gemspec
-gem 'activerecord', '~> 8.0'
+gem 'activerecord', '~> 8.1'
 # gem 'rails-controller-testing', '~> 1.0.2'
 # gem 'nokogiri', '~> 1.10.10'
 gem 'duty_free'

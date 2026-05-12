@@ -150,12 +150,11 @@ module Brick::Rails::FormTags
                           end
             end
             br_descrip_args = [obj]
-            # 0..62 because Postgres column names are limited to 63 characters
-            br_descrip_args += [descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, bt_id_col] if descrips
+            br_descrip_args += [bt_class._brick_deserialized_value(obj, descrips[0..-2]), bt_id_col] if descrips
             bt_txt = bt_class.brick_descrip(*br_descrip_args)
             bt_txt = ::Brick::Rails.display_binary(bt_txt).html_safe if bt_txt&.encoding&.name == 'ASCII-8BIT'
             bt_txt ||= "<span class=\"orphan\">&lt;&lt; Orphaned ID: #{val} >></span>" if val
-            bt_id = bt_id_col&.map { |id_col| obj.respond_to?(id_sym = id_col.to_sym) ? obj.send(id_sym) : id_col }
+            bt_id = bt_class._brick_deserialized_id(obj, bt_id_col)
             out << (bt_id&.first ? link_to(bt_txt, send("#{bt_class.base_class._brick_index(:singular)}_path".to_sym, bt_id)) : bt_txt || '')
           end
         elsif (hms_col = hms_cols[col_name])
@@ -165,15 +164,16 @@ module Brick::Rails::FormTags
             hm_klass = (col = cols[col_name])[1]
             if col[2] == 'HO'
               descrips = bt_descrip[col_name.to_sym][hm_klass]
-              if (ho_id = (ho_id_col = descrips.last).map { |id_col| obj.send(id_col.to_sym) })&.first
+              if (descrip_parts = hm_klass._brick_deserialized_value(obj, descrips[0..-2]))&.first
                 ho_txt = if hm_klass.name == 'ActiveStorage::Attachment'
                            begin
                              ::Brick::Rails.display_binary(obj.send(col[3])&.blob&.download)&.html_safe
                            rescue
                            end
                          else
-                           hm_klass.brick_descrip(obj, descrips[0..-2].map { |id| obj.send(id.last[0..62]) }, ho_id_col)
+                           hm_klass.brick_descrip(obj, descrip_parts, ho_id_col = descrips.last)
                          end
+                ho_id = hm_klass._brick_deserialized_id(obj, ho_id_col)
                 out << link_to(ho_txt, send("#{hm_klass.base_class._brick_index(:singular)}_path".to_sym, ho_id))
               end
             elsif obj.respond_to?(ct_col = hms_col[1].to_sym) && (ct = obj.send(ct_col)&.to_i)&.positive?
@@ -269,9 +269,13 @@ module Brick::Rails::FormTags
                      k = rtans[k]
                      { sql_type: ActiveRecord::Base.connection.adapter_name == 'SQLite' ? 'string' : 'varchar', type: :text }
                    end
-          col = (ActiveRecord::ConnectionAdapters::Column.new(
-                  '', nil, ActiveRecord::ConnectionAdapters::SqlTypeMetadata.new(**kwargs)
-                )) if kwargs
+          if kwargs
+            last_params = [nil, ActiveRecord::ConnectionAdapters::SqlTypeMetadata.new(**kwargs)]
+            # Rails 8.1 introduces the "cast_type" parameter coming in second after the name, making a total of 4 parameters
+            # (See: https://github.com/rails/rails/commit/9ad36e067222478090b36a985090475bb03e398c)
+            last_params.unshift(ActiveRecord::Type.lookup(kwargs[:sql_type].to_sym)) if ActiveRecord::ConnectionAdapters::Column.instance_methods.include?(:cast_type)
+            col = ActiveRecord::ConnectionAdapters::Column.new('', *last_params)
+          end
         end
         val = obj.attributes[k]
         out << "
@@ -309,7 +313,7 @@ module Brick::Rails::FormTags
             collection&.brick_(:each) do |obj|
               option_detail << [
                 obj.brick_descrip(
-                  descrip_cols&.first&.map { |col2| obj.send(col2.last) },
+                  bt_class._brick_deserialized_value(obj, descrip_cols&.first),
                   obj_pk
                 ), obj.send(obj_pk)
               ]

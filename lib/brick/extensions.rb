@@ -146,6 +146,31 @@ module ActiveRecord
         self.primary_key.is_a?(Array) ? self.primary_key : [self.primary_key]
       end
 
+      def _brick_deserialized_value(obj, descrip_cols)
+        descrip_cols.map do |descrip_part|
+          # 0..62 because Postgres column names are limited to 63 characters
+          if (val = obj.send(descrip_part[-1][0..62])) &&
+             ActiveRecord::ConnectionAdapters::Column.instance_methods.include?(:cast_type)
+            cast_type = self.columns_hash[descrip_part[-2]]&.send(:cast_type)
+            val = cast_type.deserialize(val)
+            val = val.force_encoding('UTF-8') if val.is_a?(String)
+          end
+          val
+        end
+      end
+
+      def _brick_deserialized_id(obj, id_col)
+        id = []
+        self._pk_as_array.each_with_index do |pk_part, idx|
+          id << if obj.respond_to?(id_sym = id_col[idx].to_sym)
+                    self._brick_deserialized_value(obj, [[pk_part, id_col[idx]]])&.first
+                  else
+                    id_col[idx]
+                  end
+        end
+        id
+      end
+
       def _br_quoted_name(name)
         name = name.join('.') if name.is_a?(Array)
         if name == '*'
@@ -1452,12 +1477,12 @@ end
          ) ||
 
          # Try to require the respective Ruby file
-         # ((filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore)) &&
-         #  (require_dependency(filename) || true) &&
          (!anonymous? && # Don't try to find classes first mentioned in .erb or .haml templates
           (filename = ActiveSupport::Dependencies.search_for_file(desired_classname.underscore) ||
                       (self != Object && ActiveSupport::Dependencies.search_for_file((desired_classname = requested).underscore))
-          ) && (require_dependency(filename) || true) &&
+          ) &&
+          # Replicate the functionality of ActiveSupport::Depenencies#require_dependency to support Rails >= v9.0
+          (((abspath = ActiveSupport::Dependencies.search_for_file(filename)) ? (require abspath) : (require filename)) || true) &&
           (filename != Module.instance_variable_get(:@_brick_last_filename) || # Avoid trying the same exact file twice in a row
            Module.instance_variable_set(:@_brick_last_filename, nil)) &&
            Module.instance_variable_set(:@_brick_last_filename, filename) &&

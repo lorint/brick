@@ -1498,9 +1498,9 @@ end
           <tr><td<%= ' class=\"orphan\"'.html_safe if err_msg %>><%= err_msg || '(none)' %></td></tr>
      <% else
           collection2.each do |br_#{hm_singular_name}| %>
-            <tr><td><%= br_descrip = if (dc = descrip_cols&.first&.first&.last) && br_#{hm_singular_name}.respond_to?(dc)
+            <tr><td><%= br_descrip = if br_#{hm_singular_name}.respond_to?(descrip_cols&.first&.first&.last)
                                        br_#{hm_singular_name}.brick_descrip(
-                                         descrip_cols&.first&.map { |col| br_#{hm_singular_name}.send(col.last) }
+                                         #{hm.first.klass.name}._brick_deserialized_value(br_#{hm_singular_name}, descrip_cols&.first)
                                        )
                                      else # If the HM association has a scope, might not have picked up our SELECT detail
                                        pks = (klass = br_#{hm_singular_name}.class).primary_key
