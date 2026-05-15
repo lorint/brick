@@ -189,17 +189,22 @@ module ActiveRecord
 
       # Used to show a little prettier name for an object
       def brick_get_dsl
-        # If there's no DSL yet specified, just try to find the first usable column on this model
-        unless (dsl = ::Brick.config.model_descrips[name])
-          skip_columns = _brick_get_fks + (::Brick.config.metadata_columns || []) + [primary_key]
-          dsl = if table_exists? && (descrip_col = columns.find { |c| [:boolean, :binary, :xml].exclude?(c.type) && skip_columns.exclude?(c.name) })
-                  "[#{descrip_col.name}]"
-                else
-                  "#{name} ##{_pk_as_array.map { |pk_part| "[#{pk_part}]" }.join(', ')}"
+        if ::Brick.config.model_descrips.key?(name)
+          ::Brick.config.model_descrips[name]
+        else
+          # If there's no DSL yet specified, just try to find the first usable column on this model
+          dsl = if table_exists?
+                  skip_columns = _brick_get_fks + (::Brick.config.metadata_columns || []) + [primary_key]
+                  if (descrip_col = columns.find { |c| c.type == :string && skip_columns.exclude?(c.name) })
+                    "[#{descrip_col.name}]"
+                  elsif (descrip_col = columns.find { |c| [:boolean, :binary, :xml].exclude?(c.type) && skip_columns.exclude?(c.name) })
+                    "[#{descrip_col.name}]"
+                  else
+                    "#{name} ##{_pk_as_array.map { |pk_part| "[#{pk_part}]" }.join(', ')}"
+                  end
                 end
           ::Brick.config.model_descrips[name] = dsl
         end
-        dsl
       end
 
       def _brick_monetized_attributes
@@ -2460,7 +2465,16 @@ class Object
             if request.format == :csv # Asking for a template?
               require 'csv'
               exported_csv = CSV.generate(force_quotes: false) do |csv_out|
-                real_model.df_export(real_model.brick_import_template).each { |row| csv_out << row }
+                real_model.df_export(true, real_model.brick_import_template, false, wheres, order_by).each do |row|
+                  row.each do |d|
+                    row.each_with_index do |d, idx|
+                      # "false" disallows HTML encoding the descriptions of binary content
+                      # Max length for text is only 10,000 characters
+                      row[idx] = ::Brick::Rails.hide_bcrypt(d, false, 10_000) if d.encoding != CSV::ConverterEncoding
+                    end
+                  end
+                  csv_out << row
+                end
               end
               render inline: exported_csv, content_type: request.format
               return
