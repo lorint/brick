@@ -6,10 +6,10 @@ require 'bundler/inline'
 
 # STEP ONE: What versions of Ruby, ActiveRecord, and Brick are you using?
 gemfile(true) do
-  ruby '2.7.4'
+  ruby '3.2.11'
   source 'https://rubygems.org'
-  gem 'activerecord', '5.2.6'
-  gem 'minitest', '5.15'
+  gem 'activerecord', '7.2.3.1'
+  gem 'minitest', '5.25.1'
   gem 'brick', '1.0.243'
   gem 'sqlite3'
 end

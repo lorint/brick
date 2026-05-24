@@ -267,7 +267,7 @@ module Brick::Rails::FormTags
                      { sql_type: 'binary', type: :files }
                    elsif rtans&.key?(k) # has_rich_text
                      k = rtans[k]
-                     { sql_type: 'varchar', type: :text }
+                     { sql_type: ActiveRecord::Base.connection.adapter_name == 'SQLite' ? 'string' : 'varchar', type: :text }
                    end
           col = (ActiveRecord::ConnectionAdapters::Column.new(
                   '', nil, ActiveRecord::ConnectionAdapters::SqlTypeMetadata.new(**kwargs)

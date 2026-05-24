@@ -517,7 +517,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         end
       end
 
-      if (ems = ::Brick.elasticsearch_models)
+      if (ems = ::Brick.elasticsearch_models && Object.const_defined?('Elastic'))
         access = case ems
                  when Hash, String # Hash is a list of resource names and ES permissions such as 'r' or 'icr'
                    ems

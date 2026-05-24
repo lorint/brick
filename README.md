@@ -21,6 +21,12 @@ each row targets multiple destination tables -- to auto-creating API endpoints -
 one file at a time -- to experimenting with various data layouts, seeing how functional a given
 database design will be -- and more.
 
+With this gem enabled, the first time a connection is established to the database (which happens in ActiveRecord with a call to ActiveRecord::ConnectionAdapters::ConnectionHandler#establish_connection) then Brick takes a moment to find all the tables, columns, and foreign keys, and puts that stuff in the ::Brick.relations hash.
+
+Then it extends Module#const_missing in order to work along with Zeitwerk so that when a model or controller file is missing and it could automatically be built with info from the ::Brick.relations hash then Brick automatically does build out those resources programmatically, which means they exist only in RAM. Representative code for what got built is also shown in the console, allowing you to copy and paste that into a real file if you wanted to make it a permanent part of your project.
+
+Routes and view templates are also automatically built out so that you end up with a full admin panel kind of experience which is 100% done in the "Railsy" way, and with no extra files being added to your project.
+
 A good general overview of how to start from scratch can be seen in **[this Youtube video by Deanin](https://www.youtube.com/watch?v=Vq6oGO727Qg)**.
 Big thanks out to you, man!
 
@@ -170,23 +176,14 @@ Might want to set up an initializer that points things to their own path by usin
 
 When used with _really_ old versions of Rails, 4.x and older, Brick automatically applies various
 compatibility patches so it will run under _much_ newer versions of Ruby than would normally be
-allowed -- generally Ruby 2.7.8 can work just fine with apps on Rails 3.1 up to 7.2!  It's all due to the various patches put in place as the gem starts up.  This makes it easier to test the broad range of supported versions of ActiveRecord without the headaches of having to use older versions of Ruby.
+allowed -- for instance, Ruby 2.7.8 works just fine with apps from Rails 3.1 all the way up to 7.1!
+It's all due to the various patches put in place as the gem starts up.  This makes it easier to test
+the broad range of supported versions of ActiveRecord without the headaches of having to use older
+versions of Ruby.  These patches not only allow Brick to run, but also will allow many other full
+Rails apps to run perfectly fine (and more securely / much faster) by using a newer Ruby.
 
-When using those early versions of Rails, in version 3.1 if you get the error `"time_zone.rb:270: circular argument reference - now (SyntaxError)"` then add this at the very top of
-your `application.rb` file:
-
-    require 'brick'
-
-And if you get string frozen errors then try moving back to Ruby 2.6.10.  If you get the error
-`"undefined method 'new' for BigDecimal:Class (NoMethodError)"` then try adding this as the last
-line in boot.rb:
-
-    require 'brick/compatibility'
-
-These patches not only allow Brick to run, but also will allow many other full Rails apps to run
-perfectly fine (and more securely / much faster) by using a newer Ruby.  A few other enhancements
-have been provided as well -- for instance, when eager loading related objects using .includes
-then normally every column in all tables would be queried:
+A few other enhancements have been provided as well -- for instance, when eager loading related
+objects using .includes then normally every column in all tables would be queried:
 
 ```
 Employee.includes(orders: :order_details)
@@ -847,6 +844,18 @@ the incredibly popular [composite_primary_keys gem](https://github.com/composite
     gem 'composite_primary_keys'
 
 and then bundle, and all should be well.
+
+When using really old versions of Rails there can be compatibility issues.  In Rails 3.1 or older if you get the error
+`"time_zone.rb:270: circular argument reference - now (SyntaxError)"` then add this at the very top of your `application.rb` file:
+
+    require 'brick'
+
+And if you get string frozen errors under Ruby 2.7.8 or newer then try moving back to Ruby 2.6.10.
+
+If you get the error `"undefined method 'new' for BigDecimal:Class (NoMethodError)"` then try adding this
+as the last line in boot.rb:
+
+    require 'brick/compatibility'
 
 ---
 Every effort is given to maintain compatibility with the current version of the Rails ecosystem,

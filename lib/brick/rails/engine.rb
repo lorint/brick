@@ -1091,7 +1091,7 @@ end
   </script>
 <% end
    # SEARCH BOX
-   if @_brick_es&.index('r') # Must have at least Elasticsearch Read access %>
+   if @_brick_es && @_brick_es&.index('r') # Must have at least Elasticsearch Read access %>
   <input type=\"text\" id=\"esSearch\" class=\"dimmed\">
   <script>
     var esSearch = document.getElementById(\"esSearch\");
