@@ -402,7 +402,7 @@ module Brick::Rails::FormTags
     end
     out << "  </tbody>
 </table>
-<script>
+<script<%= @_request.env['_brick_nonce'] %>>
   var constellation = document.getElementById(\"#{table_name}\");
   var nextSib,
       _this;
@@ -868,7 +868,7 @@ function onImagesLoaded(event) {
 </select></td>
 <td class=\"paddingTopZero\"><input id=\"txtColName\"></td>
 </tr></table>
-<script>
+<script<%= @_request.env['_brick_nonce'] %>>
 var btnAddCol = document.getElementById(\"btnAddCol\");
 btnAddCol.addEventListener(\"click\", function () {
  var txtColName = document.getElementById(\"txtColName\");

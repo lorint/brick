@@ -48,7 +48,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.243        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.245        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -167,7 +167,6 @@ the various "Autogenerate ___ Files" sections.
 | 1.0            | 1-stable   | v1.x   | >= 2.3.5 | >= 3.1       |
 
 Brick will work with Rails 3.1 and onwards, and Rails 4.2.0 and above are officially supported.
-Rails 5.2.6, 7.1, and 7.2 are the versions which have been tested most extensively.
 
 Compatibility with major Rails projects is _very_ strong -- this gem can be dropped directly into a
 [Mastodon](https://github.com/mastodon/mastodon) / [Canvas LMS](https://github.com/instructure/canvas-lms) /

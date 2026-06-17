@@ -324,7 +324,7 @@ function linkSchemas() {
                       end
                     end
                   end
-"<script>
+"<script<%= @_request.env['_brick_nonce'] %>>
 #{JS_CHANGEOUT}
 document.addEventListener(\"turbo:render\", linkSchemas);
 window.addEventListener(\"popstate\", linkSchemas);
@@ -826,10 +826,42 @@ window.addEventListener(\"popstate\", linkSchemas);
                ['Crosstab', is_crosstab]].each do |table_option, show_it|
                 table_options << "<option value=\"#{prefix}brick_#{table_option.downcase}\">(#{table_option})</option>".html_safe if show_it
               end
-              css = +'<style>'
-              css << ::Brick::Rails::BRICK_CSS
-              css << "</style>
-<script>
+              css = +"<style>#{::Brick::Rails::BRICK_CSS}</style>
+<script<%=
+          if @_request.respond_to?(:content_security_policy) && (csp = @_request.content_security_policy)&.directives&.present?
+            @_request.env['_is_brick'] = true
+            if @_request.respond_to?(:content_security_policy_nonce_directives)
+              @_request.content_security_policy_nonce_directives = %w[ script-src ]
+              @_request.env['_brick_nonce'] = \" nonce=\\\"#\{@_request.content_security_policy_nonce}\\\"\".html_safe
+            end
+            if !@_request.respond_to?(:_brick_content_security_policy)
+              if csp.instance_variables.exclude?(:@_brick_style_shas)
+                csp.instance_variable_set(:@_brick_style_shas, [
+                  \"'sha256-#\{Base64.encode64(Digest.const_get(:SHA256).digest(::Brick::Rails::BRICK_CSS)).chomp}'\",
+                  \"'sha256-#\{Base64.encode64(Digest.const_get(:SHA256).digest(::Brick::Rails::IN_APP_STYLE)).chomp}'\",
+                  \"'sha256-y+oXtN5Bag5VRQgH6D87Eo4UdOZOJiqg31ZNfDibDwM='\" # SHA for the text_field used in brick_field ('min-width: 154px;field-sizing: content;')
+                ])
+              end
+
+              ::ActionDispatch::ContentSecurityPolicy::Request.module_exec do
+                alias :_brick_content_security_policy :content_security_policy
+                def content_security_policy
+                  return _brick_content_security_policy if env['_is_brick'].blank?
+
+                  csp = ::ActionDispatch::ContentSecurityPolicy.new
+                  csp.directives.merge! ({
+                    'style-src': [\"'self'\", 'https://cdn.jsdelivr.net', \"'unsafe-hashes'\"] +
+                      _brick_content_security_policy.instance_variable_get(:@_brick_style_shas),
+                    'script-src': [\"'self'\", 'https://cdn.jsdelivr.net', \"'nonce-#\{content_security_policy_nonce}'\"],
+                    'connect-src': [\"'self'\", 'https://cdn.jsdelivr.net']
+                  })
+                  csp
+                end
+              end
+            end
+          end
+
+          @_request.env['_brick_nonce'] %>>
   if (window.history.state && window.history.state.turbo)
     window.addEventListener(\"popstate\", function () { location.reload(true); });
 </script>
@@ -861,7 +893,7 @@ callbacks = {} %>"
               end
 
               # %%% When doing schema select, if we're on a new page go to index
-              script = "<script>
+              script = "<script<%= @_request.env['_brick_nonce'] %>>
 // Add \"Are you sure?\" behaviour to any data-confirm buttons out there
 document.querySelectorAll(\"input[type=submit][data-confirm]\").forEach(function (btn) {
   btn.addEventListener(\"click\", function (evt) {
@@ -914,7 +946,7 @@ if (window.brickFontFamily) {
   <div id=\"dropper\" contenteditable=\"true\"></div>
   <input type=\"button\" id=\"btnImport\" value=\"Import\">
 
-<script>
+<script<%= @_request.env['_brick_nonce'] %>>
   var dropperDiv = document.getElementById(\"dropper\");
   var btnImport = document.getElementById(\"btnImport\");
   var droppedTSV;
@@ -1090,7 +1122,7 @@ end
     <div class=\"colExclusion\"><%= excl %></div>
   <% end %>
   </div>
-  <script>
+  <script<%= @_request.env['_brick_nonce'] %>>
     [... document.getElementsByClassName(\"colExclusion\")].forEach(function (excl) {
       excl.addEventListener(\"click\", function () {
         doFetch(\"POST\", {_brick_unexclude: this.innerHTML});
@@ -1101,7 +1133,7 @@ end
    # SEARCH BOX
    if @_brick_es && @_brick_es&.index('r') # Must have at least Elasticsearch Read access %>
   <input type=\"text\" id=\"esSearch\" class=\"dimmed\">
-  <script>
+  <script<%= @_request.env['_brick_nonce'] %>>
     var esSearch = document.getElementById(\"esSearch\");
     var usedTerms = {};
     var isEsFiltered = false;
@@ -1550,7 +1582,7 @@ end}
 }
 </style>
 <script src=\"https://cdn.jsdelivr.net/npm/flatpickr\"></script>
-<script>
+<script<%= @_request.env['_brick_nonce'] %>>
 flatpickr(\".datepicker\");
 flatpickr(\".datetimepicker\", {enableTime: true});
 flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
@@ -1599,7 +1631,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 
 <% if true # @_brick_erd
 %>
-<script>
+<script<%= @_request.env['_brick_nonce'] %>>
   var imgErd = document.getElementById(\"imgErd\");
   var mermaidErd = document.getElementById(\"mermaidErd\");
   var mermaidCode;
@@ -1668,7 +1700,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 "
               end
               if representation == :grid
-                inline << "<script>
+                inline << "<script<%= @_request.env['_brick_nonce'] %>>
 <% # Make column headers sort when clicked
    # %%% Create a smart javascript routine which can do this client-side %>
 [... document.getElementsByTagName(\"TH\")].forEach(function (th) {
