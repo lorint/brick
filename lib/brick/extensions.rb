@@ -2189,34 +2189,11 @@ class Object
       built_controller = Class.new(controller_base) do |new_controller_class|
         (namespace || ::Object).const_set(class_name.to_sym, new_controller_class)
 
-        # Add a hash for the inline style to the content-security-policy if one is present
-        self.define_method(:add_csp_hash) do |style_value = nil|
-          if request.respond_to?(:content_security_policy) && (csp = request.content_security_policy)
-            if (cspd = csp.directives.fetch('style-src'))
-              if style_value
-                if (nonce = ::ActionDispatch::ContentSecurityPolicy::Request::NONCE)
-                  request.env[nonce] = '' # Generally 'action_dispatch.content_security_policy_nonce'
-                end
-                # Keep only self, if present, and also add this value
-                cspd.select! { |val| val == "'self'" }
-                cspd << style_value
-              else
-                cspd << "'sha256-#{Base64.encode64(Digest.const_get(:SHA256).digest(::Brick::Rails::BRICK_CSS)).chomp}'"
-              end
-              cspd << 'https://cdn.jsdelivr.net'
-            end
-            if (cspd = csp.directives.fetch('script-src'))
-              cspd << 'https://cdn.jsdelivr.net'
-            end
-          end
-        end
-
         # Brick-specific pages
         case plural_class_name
         when 'BrickGem'
           self.define_method :status do
             instance_variable_set(:@resources, ::Brick.get_status_of_resources)
-            add_csp_hash
           end
           # # if ::Brick.config.add_schema
           # # Currently can only do adding columns
@@ -2227,7 +2204,6 @@ class Object
           #     base_class.reset_column_information
           #     ::Brick.relations[base_class.table_name]&.fetch(:cols, nil)&.[]=(col_name, [col_type, nil, false, false])
           #     # instance_variable_set(:@schema, ::Brick.find_schema(::Brick.set_db_schema(params).first))
-          #     add_csp_hash
           #   end
           # end
 
@@ -2236,20 +2212,17 @@ class Object
             if (base_class = (model = params['modelName']&.constantize).base_class)
               args = params['args']
               record = base_class.create(args[0] => args[1], args[2] => args[3])
-              add_csp_hash
               render json: { data: record.id }
             end
           end
           self.define_method :unassociate do
             if (base_class = (model = params['modelName']&.constantize).base_class)
               base_class.find_by(base_class._pk_as_array&.first => params['id']).delete
-              add_csp_hash
             end
           end
 
           self.define_method :orphans do
             instance_variable_set(:@orphans, ::Brick.find_orphans(::Brick.set_db_schema(params).first))
-            add_csp_hash
           end
           self.define_method :crosstab do
             @relations = ::Brick.relations.each_with_object({}) do |r, s|
@@ -2590,7 +2563,6 @@ class Object
             @_brick_hm_counts = real_model._br_hm_counts
             @_brick_join_array = join_array
             @_brick_erd = params['_brick_erd']&.to_i
-            add_csp_hash
           end
 
           _, order_by_txt = model._brick_calculate_ordering(default_ordering(table_name, pk, true)) if pk
@@ -2632,7 +2604,6 @@ class Object
               _schema, @_is_show_schema_list = ::Brick.set_db_schema(params)
               _, real_singular_table_name = model.real_singular(params)
               instance_variable_set("@#{real_singular_table_name}".to_sym, send(find_obj))
-              add_csp_hash("'unsafe-inline'")
             end
           end
 
@@ -2668,7 +2639,6 @@ class Object
               end if Object.const_defined?('ActiveStorage')
             end
             instance_variable_set("@#{real_singular_table_name}".to_sym, new_obj)
-            add_csp_hash
           end
 
           code << "  def create\n"
@@ -2744,7 +2714,6 @@ class Object
               _schema, @_is_show_schema_list = ::Brick.set_db_schema(params)
               _, real_singular_table_name = model.real_singular(params)
               instance_variable_set("@#{real_singular_table_name}".to_sym, send(find_obj))
-              add_csp_hash
             end
 
             code << "  def update\n"

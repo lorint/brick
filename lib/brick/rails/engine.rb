@@ -324,7 +324,7 @@ function linkSchemas() {
                       end
                     end
                   end
-"<script>
+"<script<%= @_request.env['_brick_nonce'] %>>
 #{JS_CHANGEOUT}
 document.addEventListener(\"turbo:render\", linkSchemas);
 window.addEventListener(\"popstate\", linkSchemas);
@@ -826,10 +826,46 @@ window.addEventListener(\"popstate\", linkSchemas);
                ['Crosstab', is_crosstab]].each do |table_option, show_it|
                 table_options << "<option value=\"#{prefix}brick_#{table_option.downcase}\">(#{table_option})</option>".html_safe if show_it
               end
-              css = +'<style>'
-              css << ::Brick::Rails::BRICK_CSS
-              css << "</style>
-<script>
+              css = +"
+<%
+          if @_request.respond_to?(:content_security_policy) && (csp = @_request.content_security_policy)&.directives&.present?
+            @_request.env['_is_brick'] = true
+            if @_request.respond_to?(:content_security_policy_nonce_directives)
+              @_request.content_security_policy_nonce_directives = %w[ script-src ]
+              @_request.env['_brick_nonce'] = \" nonce=\\\"#\{@_request.content_security_policy_nonce}\\\"\".html_safe
+              %><meta name=\"csp-nonce\" content=\"<%= @_request.content_security_policy_nonce %>\"><%
+            end
+            if !@_request.respond_to?(:_brick_content_security_policy)
+              if csp.instance_variables.exclude?(:@_brick_style_shas)
+                csp.instance_variable_set(:@_brick_style_shas, [
+                  \"'sha256-#\{Base64.encode64(Digest.const_get(:SHA256).digest(::Brick::Rails::BRICK_CSS)).chomp}'\",
+                  \"'sha256-#\{Base64.encode64(Digest.const_get(:SHA256).digest(::Brick::Rails::IN_APP_STYLE)).chomp}'\",
+                  \"'sha256-y+oXtN5Bag5VRQgH6D87Eo4UdOZOJiqg31ZNfDibDwM='\", # SHA for the text_field used in brick_field ('min-width: 154px;field-sizing: content;')
+                  \"'sha256-aOKu38ec/bSbd1BWfOZWow6kP78MsLOsTmNyCpYqsXM='\", # SHA for Mermaid ('font-family: Arial')
+                  \"'sha256-P8hbc8HpnNaBWbGVqO8n4uIP3lIM4rGog3PnEYWwrzQ='\"  # SHA for flatpickr calendar ('.flatpickr-calendar {background: #A0FFA0;}')
+#                  \"'sha256-oU3/kVZLL/AmlO0Oi4iZplNUwV9XJW7qt6J9Mm2ASNs='\"  # SHA for Mermaid (SVG things)
+                ])
+              end
+
+              ::ActionDispatch::ContentSecurityPolicy::Request.module_exec do
+                alias :_brick_content_security_policy :content_security_policy
+                def content_security_policy
+                  return _brick_content_security_policy if env['_is_brick'].blank?
+
+                  csp = ::ActionDispatch::ContentSecurityPolicy.new
+                  csp.directives.merge! ({
+                    'style-src': [\"'self'\", 'https://cdn.jsdelivr.net', \"'unsafe-hashes'\", \"'nonce-#\{content_security_policy_nonce}'\"] +
+                      _brick_content_security_policy.instance_variable_get(:@_brick_style_shas),
+                    'script-src': [\"'self'\", 'https://cdn.jsdelivr.net', 'https://apis.google.com', 'https://accounts.google.com', \"'nonce-#\{content_security_policy_nonce}'\"],
+                    'connect-src': [\"'self'\", 'https://cdn.jsdelivr.net']
+                  })
+                  csp
+                end
+              end
+            end
+          end %>
+<style>#{::Brick::Rails::BRICK_CSS}</style>
+<script<%= @_request.env['_brick_nonce'] %>>
   if (window.history.state && window.history.state.turbo)
     window.addEventListener(\"popstate\", function () { location.reload(true); });
 </script>
@@ -861,7 +897,7 @@ callbacks = {} %>"
               end
 
               # %%% When doing schema select, if we're on a new page go to index
-              script = "<script>
+              script = "<script<%= @_request.env['_brick_nonce'] %>>
 // Add \"Are you sure?\" behaviour to any data-confirm buttons out there
 document.querySelectorAll(\"input[type=submit][data-confirm]\").forEach(function (btn) {
   btn.addEventListener(\"click\", function (evt) {
@@ -914,7 +950,7 @@ if (window.brickFontFamily) {
   <div id=\"dropper\" contenteditable=\"true\"></div>
   <input type=\"button\" id=\"btnImport\" value=\"Import\">
 
-<script>
+<script<%= @_request.env['_brick_nonce'] %>>
   var dropperDiv = document.getElementById(\"dropper\");
   var btnImport = document.getElementById(\"btnImport\");
   var droppedTSV;
@@ -941,19 +977,6 @@ if (window.brickFontFamily) {
   }
   var sheetUrl;
   var spreadsheetId;
-  var sheetsLink = document.getElementById(\"sheetsLink\");
-  function gapiLoaded() {
-    // Have a click on the sheets link to bring up the sign-in window.  (Must happen from some kind of user click.)
-    sheetsLink.addEventListener(\"click\", async function (evt) {
-      evt.preventDefault();
-      var client = google.accounts.oauth2.initTokenClient({
-        client_id: \"487319557829-fgj4u660igrpptdji7ev0r5hb6kh05dh.apps.googleusercontent.com\",
-        scope: \"https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file\",
-        callback: updateSignInStatus
-      });
-      client.requestAccessToken();
-    });
-  }
 
   async function updateSignInStatus(token) {
     await new Promise(function (resolve) {
@@ -1012,7 +1035,24 @@ if (window.brickFontFamily) {
   }
 </script>
 <script src=\"https://apis.google.com/js/api.js\"></script>
-<script async defer src=\"https://accounts.google.com/gsi/client\" onload=\"gapiLoaded()\"></script>
+<script async defer src=\"https://accounts.google.com/gsi/client\" id=\"gapiScript\"<%= @_request.env['_brick_nonce'] %>></script>
+<script<%= @_request.env['_brick_nonce'] %>>
+  document.getElementById(\"gapiScript\").addEventListener(\"onload\",
+    function () { // gapiLoaded
+      var sheetsLink = document.getElementById(\"sheetsLink\");
+      // Have a click on the sheets link to bring up the sign-in window.  (Must happen from some kind of user click.)
+      sheetsLink.addEventListener(\"click\", async function (evt) {
+        evt.preventDefault();
+        var client = google.accounts.oauth2.initTokenClient({
+          client_id: \"487319557829-fgj4u660igrpptdji7ev0r5hb6kh05dh.apps.googleusercontent.com\",
+          scope: \"https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file\",
+          callback: updateSignInStatus
+        });
+        client.requestAccessToken();
+      });
+    }
+  );
+</script>
 "
                          end # DutyFree data export and import
 # %%% Instead of our current "for Janet Leverling (Employee)" kind of link we previously had this code that did a "where x = 123" thing:
@@ -1090,7 +1130,7 @@ end
     <div class=\"colExclusion\"><%= excl %></div>
   <% end %>
   </div>
-  <script>
+  <script<%= @_request.env['_brick_nonce'] %>>
     [... document.getElementsByClassName(\"colExclusion\")].forEach(function (excl) {
       excl.addEventListener(\"click\", function () {
         doFetch(\"POST\", {_brick_unexclude: this.innerHTML});
@@ -1101,7 +1141,7 @@ end
    # SEARCH BOX
    if @_brick_es && @_brick_es&.index('r') # Must have at least Elasticsearch Read access %>
   <input type=\"text\" id=\"esSearch\" class=\"dimmed\">
-  <script>
+  <script<%= @_request.env['_brick_nonce'] %>>
     var esSearch = document.getElementById(\"esSearch\");
     var usedTerms = {};
     var isEsFiltered = false;
@@ -1550,7 +1590,7 @@ end}
 }
 </style>
 <script src=\"https://cdn.jsdelivr.net/npm/flatpickr\"></script>
-<script>
+<script<%= @_request.env['_brick_nonce'] %>>
 flatpickr(\".datepicker\");
 flatpickr(\".datetimepicker\", {enableTime: true});
 flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
@@ -1571,7 +1611,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
    # Uncaught TypeError: Failed to resolve module specifier \"immutable-json-patch\". Relative references must start with either \"/\", \"./\", or \"../\".
    if @_json_fields_present %>
 <link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdn.jsdelivr.net/npm/vanilla-jsoneditor@0.19.0/themes/jse-theme-default.min.css\">
-<script type=\"module\">
+<script type=\"module\"<%= @_request.env['_brick_nonce'] %>>
   import { JSONEditor } from \"https://cdn.jsdelivr.net/npm/vanilla-jsoneditor@0.19.0/index.min.js\";
   document.querySelectorAll(\"input.jsonpicker\").forEach(function (inp) {
     var jsonDiv;
@@ -1599,7 +1639,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 
 <% if true # @_brick_erd
 %>
-<script>
+<script<%= @_request.env['_brick_nonce'] %>>
   var imgErd = document.getElementById(\"imgErd\");
   var mermaidErd = document.getElementById(\"mermaidErd\");
   var mermaidCode;
@@ -1668,7 +1708,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 "
               end
               if representation == :grid
-                inline << "<script>
+                inline << "<script<%= @_request.env['_brick_nonce'] %>>
 <% # Make column headers sort when clicked
    # %%% Create a smart javascript routine which can do this client-side %>
 [... document.getElementsByTagName(\"TH\")].forEach(function (th) {
