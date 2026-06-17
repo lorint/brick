@@ -10,7 +10,7 @@ gemfile(true) do
   source 'https://rubygems.org'
   gem 'activerecord', '7.2.3.1'
   gem 'minitest', '5.25.1'
-  gem 'brick', '1.0.243'
+  gem 'brick', '1.0.244'
   gem 'sqlite3'
 end
 

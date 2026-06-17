@@ -826,15 +826,56 @@ window.addEventListener(\"popstate\", linkSchemas);
                ['Crosstab', is_crosstab]].each do |table_option, show_it|
                 table_options << "<option value=\"#{prefix}brick_#{table_option.downcase}\">(#{table_option})</option>".html_safe if show_it
               end
-              css = +'<style>'
-              css << ::Brick::Rails::BRICK_CSS
-              css << "</style>
+              css = +"<style>#{::Brick::Rails::BRICK_CSS}</style>
 <script>
   if (window.history.state && window.history.state.turbo)
     window.addEventListener(\"popstate\", function () { location.reload(true); });
 </script>
 
 <%
+if @_request.respond_to?(:content_security_policy)
+  @_request.env['_is_brick'] = true
+  if (csp = @_request.content_security_policy).instance_variables.exclude?(:@_brick_style_shas)
+    csp.instance_variable_set(:@_brick_style_shas, [
+      \"'sha256-#\{Base64.encode64(Digest.const_get(:SHA256).digest(::Brick::Rails::BRICK_CSS)).chomp}'\",
+      \"'sha256-#\{Base64.encode64(Digest.const_get(:SHA256).digest(::Brick::Rails::IN_APP_STYLE)).chomp}'\"
+    ])
+  end
+  if !@_request.respond_to?(:_brick_content_security_policy)
+    ::ActionDispatch::ContentSecurityPolicy::Request.module_exec do
+      alias :_brick_content_security_policy :content_security_policy
+      def content_security_policy
+        # Add appropriate hashes for inline styles to the content-security-policy if needed
+        if (cspd = (csp = _brick_content_security_policy).directives.fetch('style-src', nil)) && env['_is_brick']
+          cspd.select! { |val| val == \"'self'\" }
+          if params['action'] == 'show'
+            cspd << \"'unsafe-inline'\"
+          else
+            csp.instance_variable_get(:@_brick_style_shas).each { |s| cspd << s }
+            cspd << \"'unsafe-hashes'\"
+          end
+          cspd << 'https://cdn.jsdelivr.net'
+        end
+        if (cspsd = csp.directives.fetch('script-src', nil))
+          cspsd.select! { |val| val == \"'self'\" }
+          cspsd << \"'unsafe-inline'\"
+          cspsd << 'https://cdn.jsdelivr.net'
+        end
+        if (cspcd = csp.directives.fetch('connect-src', nil))
+          cspcd.select! { |val| val == \"'self'\" }
+          cspcd << 'https://cdn.jsdelivr.net'
+        end
+        csp
+      end
+
+      alias :_brick_content_security_policy_nonce :content_security_policy_nonce
+      def content_security_policy_nonce
+        _brick_content_security_policy_nonce unless env['_is_brick']
+      end
+    end
+  end
+end
+
 # Accommodate composite primary keys that include strings with forward-slash characters
 def slashify(*vals)
   vals.map { |val_part| val_part.is_a?(String) ? val_part.gsub('/', '^^sl^^') : val_part }
