@@ -640,7 +640,14 @@ window.addEventListener(\"popstate\", linkSchemas);
               keys = if hm_assoc.macro == :has_and_belongs_to_many
                        # %%% Can a HABTM use composite keys?
                        # (If so then this should be rewritten to do a .zip() )
-                       name_from_other_direction = hm_assoc.klass.reflect_on_all_associations.find { |a| a.join_table == hm_assoc.join_table }&.name
+                       name_from_other_direction = hm_assoc.klass.reflect_on_all_associations.find do |a|
+                         begin
+                           a.join_table == hm_assoc.join_table
+                         rescue NameError => ee
+                           # Can be something like:  Missing model class AssignedCard for the User#assigned_cards association. You can specify a different model class with the :class_name option.
+                           # (Happens when referencing the Fizzy Filter model.)
+                         end
+                       end&.name
                        [["#{name_from_other_direction}.#{pk.first}", pk.first]]
                      else
                        if fk_name.is_a?(Array) && pk.is_a?(Array) # Composite keys?
