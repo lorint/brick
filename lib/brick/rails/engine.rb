@@ -878,7 +878,8 @@ document.querySelectorAll(\"input[type=submit][data-confirm]\").forEach(function
   "\nbrickTestSchema = \"#{::Brick.test_schema}\";" if ::Brick.test_schema
 }
 function doFetch(method, payload, success) {
-  payload.authenticity_token = <%= (session[:_csrf_token] || form_authenticity_token).inspect.html_safe %>;
+  payload.authenticity_token = <%=
+   (!session.respond_to?(:enabled?) || session.enabled?) ? ((session[:_csrf_token] || form_authenticity_token).inspect.html_safe) : 'null' %>;
   var action = payload._brick_action || location.href;
   delete payload._brick_action;
   if (!success) {
@@ -1463,7 +1464,7 @@ end
                  end
       s << "<table id=\"#{hm_name}\" class=\"shadow\">
         <tr><th>#{hm[1]}#{' poly' if hm[0].options[:as]} #{hm[3]}
-          <% if predicates && respond_to?(:new_#{partial_new_path_name = hm.first.klass._brick_index(:singular)}_path) %>
+          <% if defined?(predicates) && predicates && respond_to?(:new_#{partial_new_path_name = hm.first.klass._brick_index(:singular)}_path) %>
           <span class = \"add-hm-related\"><%=
             pk_val = (obj_pk = model.primary_key).is_a?(String) ? obj.send(obj_pk) : obj_pk.map { |pk_part| obj.send(pk_part) }
             pk_val_arr = [pk_val] unless pk_val.is_a?(Array)
