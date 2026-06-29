@@ -2162,7 +2162,13 @@ class Object
         # (More information on https://docs.avohq.io/3.0/controllers.html)
         controller_base = Avo::ResourcesController
       end
-      if !model&.table_exists? && (tn = model&.table_name)
+      if model && !(model < ActiveRecord::Base)
+        raise "Your project defines class \"#{
+            model.name
+          }\" which is not an ActiveRecord model.  If some other model class for this resource exists that can be used instead, you can configure a Brick table_name_prefix in order to have a specific table name (such as \"#{
+            ActiveSupport::Inflector.pluralize(model.name&.underscore)
+          }\") refer to the real model class."
+      elsif !model&.table_exists? && (tn = model&.table_name)
         msg = +"Can't find table \"#{tn}\" for model #{model.name}."
         puts
         # Potential bad inflection?

@@ -48,7 +48,7 @@ https://user-images.githubusercontent.com/5301131/184541537-99b37fc6-ed5e-46e9-9
 | Version        | Documentation                                         |
 | -------------- | ----------------------------------------------------- |
 | Unreleased     | https://github.com/lorint/brick/blob/master/README.md |
-| 1.0.245        | https://github.com/lorint/brick/blob/v1.0/README.md   |
+| 1.0.246        | https://github.com/lorint/brick/blob/v1.0/README.md   |
 
 One core goal behind The Brick is to adhere as closely as possible to Rails conventions.  As
 such, models, controllers, and views are treated independently.  You can use this tool to only
@@ -150,6 +150,7 @@ the various "Autogenerate ___ Files" sections.
   - [3.c. Single Table Inheritance (STI)](#3c-single-table-inheritance-sti)
   - [3.d. Tweaking For Performance](#3d-tweaking-for-performance)
   - [3.e. Using Callbacks](#3e-using-callbacks)
+  - [3.f. Auto-namespacing generated models based on table name prefixes](#3f-auto-namespacing-generated-models-based-on-table-name-prefixes)
 - [4. Similar Gems](#4-similar-gems)
 - [Issues](#issues)
 - [Contributing](#contributing)
@@ -828,6 +829,39 @@ alias names for those tables in the WHERE clause:
 ```
 Post Load (1.6ms)  SELECT "posts".* FROM "posts" INNER JOIN "user_posts" ON "user_posts"."post_id" = "posts"."id" INNER JOIN "users" ON "users"."id" = "user_posts"."user_id" WHERE "users"."id" = $1 AND "user_posts"."liked" = $2 ORDER BY "posts"."id" ASC  [["id", 5], ["liked", true]]
 ```
+
+
+## 3. More Fancy Associations
+
+Brick understands all the fancy stuff that ActiveRecord does such as multiple layers of has_many :through, polymorphic inheritance, single table inheritance, etc.  Described here are configuration options in order to optimise how these associations can be managed:
+
+### 3.f. Auto-namespacing generated models based on table name prefixes
+
+  If you have some tables which start with a common prefix, such as "nav_" and would want them to end up being built out in a "namespaced" way in their own module:
+
+| Existing table name | Desired model class |
+|---|---|
+| machine_parts | MachinePart |
+| mobile_bays | MobileBay |
+| nav_buildings | Navigation::Building |
+| nav_floors | Navigation::Floor |
+| nav_offices | Navigation::Office |
+| ordered_parts | OrderedPart |
+| ... | ... |
+
+  then all you have to do is establish a "table name prefix" that indicates that the module name "Navigation" should be applied for the common prefix "**nav_**", like this:
+  ```
+  Brick.table_name_prefixes = { 'nav_' => 'Navigation' }
+  ```
+
+  As well, when your module name starts with "::" then this is interpreted instead as being an exact class name.  In this way if you specify an exact table name and the desired resulting model class name then it takes precedence for the naming.  For instance, if you want for the table "spare_parts" to build a model called **ExtraPart**, just have this as a TNP:
+  ```
+  Brick.table_name_prefixes = { 'spare_parts' => '::ExtraPart' }
+  ```
+
+  The key for that to function properly is to have the desired object name begin with "**::**".
+
+  This can be especially useful to properly create models if you ever end up seeing the error `The Your project defines class "________" which is not an ActiveRecord model.  If some other model class for this resource exists that can be used instead, you can configure a Brick table_name_prefix in order to have a specific table name refer to that class.`
 
 
 ## Issues
