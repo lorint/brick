@@ -425,8 +425,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
                                       end
                         )&.present?
                        if tnp.last&.start_with?('::') # TNP that points to an exact class?
-                         # Had considered:  [tnp.last[2..-1]]
-                         [singular]
+                         tnp.last[2..-1].split('::')
                        elsif tnp.last
                          v[:auto_prefixed_schema], v[:auto_prefixed_class] = tnp
                          # v[:resource] = rel_name.last[tnp.first.length..-1]
