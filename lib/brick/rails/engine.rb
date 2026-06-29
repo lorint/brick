@@ -1327,7 +1327,7 @@ end
             kls = Object.const_get((rel = ::Brick.relations.fetch(r[0], nil))&.fetch(:class_name, nil))
           rescue
           end
-          if kls.is_a?(Class) && (path_helper = respond_to?(bi_path = \"#\{kls._brick_index}_path\".to_sym) ? bi_path : nil)
+          if kls.is_a?(Class) && kls.respond_to?(:_brick_index) && (path_helper = respond_to?(bi_path = \"#\{kls._brick_index}_path\".to_sym) ? bi_path : nil)
             link_to(r[0], send(path_helper))
           else
             r[0]
