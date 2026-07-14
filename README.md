@@ -831,6 +831,62 @@ Post Load (1.6ms)  SELECT "posts".* FROM "posts" INNER JOIN "user_posts" ON "use
 ```
 
 
+## 3. More Fancy Associations
+
+Brick understands all the fancy stuff that ActiveRecord does such as multiple layers of has_many :through, polymorphic inheritance, single table inheritance, etc.  Described here are configuration options in order to optimise how these associations can be managed:
+
+### 3.a. Self-referencing models
+
+  A common way to represent hierarchical sets of data is to have a foreign key that is self-referencing — the concept being that this is a "parent_id" which points to a record in the same table.  If a table in your database has a self-referencing foreign key then when Brick auto-generates a model for this table then it will automatically have an appropriate belongs_to and has_many.  Consider this auto-generated model for characters in a story:
+```
+class Character < ApplicationRecord
+  belongs_to :parent, optional: true, class_name: "::Character", inverse_of: :characters
+  has_many :characters, foreign_key: :parent_id, inverse_of: :parent
+end
+```
+  And then data that represents a hierarhical "chain of command" for this set of Simpsons characters:
+
+| id | name | parent_id | url |
+|---|---|---|---|
+| 1 | Fat Tony |  | https://en.wikipedia.org/wiki/Fat_Tony |
+| 2 | Johnny Tightlips | 1 | https://en.wikipedia.org/wiki/Springfield_Mafia#Johnny_Tightlips |
+| 3 | Frankie the Squealer | 1 | https://en.wikipedia.org/wiki/List_of_recurring_The_Simpsons_characters#Frankie_the_Squealer |
+| 4 | Mayor "Diamond Joe" Quimby | 1 | https://en.wikipedia.org/wiki/Mayor_Quimby |
+| 5 | Chief Clancy Wiggum | 4 | https://en.wikipedia.org/wiki/Chief_Wiggum |
+| 6 | Lou | 5 | https://en.wikipedia.org/wiki/List_of_recurring_The_Simpsons_characters#Eddie_and_Lou |
+| 7 | Eddie | 5 | https://en.wikipedia.org/wiki/List_of_recurring_The_Simpsons_characters#Eddie_and_Lou |
+
+Notice that **parent** is optional, and the first character listed here exercises this by not having a boss above them — so Fat Tony is at the top of the food chain.  For everyone else, the **parent_id** points to the **id** of another person in the list.
+
+Viewing an ERD of this data with The Brick will demonstrate this self-referencing association, and further The Brick allows for navigation between related characters via belongs_to and has_many links for the **parent** association like this:
+
+| ![self-referencing data](./docs/self_referencing.png) |
+|-|
+
+If your table has this kind of self-referencing data but no foreign key established then no worries — you can still cause Brick to treat this as a self-referencing association by adding this in your Brick initialization file:
+```
+  Brick.additional_references = [
+    ['characters', 'parent_id', 'characters']
+  ]
+```
+And then all of this support for self-referencing data sets will jump to life.
+
+### 3.b. Polymorphic Inheritance
+
+Often Rails developers become strongly opinionated about polymorphic inheritance.  For many it's welcomed because it allows you to model multiple inheritance, offering more overall flexibility with an application's architecture.  A classic example is a Comment model which allows for multiple different models to then be "commentable".  In this way a Comment can relate to either a Post or another Comment, or even a SalesOrder or whatever else.  But then many folks shy away from polymorphic inheritance because it can make the raw SQL more difficult — such as performing JOINs of related data.  As well if a model is removed which used to be referenced polymorphically then this can orphan all its related data.
+
+Regardless of your own opinion about polymorphism, if you need to examine data associated in this kind of way then Brick makes it really easy.  Here's an example where a Review can relate to a Team, a Project, a Post, or a Fish.  The application used to also have a polymorphic association to a model called "Taco", but it has since been deleted.  With Brick you can click through and examine complex data sets that have polymorphism, and also be alerted when orphaned data is in place:
+
+| ![orphaned polymorphic](./docs/orphaned_polymorphic.png) |
+|-|
+
+The example above was made by setting up the [Avo demo app](https://github.com/avo-hq/main.avodemo.com), modifying one row to have a bogus **reviewable_type** of "Taco", and then referencing the **Review** model with Brick.
+
+### 3.c. Single Table Inheritance (STI)
+
+When one model inherits from another model then this causes the child class model to use the same table as its parent uses.  This is called "Single Table Inheritance".  It is a very useful technique when you have a more general concept, such as a Vehicle, and then use it to track both Car and Motorcycle.  Having the specific models inherit from Vehicle and including a string column named "type" turns on STI, and causes that all cars and motorcycles are stored in the **vehicles** table in the database.  Brick understands any form of STI you want to implement, including when multiple layers are applied — for instance if you added both SmallCar and SportsCar models that both inherit from Car.  Brick will show you parent and child classes for a model as you are navigating an **index** page (with a grid of data) or a **show** page.
+
+
 ## Issues
 
 If you see an error such as this (note the square brackets around the multiple listed keys specialofferid and productid represented):

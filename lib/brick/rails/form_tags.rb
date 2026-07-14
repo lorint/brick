@@ -112,7 +112,7 @@ module Brick::Rails::FormTags
       next unless klass.table_exists?
 
       rid = pk.map { |pk_part| obj.send(pk_part.to_sym) }
-      out << "<tr x-id=\"#{rid.join('/')}\">\n"
+      out << "<tr x-id=\"#{slashed_rid = rid.join('/')}\">\n"
       out << "<td class=\"col-sticky alternating-gray\">#{link_to('⇛', send("#{klass._brick_index(:singular)}_path".to_sym, rid),
                                                                   { class: 'big-arrow' })}</td>\n" if pk.present?
       ac = obj.instance_variable_get(:@association_cache) || obj.instance_variable_set(:@association_cache, {})
@@ -134,8 +134,14 @@ module Brick::Rails::FormTags
           if bt[2] && obj.respond_to?(poly_id_col = "#{bt.first}_id") # Polymorphic?
             if (poly_id = obj.send(poly_id_col))
               bt_class = obj.send(klass.brick_foreign_type(bt.first))
-              base_class_underscored = (::Brick.existing_stis[bt_class] || bt_class).constantize.base_class._brick_index(:singular)
-              out << link_to("#{bt_class} ##{poly_id}", send("#{base_class_underscored}_path".to_sym, poly_id))
+              root_class_name = (::Brick.existing_stis[bt_class] || bt_class)
+              begin
+                base_class_underscored = root_class_name.constantize.base_class._brick_index(:singular)
+                out << link_to("#{bt_class} ##{poly_id}", send("#{base_class_underscored}_path".to_sym, poly_id))
+              rescue NameError => ee
+                puts "WARNING:  While searching for a polymorphically associated #{bt.first} for the #{klass.name} with ID #{slashed_rid}, was unable to locate a model called \"#{root_class_name}\".  This model might have been deleted, thereby orphaning rows in the #{klass.table_name} table."
+                out << "<span class=\"orphan\">&lt;&lt; Orphaned \"#{root_class_name}\" with ID: #{slashed_rid} >></span>"
+              end
             end
           else # BT or HOT
             bt_class = bt[1].first.first
@@ -165,15 +171,14 @@ module Brick::Rails::FormTags
             if col[2] == 'HO'
               descrips = bt_descrip[col_name.to_sym][hm_klass]
               if (descrip_parts = hm_klass._brick_deserialized_value(obj, descrips[0..-2]))&.first
+                ho_id = hm_klass._brick_deserialized_id(obj, ho_id_col = descrips.last)
                 ho_txt = if hm_klass.name == 'ActiveStorage::Attachment'
                            begin
                              ::Brick::Rails.display_binary(obj.send(col[3])&.blob&.download)&.html_safe
                            rescue
+                             # Attachment is missing for some reason ... default to showing just a description.
                            end
-                         else
-                           hm_klass.brick_descrip(obj, descrip_parts, ho_id_col = descrips.last)
-                         end
-                ho_id = hm_klass._brick_deserialized_id(obj, ho_id_col)
+                         end || hm_klass.brick_descrip(obj, descrip_parts, ho_id_col)
                 out << link_to(ho_txt, send("#{hm_klass.base_class._brick_index(:singular)}_path".to_sym, ho_id))
               end
             elsif obj.respond_to?(ct_col = hms_col[1].to_sym) && (ct = obj.send(ct_col)&.to_i)&.positive?

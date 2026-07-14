@@ -3241,7 +3241,6 @@ module Brick
                      end
                    end
       abstract_activerecord_bases = ::Brick.eager_load_classes(true)
-      rails_root = ::Rails.root.to_s
       models = ::Brick.relations.each_with_object({}) do |rel, s|
                  next if rel.first.is_a?(Symbol)
 

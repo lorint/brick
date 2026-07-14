@@ -179,7 +179,7 @@ erDiagram
        'timestamp without time zone' => 'timestamp',
        'timestamp with time zone' => 'timestamp',
        'time without time zone' => 'time',
-       'time with time zone' => 'time' }[dt] || dt&.tr(' (', '_').tr(')', '') || 'int'
+       'time with time zone' => 'time' }[dt] || dt&.tr(' (', '_')&.tr(')', '') || 'int'
    end
    callbacks.merge({#{model_short_name.inspect} => ::#{model.name}}).each do |cb_k, cb_class|
      cb_relation = ::Brick.relations[cb_class.table_name]
