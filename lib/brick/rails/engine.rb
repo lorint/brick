@@ -885,7 +885,11 @@ callbacks = {} %>"
                                        poly_cols << @_brick_model.brick_foreign_type(v[1].first)
                                        v.last[1].each_with_object([]) { |x, s| s << "[#{x.name}, #{x.primary_key.inspect}]" }.join(', ')
                                      else
-                                       "[#{v.last[1].name}, #{v.last[1].primary_key.inspect}]"
+                                       # If the BT association specifies a column for the primary_key, use that ...
+                                       fm_pk = @_brick_model.reflect_on_association(v.last.first)&.options&.[](:primary_key)&.to_s ||
+                                               # ... otherwise, use the model's primary_key.
+                                               (v.last[1].primary_key.present? && v.last[1].primary_key)
+                                       "[#{v.last[1].name}, #{fm_pk.inspect}]"
                                      end
                     s << "#{v.first.inspect} => [#{v.last.first.inspect}, [#{foreign_models}], #{v.last[2].inspect}]"
                   end

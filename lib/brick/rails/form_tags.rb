@@ -157,11 +157,17 @@ module Brick::Rails::FormTags
             end
             br_descrip_args = [obj]
             br_descrip_args += [bt_class._brick_deserialized_value(obj, descrips[0..-2]), bt_id_col] if descrips
-            bt_txt = bt_class.brick_descrip(*br_descrip_args)
-            bt_txt = ::Brick::Rails.display_binary(bt_txt).html_safe if bt_txt&.encoding&.name == 'ASCII-8BIT'
-            bt_txt ||= "<span class=\"orphan\">&lt;&lt; Orphaned ID: #{val} >></span>" if val
-            bt_id = bt_class._brick_deserialized_id(obj, bt_id_col)
-            out << (bt_id&.first ? link_to(bt_txt, send("#{bt_class.base_class._brick_index(:singular)}_path".to_sym, bt_id)) : bt_txt || '')
+            out << if bt_id_col.blank? && bt[1].first[1] # Is this a BT which references a table with no primary key?
+                     # Although we have no way to directly reference this record via a show action, we can at least create a link like this:
+                     #   http://localhost:3000/brick/local_authority_postcode?__value=PA2Y+5LQ
+                     link_to(val, send("#{bt_class.base_class._brick_index(:singular)}_path".to_sym, '__the_id__')).gsub('__the_id__', "?__#{bt[1].first[1]}=#{CGI.escape(val)}")
+                   else # Normal BT or HOT
+                     bt_txt = bt_class.brick_descrip(*br_descrip_args)
+                     bt_txt = ::Brick::Rails.display_binary(bt_txt).html_safe if bt_txt&.encoding&.name == 'ASCII-8BIT'
+                     bt_txt ||= "<span class=\"orphan\">&lt;&lt; Orphaned ID: #{val} >></span>" if val
+                     bt_id = bt_class._brick_deserialized_id(obj, bt_id_col)
+                     (bt_id&.first ? link_to(bt_txt, send("#{bt_class.base_class._brick_index(:singular)}_path".to_sym, bt_id)) : bt_txt || '')
+                   end
           end
         elsif (hms_col = hms_cols[col_name])
           if hms_col.length == 1

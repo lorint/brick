@@ -162,7 +162,7 @@ module ActiveRecord
       def _brick_deserialized_id(obj, id_col)
         id = []
         self._pk_as_array.each_with_index do |pk_part, idx|
-          id << if obj.respond_to?(id_sym = id_col[idx].to_sym)
+          id << if (id_sym = id_col[idx]&.to_sym) && obj.respond_to?(id_sym)
                     self._brick_deserialized_value(obj, [[pk_part, id_col[idx]]])&.first
                   else
                     id_col[idx]
