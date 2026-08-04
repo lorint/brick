@@ -926,11 +926,13 @@ module ActiveRecord
                            poly_ft = [hm.source_reflection.inverse_of.foreign_type, hmt_assoc.source_reflection.class_name]
                          end
                          # link_back << hm.source_reflection.inverse_of.name
-                         while hmt_assoc.options[:through] && (hmt_assoc = klass.reflect_on_association(hmt_assoc.options[:through]))
+                         while hmt_assoc.options[:through] && (hmt_assoc = klass.reflect_on_association(xy = hmt_assoc.options[:through]))
+                           if hmt_assoc.macro == :has_and_belongs_to_many
+                             through_sources.unshift(hmt_assoc)
+                             link_back << hmt_assoc.source_reflection.klass.reflect_on_all_associations.find { |a| a.macro == :has_and_belongs_to_many && a.join_table == hmt_assoc.join_table }.name
+                           end
                            through_sources.unshift(hmt_assoc)
                          end
-                         # Turn the last member of link_back into a foreign key
-                         link_back << hmt_assoc.source_reflection.foreign_key
                          # If it's a HMT based on a HM -> HM, must JOIN the last table into the mix at the end
                          this_hm = hm
                          while !(src_ref = this_hm.source_reflection).belongs_to? && (thr = src_ref.options[:through])
@@ -940,39 +942,48 @@ module ActiveRecord
                          from_clause = +"#{_br_quoted_name(through_sources.first.table_name)} br_t0"
                          # ActiveStorage will not get the correct count unless we do some extra filtering later
                          tbl_nm = 'br_t0' if Object.const_defined?('ActiveStorage') && through_sources.first.klass <= ::ActiveStorage::Attachment
-                         fk_col = through_sources.shift.foreign_key
-
+                         # Turn the last member of link_back into a foreign key
+                         link_back << ((tsf = through_sources.shift).macro == :has_and_belongs_to_many ?
+                           tsf.klass.primary_key : hmt_assoc.source_reflection.foreign_key)
+                         fk_col = tsf.macro == :has_and_belongs_to_many ?
+                           tsf.klass.primary_key : tsf.foreign_key
                          idx = 0
                          bail_out = nil
                          the_chain = through_sources.map do |a|
-                           from_clause << "\n LEFT OUTER JOIN #{a.table_name} br_t#{idx += 1} "
-                           from_clause << if (src_ref = a.source_reflection).macro == :belongs_to
-                                            link_back << (nm = hmt_assoc.source_reflection.inverse_of&.name)
-                                            # puts "BT #{a.table_name}"
-                                            "ON br_t#{idx}.#{a.active_record.primary_key} = br_t#{idx - 1}.#{a.foreign_key}"
-                                          elsif src_ref.options[:as]
-                                            "ON br_t#{idx}.#{src_ref.type} = '#{src_ref.active_record.name}'" + # "polymorphable_type"
-                                            " AND br_t#{idx}.#{src_ref.foreign_key} = br_t#{idx - 1}.id"
-                                          elsif src_ref.options[:source_type]
-                                            if a == hm.source_reflection
-                                              print "Skipping #{hm.name} --HMT-> #{hm.source_reflection.name} as it uses source_type in a way which is not yet supported"
-                                              nix << k
-                                              bail_out = true
-                                              break
-                                              # "ON br_t#{idx}.#{a.foreign_type} = '#{src_ref.options[:source_type]}' AND " \
-                                              #   "br_t#{idx}.#{a.foreign_key} = br_t#{idx - 1}.#{a.active_record.primary_key}"
-                                            else # Works for HMT through a polymorphic HO
-                                              link_back << hmt_assoc.source_reflection.inverse_of&.name # Some polymorphic "_able" thing
-                                              "ON br_t#{idx - 1}.#{a.foreign_type} = '#{src_ref.options[:source_type]}' AND " \
-                                                "br_t#{idx - 1}.#{a.foreign_key} = br_t#{idx}.#{a.active_record.primary_key}"
+                           puts "#{a.name} - #{a.macro}"
+                           if a.macro == :has_and_belongs_to_many
+                             from_clause << "\n LEFT OUTER JOIN #{a.join_table} br_t#{idx += 1} ON br_t#{idx}.#{a.association_foreign_key} = br_t#{idx - 1}.#{a.active_record.primary_key}"
+                             from_clause << "\n LEFT OUTER JOIN #{a.active_record.table_name} br_t#{idx += 1} ON br_t#{idx}.#{a.active_record.primary_key} = br_t#{idx - 1}.#{a.foreign_key}"
+                           else
+                            from_clause << "\n LEFT OUTER JOIN #{a.table_name} br_t#{idx += 1} "
+                            from_clause << if (src_ref = a.source_reflection).macro == :belongs_to
+                                              link_back << (nm = hmt_assoc.source_reflection.inverse_of&.name)
+                                              # puts "BT #{a.table_name}"
+                                              "ON br_t#{idx}.#{a.active_record.primary_key} = br_t#{idx - 1}.#{a.foreign_key}"
+                                            elsif src_ref.options[:as]
+                                              "ON br_t#{idx}.#{src_ref.type} = '#{src_ref.active_record.name}'" + # "polymorphable_type"
+                                              " AND br_t#{idx}.#{src_ref.foreign_key} = br_t#{idx - 1}.id"
+                                            elsif src_ref.options[:source_type]
+                                              if a == hm.source_reflection
+                                                print "Skipping #{hm.name} --HMT-> #{hm.source_reflection.name} as it uses source_type in a way which is not yet supported"
+                                                nix << k
+                                                bail_out = true
+                                                break
+                                                # "ON br_t#{idx}.#{a.foreign_type} = '#{src_ref.options[:source_type]}' AND " \
+                                                #   "br_t#{idx}.#{a.foreign_key} = br_t#{idx - 1}.#{a.active_record.primary_key}"
+                                              else # Works for HMT through a polymorphic HO
+                                                link_back << hmt_assoc.source_reflection.inverse_of&.name # Some polymorphic "_able" thing
+                                                "ON br_t#{idx - 1}.#{a.foreign_type} = '#{src_ref.options[:source_type]}' AND " \
+                                                  "br_t#{idx - 1}.#{a.foreign_key} = br_t#{idx}.#{a.active_record.primary_key}"
+                                              end
+                                            else # Standard has_many or has_one
+                                              # puts "HM #{a.table_name}"
+                                              nm = hmt_assoc.source_reflection.inverse_of&.name
+                                              # binding.pry unless nm
+                                              link_back << nm # if nm
+                                              "ON br_t#{idx}.#{a.foreign_key} = br_t#{idx - 1}.#{a.active_record.primary_key}"
                                             end
-                                          else # Standard has_many or has_one
-                                            # puts "HM #{a.table_name}"
-                                            nm = hmt_assoc.source_reflection.inverse_of&.name
-                                            # binding.pry unless nm
-                                            link_back << nm # if nm
-                                            "ON br_t#{idx}.#{a.foreign_key} = br_t#{idx - 1}.#{a.active_record.primary_key}"
-                                          end
+                           end
                            link_back.unshift(a.source_reflection.name)
                            [a.table_name, a.foreign_key, a.source_reflection.macro]
                          end
@@ -980,7 +991,9 @@ module ActiveRecord
 
                          # puts "LINK BACK! #{k} : #{hm.table_name} #{link_back.map(&:to_s).join('.')}"
                          # count_column is determined from the originating HMT member
-                         if (src_ref = hm.source_reflection).nil?
+                         if hmt_assoc.macro == :has_and_belongs_to_many
+                           "br_t#{idx}.#{src_ref.active_record.primary_key}"
+                         elsif (src_ref = hm.source_reflection).nil?
                            puts "*** Warning:  Could not determine destination model for this HMT association in model #{klass.name}:\n  has_many :#{hm.name}, through: :#{hm.options[:through]}"
                            puts
                            nix << k
