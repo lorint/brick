@@ -30,7 +30,7 @@ module Brick::Rails::FormTags
     col_keys = relation.columns.each_with_object([]) do |col, s|
       col_name = col.name
       next if inclusions&.exclude?(col_name) ||
-              (pk.include?(col_name) && [:integer, :uuid].include?(col.type) && !bts&.key?(col_name)) ||
+              (pk.include?(col_name) && [:string, :text].exclude?(col.type) && !bts&.key?(col_name)) ||
               ::Brick.config.metadata_columns.include?(col_name) || poly_cols&.include?(col_name)
 
       s << col_name
@@ -258,7 +258,7 @@ module Brick::Rails::FormTags
     form_for(obj.becomes(model.base_class), options) do |f|
       out = output_buffer.raw_buffer
       out << '<table class="shadow">'
-      has_fields = false
+      has_fields = has_updatable_fields = nil
       # If it's a new record, set any default polymorphic types
       bts&.each do |_k, v|
         if v[2]
@@ -268,10 +268,10 @@ module Brick::Rails::FormTags
       hoa, hma, rtans = model._activestorage_actiontext_fields
       (model.column_names + hoa + hma + rtans.keys).each do |k|
         pk_pos = (pk.index(k)&.+ 1)
-        next if (pk_pos && pk.length == 1 && !bts.key?(k)) ||
+        col = model.columns_hash[k]
+        next if (pk_pos && pk.length == 1 && !bts.key?(k) && [:string, :text].exclude?(col.type)) ||
                 ::Brick.config.metadata_columns.include?(k)
 
-        col = model.columns_hash[k]
         if !col
           kwargs = if hoa.include?(k) # has_one_attached
                      { sql_type: 'binary', type: :file }
@@ -340,18 +340,21 @@ module Brick::Rails::FormTags
     </th>
     <td>
         "
-        if pk_pos
+        if pk_pos &&
+           # Allow new records to have a text-based primary key to be entered
+           (!obj.new_record? || [:string, :text].exclude?(col.type))
           out << val.to_s
         else
+          has_updatable_fields = true
           out << f.brick_field(k, html_options = {}, val, col, bt, bt_class, bt_name, bt_pair)
         end
         out << "
     </td>
   </tr>"
       end
-      if has_fields
+      if has_updatable_fields
         out << "<tr><td colspan=\"2\">#{f.submit({ class: 'update' })}</td></tr>"
-      else
+      elsif !has_fields
         out << '<tr><td colspan="2">(No displayable fields)</td></tr>'
       end
       out << '</table>'

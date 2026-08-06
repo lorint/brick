@@ -105,8 +105,9 @@ module ActiveRecord
         col_names = columns_hash.keys
         # If it's a composite primary key then allow all the values through
         # TODO: Should disallow any autoincrement / SERIAL columns
-        if skip_id && (pk_as_array = _pk_as_array).length == 1
-          col_names -= _pk_as_array
+        if skip_id && (pk_as_array = _pk_as_array).length == 1 &&
+           [:string, :text].exclude?(columns_hash[pk_as_array.first]&.type)
+          col_names -= pk_as_array
         end
         hoa, hma, rtans = _activestorage_actiontext_fields
         col_names.map(&:to_sym) + hoa + hma.map { |as| { as => [] } } + rtans.values
@@ -219,10 +220,17 @@ module ActiveRecord
         else
           # If there's no DSL yet specified, just try to find the first usable column on this model
           dsl = if table_exists?
-                  skip_columns = _brick_get_fks + (::Brick.config.metadata_columns || []) + [primary_key]
-                  if (descrip_col = columns.find { |c| c.type == :string && skip_columns.exclude?(c.name) })
+                  skip_columns = _brick_get_fks + (::Brick.config.metadata_columns || [])
+                  column_list = columns.dup
+                  pk_idx = column_list.index { |c| c.name == primary_key }
+                  if pk_idx
+                    pk_column = column_list.delete_at(pk_idx)
+                    # if the PK column is a string, put it at the end so it will get chosen as a last resort
+                    column_list << pk_column if [:string, :text].include?(columns_hash[primary_key]&.type)
+                  end
+                  if (descrip_col = column_list.find { |c| c.type == :string && skip_columns.exclude?(c.name) })
                     "[#{descrip_col.name}]"
-                  elsif (descrip_col = columns.find { |c| [:boolean, :binary, :xml].exclude?(c.type) && skip_columns.exclude?(c.name) })
+                  elsif (descrip_col = column_list.find { |c| [:boolean, :binary, :xml].exclude?(c.type) && skip_columns.exclude?(c.name) })
                     "[#{descrip_col.name}]"
                   else
                     "#{name} ##{_pk_as_array.map { |pk_part| "[#{pk_part}]" }.join(', ')}"
