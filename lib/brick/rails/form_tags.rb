@@ -256,7 +256,8 @@ module Brick::Rails::FormTags
     pk = [pk] unless pk.is_a?(Array)
     pk.map!(&:to_s)
     form_for(obj.becomes(model.base_class), options) do |f|
-      out = +'<table class="shadow">'
+      out = output_buffer.raw_buffer
+      out << '<table class="shadow">'
       has_fields = false
       # If it's a new record, set any default polymorphic types
       bts&.each do |_k, v|
@@ -334,7 +335,7 @@ module Brick::Rails::FormTags
         else
           out << model.human_attribute_name(k, { default: k })
         end
-        out << " (PK #{pk_pos})" if pk_pos
+        out << " (PK&nbsp;#{pk_pos})" if pk_pos
         out << "
     </th>
     <td>
@@ -360,9 +361,8 @@ module Brick::Rails::FormTags
         rescue
         end
       end
-      out.html_safe
-    end
-  end # brick_form_for
+    end # form_for
+  end # brick_form_with
 
   # ------------------------------------------
   # Our cool N:M checkbox constellation editor
@@ -480,7 +480,6 @@ module Brick::Rails::FormTags
     out << "  </tbody>
 </table>
 "
-
     out.html_safe
   end # brick_bezier
 
@@ -537,7 +536,7 @@ module Brick::Rails::FormTags
   </div>
 </div>
 "
-    out
+    out.html_safe
   end # brick_header
 
   # All the standard CSS with teal colouration for use with Brick

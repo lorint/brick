@@ -43,7 +43,7 @@ module Brick
           relation.last[:cols].each do |col, type|
             col_down = col.downcase
 
-            if (is_possible_poly = ['character varying', 'text'].include?(type.first))
+            if (is_possible_poly = ['character varying', 'varchar', 'text', 'VARCHAR2'].include?(type.first))
               if col_down.end_with?('_type')
                 poly_type_cut_length = -6
                 col_down = col_down[0..-6]

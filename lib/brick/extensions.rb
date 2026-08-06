@@ -2846,14 +2846,14 @@ class Object
           code << "  def #{params_name}\n"
           require_txt = model.base_class.name.underscore.tr('/', '_')
           is_for_expects = ::ActiveSupport.version >= ::Gem::Version.new('8.0a')
-          permits_txt = model._brick_find_permits(model, permits = model._brick_all_fields(true), is_for_expects)
+          permits = model._brick_find_permits(model, model._brick_all_fields(true), is_for_expects)
           if is_for_expects
-            code << "    params.expect(#{require_txt}: #{permits_txt})\n"
+            code << "    params.expect(#{require_txt}: #{permits})\n"
             self.define_method(params_name) do
               params.expect({ model.base_class.name.underscore.tr('/', '_').to_sym => permits })
             end
           else
-            code << "    params.require(:#{require_txt}).permit(#{permits_txt.map(&:inspect).join(', ')})\n"
+            code << "    params.require(:#{require_txt}).permit(#{permits.map(&:inspect).join(', ')})\n"
             self.define_method(params_name) do
               params.require(model.base_class.name.underscore.tr('/', '_').to_sym).permit(permits)
             end
