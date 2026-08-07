@@ -252,21 +252,47 @@ module Brick::Rails::FormTags
 
   # -----------------------------
   # Our mega show/new/update form
-  def brick_form_for(obj, options = {}, model = obj.class, bts = {}, pk = (obj.class.primary_key || []))
+  def brick_form_with(**options, &block)
+    obj = options.delete(:model) || instance_variable_get("@#{obj_name = controller_name.singularize}".to_sym)
+    unless obj
+      puts "WARNING:  Could not find #{obj_name} object"
+      return
+    end
+
+    model = obj.class
+    bts = options.delete(:bts) || {}
+    pk = options.delete(:pk) || model.primary_key || []
     pk = [pk] unless pk.is_a?(Array)
     pk.map!(&:to_s)
+    brick_stuff = { fields_rendered: (fields_rendered = []), bts: bts, pk: pk }
+
+    # options[:model] = obj.becomes(model.base_class) unless options.include?(:model)
+    unless options.include?(:url)
+      options[:url] = if obj.new_record?
+                        link_to_brick(obj.class, path_only: true) # Properly supports STI, but only works for :new
+                      else
+                        path_helper = obj.new_record? ? model._brick_index : model._brick_index(:singular)
+                        send("#{path_helper}_path".to_sym, obj) if ::Brick.config.path_prefix || (path_helper != obj.class.table_name)
+                      end
+    end
+
+    # We call into the older #form_for in order to have compatibility with Rails < 5.1
     form_for(obj.becomes(model.base_class), options) do |f|
       out = output_buffer.raw_buffer
       out << '<table class="shadow">'
+      f.instance_variable_set(:@_brick, brick_stuff)
       has_fields = has_updatable_fields = nil
       # If it's a new record, set any default polymorphic types
-      bts&.each do |_k, v|
+      bts.each do |_k, v|
         if v[2]
           obj.send("#{model.brick_foreign_type(v.first)}=", v[1].first&.first&.name)
         end
       end if obj.new_record?
       hoa, hma, rtans = model._activestorage_actiontext_fields
-      (model.column_names + hoa + hma + rtans.keys).each do |k|
+
+      block.call(f) if block_given?
+
+      ((model.column_names + hoa + hma + rtans.keys) - fields_rendered).each do |k|
         pk_pos = (pk.index(k)&.+ 1)
         col = model.columns_hash[k]
         next if (pk_pos && pk.length == 1 && !bts.key?(k) && [:string, :text].exclude?(col.type)) ||
