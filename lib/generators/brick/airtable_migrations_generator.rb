@@ -15,7 +15,7 @@ module Brick
     def airtable_migrations
       mig_path, is_insert_versions, is_delete_versions = ::Brick::MigrationsBuilder.check_folder
       return unless mig_path &&
-                    (relations = ::Brick::AirtableApiCaller.pick_tables)
+                    (relations = ::Brick::AirtableApiCaller.pick_tables(!ENV['OMIT_AIRTABLE_ID']))
 
       ::Brick::MigrationsBuilder.generate_migrations(relations.keys, mig_path, is_insert_versions, is_delete_versions, relations,
                                                      do_fks_last: 'Separate', do_schema_migrations: false)
