@@ -11,7 +11,7 @@ module Brick
     desc 'Auto-generates a seeds file from existing data in an Airtable "base".'
 
     def airtable_seeds
-      return unless (relations = ::Brick::AirtableApiCaller.pick_tables(:seeds))
+      return unless (relations = ::Brick::AirtableApiCaller.pick_tables(!ENV['OMIT_AIRTABLE_ID'], :seeds))
 
       ::Brick::SeedsBuilder.generate_seeds(relations)
     end

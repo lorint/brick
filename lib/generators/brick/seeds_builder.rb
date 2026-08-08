@@ -204,7 +204,12 @@ module Brick
                 # Used to be:  obj.send(col)
                 # (and with that it was possible to raise ActiveRecord::Encryption::Errors::Configuration...)
                 #  %%% should test further and see if that is possible with this code!)
-                if (val = obj.attributes_before_type_cast[col])
+                val = if is_airtable && col == 'airtable_id'
+                        pk_val
+                      else
+                        obj.attributes_before_type_cast[col]
+                      end
+                if val
                   if (val.is_a?(Time) || val.is_a?(Date))
                     val = val.to_s
                   elsif val.is_a?(Numeric)

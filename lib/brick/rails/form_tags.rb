@@ -30,7 +30,7 @@ module Brick::Rails::FormTags
     col_keys = relation.columns.each_with_object([]) do |col, s|
       col_name = col.name
       next if inclusions&.exclude?(col_name) ||
-              (pk.include?(col_name) && [:string, :text].exclude?(col.type) && !bts&.key?(col_name)) ||
+              (pk.include?(col_name) && ([:string, :text].exclude?(col.type) || col_name == 'airtable_id') && !bts&.key?(col_name)) ||
               ::Brick.config.metadata_columns.include?(col_name) || poly_cols&.include?(col_name)
 
       s << col_name
