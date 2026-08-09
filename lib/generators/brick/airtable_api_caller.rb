@@ -19,6 +19,10 @@ Please provide your Airtable PAT:"
         require 'net/http'
         # Generate a list of bases that can be chosen
         bases = https_get('https://api.airtable.com/v0/meta/bases', pat)
+        if (error = bases.fetch('error', nil))
+          puts error.fetch('message', nil) || 'Error'
+          return
+        end
         base = gets_list(bases.fetch('bases', nil)&.map { |z| AirtableTable.new(z['id'], z['name']) })
         puts
         # Generate a list of tables that can be chosen

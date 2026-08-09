@@ -146,19 +146,37 @@ module Brick
 
             has_rows = false
             is_empty = true
-            klass_name = is_airtable ? ::Brick::AirtableApiCaller.sane_table_name(relation[:airtable_table]&.name)&.singularize&.camelize : klass.name
-            # Pull the records
-            collection = if is_airtable
-              if (airtable_table = relation[:airtable_table])
-                ::Brick::AirtableApiCaller.https_get("https://api.airtable.com/v0/#{airtable_table.base_id}/#{airtable_table.id}").fetch('records', nil)
-              end
-            else
-              # Must convert to a symbol when doing ORDER BY due to this ActiveRecord nuance:
-              # https://github.com/rails/rails/issues/2601
-              klass.order(*pkey_cols.map(&:to_sym)) unless relation[:pkey].empty?
-            end
+            collection = nil
+            klass_name = if is_airtable
+                           airtable_table = relation[:airtable_table]
+                           tbl.singularize.camelize
+                         else
+                           # Must convert to a symbol when doing ORDER BY due to this ActiveRecord nuance:
+                           # https://github.com/rails/rails/issues/2601
+                           collection = klass.order(*pkey_cols.map(&:to_sym)).enum_for unless relation[:pkey].empty?
+                           klass.name
+                         end
             seed_rows = +''
-            collection&.each do |obj|
+            airtable_idx = offset = nil
+            while collection || airtable_table do
+              obj = if is_airtable
+                if collection.nil? || (airtable_idx += 1) >= collection.length
+                  break if collection && !offset
+
+                  offset_param = "?offset=#{offset}" if offset
+                  result = ::Brick::AirtableApiCaller.https_get("https://api.airtable.com/v0/#{airtable_table.base_id}/#{airtable_table.id}#{offset_param}")
+                  offset = result.fetch('offset', nil)
+                  collection = result.fetch('records', nil)
+                  airtable_idx = 0
+                end
+                collection[airtable_idx]
+              else
+                begin
+                  collection.next
+                rescue StopIteration
+                  break
+                end
+              end
               if is_airtable
                 fields = obj['fields'].each_with_object({}) do |field, s|
                   if relation[:cols].keys.include?(col_name = ::Brick::AirtableApiCaller.sane_name(field.first))
@@ -178,7 +196,7 @@ module Brick
                     end
                   end
                 end
-                objects = relation[:airtable_table].objects
+                objects = airtable_table.objects
                 obj = objects[airtable_id = obj['id']] = AirtableObject.new(seed_model, obj['fields'], obj['createdTime'])
               end
               unless has_rows
@@ -288,28 +306,42 @@ end\n"
               end
               seed_rows = +''
             end
-            unless has_rows || klass_name.nil?
+            unless has_rows || (is_airtable && !airtable_table)
               seeds_file.write("  # (Skipping #{klass_name} as it has no rows)\n")
             end
           end
           done.concat(fringe)
           chosen -= done
         end
-        airtable_assocs_done = {}
-        airtable_assoc_recids.each do |table_name, assoc_pairs| # N:M links
-          # Make note of any other tables which have exactly duplicated data
-          dupes = airtable_assocs_done.select do |dupe_table, dupe_pairs|
-            dupe_table != table_name && assoc_pairs.length > 0 && assoc_pairs.length == dupe_pairs.length &&
-            dupe_pairs.all? { |pair_name, _v3| assoc_pairs.keys.include?(pair_name) }
+
+        if airtable_assoc_recids.present?
+          seed_rows << "\n# Seeding #{airtable_assoc_recids.count} sets of Airtable associations:\n"
+          airtable_assocs_done = {}
+          dupe_list = []
+          airtable_assoc_recids.each do |table_name, assoc_pairs| # N:M links
+            # Make note of any other tables which have exactly duplicated data
+            dupes = airtable_assocs_done.select do |dupe_table, dupe_pairs|
+              dupe_table != table_name && assoc_pairs.length > 0 && assoc_pairs.length == dupe_pairs.length &&
+              dupe_pairs.all? { |pair_name, _v3| assoc_pairs.keys.include?(pair_name) }
+            end
+            seed_rows << "  if ActiveRecord::Migration.table_exists?('#{table_name}')\n"
+            unless dupes.empty?
+              seed_rows << "    # Duplicate data found in: #{dupes.keys.join(', ')}\n"
+              dupes.keys.each { |k| dupe_list << "#{table_name} | #{k}" }
+            end
+            seed_rows << "    puts 'Airtable associations for #{table_name.camelize.singularize}'\n"
+            assoc_pairs.each do |_k2, pair_values|
+              seed_rows << "#{table_name.singularize.camelize}.create(#{pair_values})\n"
+            end
+            seed_rows << "  end\n"
+            airtable_assocs_done[table_name] = assoc_pairs
           end
-          seed_rows << "  if ActiveRecord::Migration.table_exists?('#{table_name}')\n"
-          seed_rows << "    # Duplicate data found in: #{dupes.keys.join(', ')}\n" unless dupes.empty?
-          seed_rows << "    puts 'Seeding Airtable associations for #{table_name.camelize.singularize}'\n"
-          assoc_pairs.each do |_k2, pair_values|
-            seed_rows << "#{table_name.singularize.camelize}.create(#{pair_values})\n"
+
+          if dupe_list.present?
+            puts "\nAssociative tables with duplicate data:"
+            dupe_list.each { |entry| puts "  #{entry}" }
+            puts '(You can safely remove one of the two tables in each of the pairs listed above.)'
           end
-          seed_rows << "  end\n"
-          airtable_assocs_done[table_name] = assoc_pairs
         end
         seeds_file.write(seed_rows) unless seed_rows.blank?
 
