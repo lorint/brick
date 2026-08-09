@@ -113,6 +113,33 @@ module ActiveRecord
         col_names.map(&:to_sym) + hoa + hma.map { |as| { as => [] } } + rtans.values
       end
 
+      def _brick_set_wheres(params, join_array = nil)
+        is_distinct = nil
+        wheres = {}
+        params.each do |k, v|
+          k = k.to_s # Rails < 4.2 comes in as a symbol
+          next unless k.start_with?('__')
+
+          k = k[2..-1] # Take off leading "__"
+          if (where_col = (ks = k.split('.')).last)[-1] == '!'
+            where_col = where_col[0..-2]
+          end
+          case ks.length
+          when 1
+            next unless self.column_names.any?(where_col) || self._brick_get_fks.include?(where_col)
+          when 2
+            assoc_name = ks.first.to_sym
+            # Make sure it's a good association name and that the model has that column name
+            next unless self.reflect_on_association(assoc_name)&.klass&.column_names&.any?(where_col)
+
+            join_array&.[]=(assoc_name, nil) # Store this relation name in our special collection for .joins()
+            is_distinct = true
+          end
+          wheres[k] = v.is_a?(String) ? v.split(',') : v
+        end
+        [wheres, is_distinct]
+      end
+
       # Return three lists of fields for this model --
       # has_one_attached, has_many_attached, and has_rich_text
       def _activestorage_actiontext_fields
@@ -697,32 +724,10 @@ module ActiveRecord
       # model early in case the user wants to do an ORDER BY based on any of that.
       model._brick_calculate_bts_hms(translations, join_array) if is_add_bts || is_add_hms
 
-      is_distinct = nil
-      wheres = {}
       params = params.to_unsafe_h unless params.is_a?(Hash)
       params.merge!(args[1]) if args[1]
-      params.each do |k, v|
-        k = k.to_s # Rails < 4.2 comes in as a symbol
-        next unless k.start_with?('__')
-
-        k = k[2..-1] # Take off leading "__"
-        if (where_col = (ks = k.split('.')).last)[-1] == '!'
-          where_col = where_col[0..-2]
-        end
-        case ks.length
-        when 1
-          next unless klass.column_names.any?(where_col) || klass._brick_get_fks.include?(where_col)
-        when 2
-          assoc_name = ks.first.to_sym
-          # Make sure it's a good association name and that the model has that column name
-          next unless klass.reflect_on_association(assoc_name)&.klass&.column_names&.any?(where_col)
-
-          join_array[assoc_name] = nil # Store this relation name in our special collection for .joins()
-          is_distinct = true
-          distinct!
-        end
-        wheres[k] = v.is_a?(String) ? v.split(',') : v
-      end
+      wheres, is_distinct = klass._brick_set_wheres(params, join_array)
+      distinct! if is_distinct
 
       # %%% Skip the metadata columns
       if selects.empty? # Default to all columns
@@ -1783,7 +1788,7 @@ class Object
                 ::Brick.config.exclude_tables.include?(matching)
 
       # Are they trying to use a pluralised class name such as "Employees" instead of "Employee"?
-      if table_name == singular_table_name && !ActiveSupport::Inflector.inflections.uncountable.include?(table_name)
+      if table_name == singular_table_name && model_name.pluralize == model_name && !ActiveSupport::Inflector.inflections.uncountable.include?(table_name)
         # unless ::Brick.config.sti_namespace_prefixes&.key?("::#{singular_table_name.camelize}::")
         #   puts "Warning: Class name for a model that references table \"#{matching
         #        }\" should be \"#{ActiveSupport::Inflector.singularize(inheritable_name || model_name)}\"."
@@ -2483,10 +2488,19 @@ class Object
 
             real_model = model.find_real_model(params)
 
+            # %%% Allow params to define which columns to use for order_by
+            # Overriding the default by providing a querystring param?
+            order_by = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
+
             if request.format == :csv # Asking for a template?
               require 'csv'
               exported_csv = CSV.generate(force_quotes: false) do |csv_out|
-                real_model.df_export(true, real_model.brick_import_template, false, wheres, order_by).each do |row|
+                export_args = [true, real_model.brick_import_template, false]
+                if real_model.method(:df_export).parameters.length > 3
+                  wheres, _is_distinct = real_model._brick_set_wheres(params)
+                  export_args += [wheres, order_by]
+                end
+                real_model.df_export(*export_args).each do |row|
                   row.each do |d|
                     row.each_with_index do |d, idx|
                       # "false" disallows HTML encoding the descriptions of binary content
@@ -2507,11 +2521,6 @@ class Object
             end
 
             # Normal (not swagger or CSV) request
-
-            # %%% Allow params to define which columns to use for order_by
-            # Overriding the default by providing a querystring param?
-            order_by = params['_brick_order']&.split(',')&.map(&:to_sym) || Object.send(:default_ordering, table_name, pk)
-
             ar_relation = ActiveRecord.version < Gem::Version.new('4') ? real_model.preload : real_model.all
             params['_brick_is_api'] = true if (is_api = request.format == :js || current_api_root)
             @_brick_params = ar_relation._brick_querying((selects ||= []), params: params, order_by: order_by,
@@ -2704,7 +2713,14 @@ class Object
               render json: { result: es_result }
             else
               real_model, real_singular_table_name = model.real_singular(params)
-              created_obj = model.send(:new, send(params_name_sym))
+              # If there are any foreign keys that are strings and we've received a blank value, set that to nil
+              internal_params = (ac_params = send(params_name_sym))&.send(:parameters)
+              real_model.reflect_on_all_associations.each do |a|
+                if a.belongs_to? && internal_params.key?(fk_name = a.foreign_key.to_s) && [:string, :text].include?((fk_col = real_model.columns_hash[fk_name])&.type)
+                  internal_params[fk_name] = nil if internal_params[fk_name].blank?
+                end
+              end
+              created_obj = model.send(:new, ac_params)
               if created_obj.respond_to?(inh_col = model.inheritance_column) && created_obj.send(inh_col) == ''
                 created_obj.send("#{inh_col}=", model.name)
               end

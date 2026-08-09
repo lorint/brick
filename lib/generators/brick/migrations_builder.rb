@@ -169,7 +169,7 @@ module Brick
           done.concat(chosen)
           chosen.clear
 
-          case do_fks_last
+          case after_fks.present? && do_fks_last
           when 'Separate' # Add a final migration to create all the foreign keys
             mig = +"  def change\n"
             after_fks.each do |add_fk|

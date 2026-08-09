@@ -950,7 +950,10 @@ if (window.brickFontFamily) {
                        when 'index'
                          if Object.const_defined?('DutyFree')
                            template_link = "
-  <%= link_to 'CSV', #{@_brick_model._brick_index}_path(format: :csv) %> &nbsp; <a href=\"#\" id=\"sheetsLink\">Sheets</a>
+  <%= csv_path = #{@_brick_model._brick_index}_path(format: :csv)
+      where_params = params.to_unsafe_h.each_with_object([]) { |v, s| s << \"#\{v.first}=#\{v[1]}\" if v.first.start_with?('__') }.join('&')
+      csv_path << \"?#\{where_params}\" unless where_params.blank?
+      link_to 'CSV', csv_path %> &nbsp; <a href=\"#\" id=\"sheetsLink\">Sheets</a>
   <div id=\"dropper\" contenteditable=\"true\"></div>
   <input type=\"button\" id=\"btnImport\" value=\"Import\">
 

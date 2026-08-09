@@ -256,7 +256,7 @@ module Brick::Rails::FormTags
     pk = [pk] unless pk.is_a?(Array)
     pk.map!(&:to_s)
     form_for(obj.becomes(model.base_class), options) do |f|
-      out = output_buffer.raw_buffer
+      out = output_buffer
       out << '<table class="shadow">'
       has_fields = has_updatable_fields = nil
       # If it's a new record, set any default polymorphic types
@@ -292,7 +292,7 @@ module Brick::Rails::FormTags
         val = obj.attributes[k]
         out << "
   <tr>
-    <th class=\"show-field\"#{" title=\"#{col&.comment}\"".html_safe if col&.respond_to?(:comment) && !col&.comment.blank?}>"
+    <th class=\"show-field\"#{" title=\"#{col&.comment}\"" if col&.respond_to?(:comment) && !col&.comment.blank?}>"
         has_fields = true
         if (bt = bts[k])
           # Add a final member in this array with descriptive options to be used in <select> drop-downs
@@ -360,7 +360,7 @@ module Brick::Rails::FormTags
       out << '</table>'
       if model.name == 'ActiveStorage::Attachment'
         begin
-          out << ::Brick::Rails.display_binary(obj&.blob&.download, 500_000)&.html_safe
+          out << ::Brick::Rails.display_binary(obj&.blob&.download, 500_000)
         rescue
         end
       end
@@ -416,7 +416,7 @@ module Brick::Rails::FormTags
     end
     out << "  </tbody>
 </table>
-<script<%= @_request.env['_brick_nonce'] %>>
+<script#{@_request.env['_brick_nonce']}>
   var constellation = document.getElementById(\"#{table_name}\");
   var nextSib,
       _this;

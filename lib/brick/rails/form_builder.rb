@@ -9,18 +9,19 @@ module Brick::Rails::FormBuilder
   def brick_field(method, html_options = {}, val = nil, col = nil,
                   bt = nil, bt_class = nil, bt_name = nil, bt_pair = nil)
     model = self.object.class
-    col ||= model.columns_hash[method]
+    col ||= model.columns_hash[method.to_s]
     out = +'<table><tr><td>'
     html_options[:class] = 'dimmed' unless val
     is_revert = true
     template = instance_variable_get(:@template)
+    method_sym = method.to_sym
     if bt
       bt_class ||= bt[1].first.first
       bt_name ||= bt[1].map { |x| x.first.name }.join('/')
       bt_pair ||= bt[1].first
 
       html_options[:prompt] = "Select #{bt_name}"
-      out << self.select(method.to_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options)
+      out << self.select(method_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options)
       bt_obj = nil
       begin
         bt_obj = bt_class&.find_by(bt_pair[1] => val)
@@ -38,8 +39,8 @@ module Brick::Rails::FormBuilder
                   "<span class=\"orphan\">Orphaned ID: #{val}</span>".html_safe
                 end
       out << bt_link if bt_link
-    elsif model._brick_monetized_attributes&.include?(method)
-      out << self.text_field(method.to_sym, html_options.merge({ value: Money.new(val.to_i).format }))
+    elsif model._brick_monetized_attributes&.include?(method.to_s)
+      out << self.text_field(method_sym, html_options.merge({ value: Money.new(val.to_i).format }))
     else
       col_type = if model.json_column?(col) || val.is_a?(Array)
                    :json
@@ -61,40 +62,40 @@ module Brick::Rails::FormBuilder
             out << "<img src=\"#{url}\" title=\"#{val}\">"
           elsif model.respond_to?(:enumerized_attributes) && (opts = (attr = model.enumerized_attributes[method])&.options).present?
             enum_html_options = attr.kind_of?(Enumerize::Multiple) ? html_options.merge({ multiple: true, size: opts.length + 1 }) : html_options
-            out << self.select(method.to_sym, [["(No #{method} chosen)", '^^^brick_NULL^^^']] + opts, { value: val || '^^^brick_NULL^^^' }, enum_html_options)
+            out << self.select(method_sym, [["(No #{method} chosen)", '^^^brick_NULL^^^']] + opts, { value: val || '^^^brick_NULL^^^' }, enum_html_options)
           else
             spit_out_text_field = true
           end
         elsif col_type == :enum
           if col.respond_to?(:limit) && col.limit.present?
-            out << self.select(method.to_sym, [["(No #{method} chosen)", '^^^brick_NULL^^^']] + col.limit, { value: val.to_s || '^^^brick_NULL^^^' }, html_options)
+            out << self.select(method_sym, [["(No #{method} chosen)", '^^^brick_NULL^^^']] + col.limit, { value: val.to_s || '^^^brick_NULL^^^' }, html_options)
           else
             spit_out_text_field = true
           end
         else
           template.instance_variable_set(:@_text_fields_present, true)
-          out << self.hidden_field(method.to_sym, html_options)
+          out << self.hidden_field(method_sym, html_options)
           out << "<trix-editor input=\"#{self.field_id(method)}\"></trix-editor>"
         end
         if spit_out_text_field
           # %%% Need to update the max-width with javascript when page width is adjusted?
           html_options.merge!(style: 'min-width: 154px;field-sizing: content;') # max-width: auto;
-          out << self.text_field(method.to_sym, html_options)
+          out << self.text_field(method_sym, html_options)
         end
         when :boolean
-        out << self.check_box(method.to_sym)
+        out << self.check_box(method_sym)
       when :integer, :decimal, :float
-        if model.respond_to?(:attribute_types) && (enum_type = model.attribute_types[method]).is_a?(ActiveRecord::Enum::EnumType)
+        if model.respond_to?(:attribute_types) && (enum_type = model.attribute_types[method.to_s]).is_a?(ActiveRecord::Enum::EnumType)
           opts = enum_type.send(:mapping)&.each_with_object([]) { |v, s| s << [v.first, v.first] } || []
-          out << self.select(method.to_sym, [["(No #{method} chosen)", '^^^brick_NULL^^^']] + opts, { value: val || '^^^brick_NULL^^^' }, options)
+          out << self.select(method_sym, [["(No #{method} chosen)", '^^^brick_NULL^^^']] + opts, { value: val || '^^^brick_NULL^^^' }, options)
         else
           digit_pattern = col_type == :integer ? '(?:-|)\d*' : '(?:-|)\d*(?:\.\d*|)'
-          # Used to do this for float / decimal:  self.number_field method.to_sym
-          out << self.text_field(method.to_sym, { pattern: digit_pattern, class: 'check-validity' })
+          # Used to do this for float / decimal:  self.number_field method_sym
+          out << self.text_field(method_sym, { pattern: digit_pattern, class: 'check-validity' })
         end
       when *DT_PICKERS.keys
         template.instance_variable_set(:@_date_fields_present, true)
-        out << self.text_field(method.to_sym, { class: DT_PICKERS[col_type] })
+        out << self.text_field(method_sym, { class: DT_PICKERS[col_type] })
       when :uuid
         is_revert = false
         # Postgres naturally uses the +uuid_generate_v4()+ function from the uuid-ossp extension
@@ -146,7 +147,7 @@ module Brick::Rails::FormBuilder
         end
         out << self.hidden_field("_brick_attached_#{method}", value: existing.join(',')) unless existing.blank?
         # Render a "Choose File(s)" input element
-        args = [method.to_sym]
+        args = [method_sym]
         args << { multiple: true } if col&.type == :files
         out << self.file_field(*args)
       when :primary_key
@@ -163,7 +164,7 @@ module Brick::Rails::FormBuilder
         end
         # Because there are so danged many quotes in JSON, escape them specially by converting to backticks.
         # (and previous to this, escape backticks with our own goofy code of ^^br_btick__ )
-        out << (json_field = self.hidden_field(method.to_sym, { class: 'jsonpicker', value: val_str&.gsub('`', '^^br_btick__')&.tr('\"', '`')&.html_safe }))
+        out << (json_field = self.hidden_field(method_sym, { class: 'jsonpicker', value: val_str&.gsub('`', '^^br_btick__')&.tr('\"', '`')&.html_safe }))
         out << "<div id=\"_br_json_#{self.field_id(method)}\"></div>"
       else
         is_revert = false
