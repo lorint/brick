@@ -6,7 +6,7 @@ require 'brick/rails/engine'
 module ::Brick::Rails
   class << self
     # Low-level way to render read-only data for a field based on its data type.
-    # Used by both brick_grid and brick_form_for (which gets down to this low-level
+    # Used by both brick_grid and brick_form_with (which gets down to this low-level
     # implementation from brick_field).
     def display_value(col_type, val, lat_lng = nil)
       is_mssql_geography = nil

@@ -178,6 +178,7 @@ module Brick::Rails::FormBuilder
     end
     out << "</td></tr></table>
 "
+    @_brick&.fetch(:fields_rendered, nil)&.<< method.to_s # Track that we've rendered this one
     out.html_safe
   end # brick_field
 end
