@@ -1469,21 +1469,11 @@ if (description = rel&.fetch(:description, nil)) %>
 end
 %><%= link_to \"(See all #\{model_name.pluralize})\", see_all_path, { class: '__brick' } %>
 #{::Brick::Rails.erd_markup(@_brick_model, prefix) if @_brick_model}
-<% if obj
-     # path_options = [obj.#{pk}]
-     # path_options << { '_brick_schema':  } if
-     options = {}
-     options[:url] = if obj.new_record?
-                       link_to_brick(obj.class, path_only: true) # Properly supports STI, but only works for :new
-                     else
-                       path_helper = obj.new_record? ? #{model_name}._brick_index : #{model_name}._brick_index(:singular)
-                       options[:url] = send(\"#\{path_helper}_path\".to_sym, obj) if ::Brick.config.path_prefix || (path_helper != obj.class.table_name)
-                     end
-%>
+<% if obj %>
   <br><br>
 
 <%= # Write out the mega-form
-    brick_form_for(obj, options, #{model_name}, bts, #{pk.inspect}) %>
+    brick_form_with(model: obj, bts: bts, pk: #{pk.inspect}) %>
 
 #{unless args.first == 'new'
   # Was:  confirm_are_you_sure = ActionView.version < ::Gem::Version.new('7.0') ? "data: { confirm: \"Delete #\{model_name} -- Are you sure?\" }" : "form: { data: { turbo_confirm: \"Delete #\{model_name} -- Are you sure?\" } }"

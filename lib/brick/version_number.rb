@@ -5,7 +5,7 @@ module Brick
   module VERSION
     MAJOR = 1
     MINOR = 0
-    TINY = 246
+    TINY = 247
 
     # PRE is nil unless it's a pre-release (beta, RC, etc.)
     PRE = nil
