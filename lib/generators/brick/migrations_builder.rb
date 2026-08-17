@@ -451,6 +451,7 @@ module Brick
       end
 
       def migration_file_write(mig_path, name, current_mig_time, ar_version, mig)
+        name.gsub!(/[^a-zA-Z0-9_\.\p{L}\p{N}]/, 'x') # Strip out any weird unicode characters
         File.open("#{mig_path}/#{version = current_mig_time.first.strftime('%Y%m%d%H%M00')}_#{name}#{'.rb' unless name.index('.')}", "w") do |f|
           f.write "class #{name.split('.').first.camelize} < ActiveRecord::Migration#{ar_version}\n"
           f.write mig

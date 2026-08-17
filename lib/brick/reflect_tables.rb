@@ -443,14 +443,18 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         loop do
           klass = Object
           proposed_name_parts.each do |part|
-            if klass.const_defined?(part) && klass.name != part
-              begin
+            begin
+              if klass.const_defined?(part) && klass.name != part
                 klass = klass.const_get(part)
-              rescue NoMethodError => e
+              else
                 klass = nil
                 break
               end
-            else
+            rescue NoMethodError => e
+              klass = nil
+              break
+            rescue NameError => e
+              puts "WARNING:  Unable to automatically generate a class for the table named #{part}.\n  In the brick.rb initializer file you can add the line \"::Brick.table_name_prefixes = { '#{part}' => '::YourModelName' }\" in order to specify a usable class name for this object."
               klass = nil
               break
             end

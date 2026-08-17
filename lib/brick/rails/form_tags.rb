@@ -549,6 +549,8 @@ module Brick::Rails::FormTags
 
   # -----------------------------------------------------------------------------------------------
   def set_grid_javascript(klass, pk, show_new_button = nil, row_count = nil, total_row_count = nil)
+    camel_name = klass.name.split('::').last
+    camel_name[0].downcase!
     table_name = klass.table_name.split('.').last
 
     # Javascript for brick_grid and brick_constellation
@@ -558,13 +560,13 @@ module Brick::Rails::FormTags
 // Plunk the row count in now that we know it
 var rowCount = document.getElementById(\"rowCount\");
 if (rowCount) rowCount.innerHTML = \"#{pluralize(row_count, "row")}#{total_row_count} &nbsp;\";
-var #{table_name}HtColumns;
+var #{camel_name}HtColumns;
 " unless row_count.nil?
 
     grid_scripts << "
 // Snag first TR for sticky header
 var grid = document.getElementById(\"#{table_name}\");
-#{table_name}HtColumns = grid && [grid.getElementsByTagName(\"TR\")[0]];
+#{camel_name}HtColumns = grid && [grid.getElementsByTagName(\"TR\")[0]];
 var headerTop = document.getElementById(\"headerTop\");
 var headerCols;
 if (grid) {
@@ -617,8 +619,8 @@ function setHeaderSizes() {
 
   // Set up proper sizings of sticky column header
   var node;
-  for (var j = 0; j < #{table_name}HtColumns.length; ++j) {
-    var row = #{table_name}HtColumns[j];
+  for (var j = 0; j < #{camel_name}HtColumns.length; ++j) {
+    var row = #{camel_name}HtColumns[j];
     var tr = isEmpty ? document.createElement(\"TR\") : headerTop.childNodes[j];
     tr.innerHTML = row.innerHTML.trim();
     var curLeft = 0.0;

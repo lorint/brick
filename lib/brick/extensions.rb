@@ -1769,7 +1769,7 @@ class Object
       end
       full_name = if relation || schema_name.blank?
                     if singular_table_name != table_name.singularize && # %%% Try this with http://localhost:3000/brick/spree/property_translations
-                       (schema_module = ::Brick.config.table_name_prefixes.find { |k, v| table_name.start_with?(k) }&.last&.constantize)
+                       (schema_module = ::Brick.config.table_name_prefixes.find { |k, v| table_name.length > k&.length && table_name.start_with?(k) }&.last&.constantize)
                       "#{schema_module&.name}::#{inheritable_name || model_name}"
                     else
                       inheritable_name || model_name

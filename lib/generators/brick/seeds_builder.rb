@@ -153,7 +153,8 @@ module Brick
             collection = nil
             klass_name = if is_airtable
                            airtable_table = relation[:airtable_table]
-                           tbl.singularize.camelize
+                           ::Brick.config.table_name_prefixes&.fetch(tbl, nil) ||
+                             tbl.singularize.camelize
                          else
                            # Must convert to a symbol when doing ORDER BY due to this ActiveRecord nuance:
                            # https://github.com/rails/rails/issues/2601
