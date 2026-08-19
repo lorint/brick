@@ -119,7 +119,8 @@ module Brick
         stuck = {}
         indexes = {} # Track index names to make sure things are unique
         built_schemas = {} # Track all built schemas so we can place an appropriate drop_schema command only in the first
-                          # migration in which that schema is referenced, thereby allowing rollbacks to function properly.
+                           # migration in which that schema is referenced, thereby allowing rollbacks to function properly.
+        is_airtable = nil
         versions_to_create = [] # Resulting versions to be used when updating the schema_migrations table
         # Start by making migrations for fringe tables (those with no foreign keys).
         # Continue layer by layer, creating migrations for tables that reference ones already done, until
@@ -148,8 +149,9 @@ module Brick
             mig = gen_migration_columns(relations, tbl, (tbl_parts = tbl.split('.')), (add_fks = []), built_schemas, mig_path, current_mig_time,
                                         key_type, is_4x_rails, ar_version, do_fks_last, versions_to_create)
             after_fks.concat(add_fks) if do_fks_last
-            current_mig_time[0] += 1.minute
-            versions_to_create << migration_file_write(mig_path, "create_#{::Brick._brick_index(tbl, nil, separator, relations[tbl])}", current_mig_time, ar_version, mig)
+            increment_time(mig_path, current_mig_time)
+            is_airtable ||= (relation = relations[tbl])&.fetch(:airtable_table, nil)
+            versions_to_create << migration_file_write(mig_path, "create_#{::Brick._brick_index(tbl, nil, separator, relation, true)}", current_mig_time, ar_version, mig)
           end
           done.concat(fringe)
           chosen -= done
@@ -161,9 +163,9 @@ module Brick
             mig = gen_migration_columns(relations, tbl, (tbl_parts = tbl.split('.')), (add_fks = []), built_schemas, mig_path, current_mig_time,
                                         key_type, is_4x_rails, ar_version, do_fks_last, versions_to_create)
             after_fks.concat(add_fks)
-            current_mig_time[0] += 1.minute
+            increment_time(mig_path, current_mig_time)
             versions_to_create << migration_file_write(mig_path, "create_#{
-              ::Brick._brick_index(tbl, :migration, separator, relations[tbl])
+              ::Brick._brick_index(tbl, :migration, separator, relations[tbl], true)
             }", current_mig_time, ar_version, mig)
           end
           done.concat(chosen)
@@ -201,7 +203,7 @@ module Brick
               'rb'
             end
             mig << +"  end\n"
-            current_mig_time[0] += 1.minute
+            increment_time(mig_path, current_mig_time)
             base_name = "_#{relations[:base_name]&.tr(' ', '')&.underscore}" if relations[:base_name]
             versions_to_create << migration_file_write(mig_path, "create_brick_fks#{base_name}.#{fks_extension}", current_mig_time, ar_version, mig)
             puts "Have written out a final migration called 'create_brick_fks#{base_name}.#{fks_extension}' which creates #{after_fks.length} foreign keys."
@@ -248,7 +250,7 @@ module Brick
             ".  Here's the top 5 blockers" if stuck_sorted.length > 5
           }:"
           pp stuck_sorted[0..4]
-        elsif do_schema_migrations # Successful, and now we can update the schema_migrations table accordingly
+        elsif do_schema_migrations && !is_airtable # Successful, and now we can update the schema_migrations table accordingly
           smtn = ::Brick._schema_migrations_table_name
           if ActiveRecord::Migration.table_exists?(smtn)
             # Remove to_delete - to_create
@@ -299,7 +301,7 @@ module Brick
                  end
         unless schema.blank? || built_schemas.key?(schema)
           mig = +"  def change\n    create_schema(:#{schema}) unless schema_exists?(:#{schema})\n  end\n"
-          current_mig_time[0] += 1.minute
+          increment_time(mig_path, current_mig_time)
           versions_to_create << migration_file_write(mig_path, "create_db_schema_#{schema.underscore}", current_mig_time, ar_version, mig)
           built_schemas[schema] = nil
         end
@@ -448,6 +450,14 @@ module Brick
 
       def emit_column(type, name, suffix)
         "      t.#{type.start_with?('numeric') ? 'decimal' : type} :#{name}#{suffix}\n"
+      end
+
+      def increment_time(mig_path, current_mig_time)
+        loop do
+          current_mig_time[0] += 1.minute
+          break if Dir.glob("#{mig_path}/#{current_mig_time.first.strftime('%Y%m%d%H%M00')}_*.*").empty?
+
+        end
       end
 
       def migration_file_write(mig_path, name, current_mig_time, ar_version, mig)
