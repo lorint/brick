@@ -202,8 +202,9 @@ module Brick
             end
             mig << +"  end\n"
             current_mig_time[0] += 1.minute
-            versions_to_create << migration_file_write(mig_path, "create_brick_fks.#{fks_extension}", current_mig_time, ar_version, mig)
-            puts "Have written out a final migration called 'create_brick_fks.#{fks_extension}' which creates #{after_fks.length} foreign keys."
+            base_name = "_#{relations[:base_name]&.tr(' ', '')&.underscore}" if relations[:base_name]
+            versions_to_create << migration_file_write(mig_path, "create_brick_fks#{base_name}.#{fks_extension}", current_mig_time, ar_version, mig)
+            puts "Have written out a final migration called 'create_brick_fks#{base_name}.#{fks_extension}' which creates #{after_fks.length} foreign keys."
             if fks_extension == 'rbx'
               puts "  This file extension (.rbx) will cause it not to run yet when you do a 'rails db:migrate'.
   The idea here is to do all data loading first, and then rename that migration file back

@@ -13,9 +13,10 @@ module Brick
       end
 
       def generate_seeds(relations = nil)
+        action = 'Overwrite'
         if File.exist?((seed_file_path = "#{::Rails.root}/db/seed") + 's.rb')
-          puts "WARNING: seeds file #{seed_file_path}s.rb appears to already be present.\nOverwrite?"
-          return unless gets_list(list: ['No', 'Yes']) == 'Yes'
+          puts "WARNING: seeds file #{seed_file_path}s.rb appears to already be present.\nAppend or Overwrite?"
+          return if (action = gets_list(list: ['Cancel', 'Append', 'Overwrite'])) == 'Cancel'
 
           puts "\n"
         end
@@ -24,7 +25,7 @@ module Brick
           is_airtable = true # So far the only thing that feeds us relations is Airtable
           require 'generators/brick/airtable_api_caller'
           # include ::Brick::MigrationsBuilder
-          chosen = relations.map { |k, v| SeedModel.new(k, nil, false, v[:airtable_table]) }
+          chosen = relations.each_with_object([]) { |v, s| s << SeedModel.new(v.first, nil, false, v.last[:airtable_table]) unless v.first.is_a?(Symbol) }
         else
           ::Brick.mode = :on
           ActiveRecord::Base.establish_connection
@@ -57,11 +58,14 @@ module Brick
           end
         end
         batch_num = 1
-        seeds_file = File.open("#{seed_file_path}s.rb", 'w')
+        seeds_file = File.open("#{seed_file_path}s.rb", action == 'Overwrite' ? 'w' : 'a+')
+        seeds_file.write("\n") if action == 'Append'
         seeds_len = lines_len = 0
         seeds_file.write('# Seeds file for ')
         seed_rows = nil
-        if (arbc = ActiveRecord::Base.connection).respond_to?(:current_database) # SQLite3 can't do this!
+        if is_airtable
+          seeds_file.write("Airtable Base \"#{relations[:base_name]}\":\n")
+        elsif (arbc = ActiveRecord::Base.connection).respond_to?(:current_database) # SQLite3 can't do this!
           seeds_file.write("#{arbc.current_database}:\n")
         elsif (filename = arbc.instance_variable_get(:@connection_parameters)&.fetch(:database, nil))
           seeds_file.write("#{filename}:\n")

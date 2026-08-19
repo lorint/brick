@@ -39,7 +39,7 @@ Please provide your Airtable PAT:"
         # Build out a '::Brick.relations' hash that represents this Airtable schema
         fks = []
         associatives = {}
-        relations = chosen.each_with_object({}) do |table, s|
+        relations = chosen.each_with_object({base_name: base.name}) do |table, s|
                       tbl_name = sane_table_name(table.name)
                       # Build out columns and foreign keys
                       cols = {}
@@ -68,7 +68,7 @@ Please provide your Airtable PAT:"
                         else
                           # puts col['type']
                           dt = case col['type']
-                          when 'singleLineText', 'url', 'email', 'singleSelect'
+                          when 'singleLineText', 'url', 'email', 'singleSelect', 'phoneNumber'
                             'string'
                           when 'multilineText'
                             'text'

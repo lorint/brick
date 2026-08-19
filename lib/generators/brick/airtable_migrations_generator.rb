@@ -17,7 +17,8 @@ module Brick
       return unless mig_path &&
                     (relations = ::Brick::AirtableApiCaller.pick_tables(!ENV['OMIT_AIRTABLE_ID']))
 
-      ::Brick::MigrationsBuilder.generate_migrations(relations.keys, mig_path, is_insert_versions, is_delete_versions, relations,
+      chosen = relations.keys.reject { |k| k.is_a?(Symbol) }
+      ::Brick::MigrationsBuilder.generate_migrations(chosen, mig_path, is_insert_versions, is_delete_versions, relations,
                                                      do_fks_last: 'Separate', do_schema_migrations: false)
     end
   end
