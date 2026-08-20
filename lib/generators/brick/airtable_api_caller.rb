@@ -43,6 +43,7 @@ Please provide your Airtable PAT:"
                       tbl_name = sane_table_name(table.name)
                       # Build out columns and foreign keys
                       cols = {}
+                      col_order = []
                       table.fields.each do |col|
                         col_name = sane_name(col['name'])
                         # This is like a has_many or has_many through
@@ -52,7 +53,8 @@ Please provide your Airtable PAT:"
                                           chosen.find { |t| t.id == col['options']['linkedTableId'] }&.name
                                         ))
                             if col['options']['prefersSingleRecordLink'] # 1:M
-                              fks << [frn_tbl, "#{col_name}_id", tbl_name, col_name]
+                              fks << [frn_tbl, (fk_col_name = "#{col_name}_id"), tbl_name, col_name]
+                              col_order << fk_col_name
                             else # N:M
                               # Queue up to build associative table with two foreign keys
                               camelized = (assoc_name = "#{tbl_name}_#{col_name}_#{frn_tbl}").camelize
@@ -87,6 +89,7 @@ Please provide your Airtable PAT:"
                           #   binding.pry
                           end
                           cols[col_name] = [dt, nil, true, false] # true is the col[:nillable]
+                          col_order << col_name
                         end
                       end
                       # Put it all into a relation entry, named the same as the table
@@ -100,6 +103,7 @@ Please provide your Airtable PAT:"
                       s[tbl_name] = {
                         pkey: { "#{tbl_name}_pkey" => [sane_name(pkey)] },
                         cols: cols,
+                        col_order: col_order,
                         fks: {},
                         airtable_table: table
                       }

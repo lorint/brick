@@ -162,7 +162,7 @@ module Brick
                                   (existing = @relations.find { |_k, v| v.fetch(:db_name, nil) == db_name })
                                  existing.last
                                else
-                                 Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = {} } }.tap do |h|
+                                 Hash.new { |h, k| h[k] = Hash.new { |h, k| h[k] = (k == :col_order ? [] : {}) } }.tap do |h|
                                    h[:db_name] = db_name if db_name
                                  end
                                end
