@@ -355,7 +355,8 @@ module Brick
         mig = +"  def change\n    return unless reverting? || !table_exists?(#{tbl_code})\n\n"
         mig << "    create_table #{tbl_code}#{id_option} do |t|\n"
         possible_ts = [] # Track possible generic timestamps
-        relation[:cols].each do |col, col_type|
+        (relation.key?(:col_order) && relation[:col_order].present? && relation[:col_order].map { |col_name| [col_name, relation[:cols][col_name]] } ||
+         relation[:cols]).each do |col, col_type|
           sql_type = SQL_TYPES[col_type.first] || SQL_TYPES[col_type[0..1]] ||
                      SQL_TYPES.find { |r| r.first.is_a?(Regexp) && col_type.first =~ r.first }&.last ||
                      col_type.first

@@ -214,6 +214,7 @@ module Brick
             cols[col_name] = [r['data_type'], r['max_length'], measures&.include?(col_name), r['is_nullable'] == 'NO']
             # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
             relation[:col_descrips][col_name] = r['column_description'] if r['column_description']
+            relation[:col_order] << col_name
           end
         else # MySQL2, OracleEnhanced, and MSSQL act a little differently, bringing back an array for each row
           schema_and_tables = case ActiveRecord::Base.connection.adapter_name
@@ -269,6 +270,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
             # 'data_type', 'max_length', measure, 'is_nullable'
             cols[col_name] = [r[4], r[5], measures&.include?(col_name), r[8] == 'NO']
             # puts "KEY! #{r['relation_name']}.#{col_name} #{r['key']} #{r['const']}" if r['key']
+            relation[:col_order] << col_name
           end
         end
 
