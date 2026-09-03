@@ -38,6 +38,8 @@
 
 # Upon creation of a new object, when going to the index page, highlight this new object and scroll it into view (likely to the very bottom of everything, although might be sorted differently)
 
+# If there is a module defined with the same name as a schema found in a Postgres, MSSQL, or Oracle database then missing models that should exist underneath that module are not auto-generated.
+
 # ==========================================================
 # Dynamically create model or controller classes when needed
 # ==========================================================
@@ -72,8 +74,9 @@ module ActiveRecord
 
       # Accommodate STI
       def find_real_model(params)
-        if params && ((sub_name = params.fetch(inheritance_column, nil)).present? ||
-                      (sub_name = params[name.underscore]&.fetch(inheritance_column, nil)))
+        if params && ((sub_name = params.fetch(inh_col = "__#{inheritance_column}", nil)).present? ||
+                      (sub_name = params[name.underscore]&.fetch(inh_col, nil)))
+          sub_name = sub_name.split(',') if sub_name.include?(',')
           sub_name = sub_name.first if sub_name.is_a?(Array) # Support the params style that gets returned from #_brick_querying
           # Make sure the chosen model is really the same or a subclass of this model
           return self if sub_name.blank?
@@ -126,6 +129,11 @@ module ActiveRecord
           end
           case ks.length
           when 1
+            if k == self.inheritance_column && self.name == v && (children = self.descendants).present?
+              # Modifying only the underlying where_values_hash is enough to cause inheritance_column types to work properly.
+              v << children.map { |sti_child| ",#{sti_child.name}" }.join
+              next
+            end
             next unless self.column_names.any?(where_col) || self._brick_get_fks.include?(where_col)
           when 2
             assoc_name = ks.first.to_sym
@@ -213,7 +221,7 @@ module ActiveRecord
       end
 
       def is_postgres
-        @is_postgres ||= connection.adapter_name == 'PostgreSQL'
+        @is_postgres ||= ['PostgreSQL', 'PostGIS'].include?(connection.adapter_name)
       end
       def is_mysql
         @is_mysql ||= ['Mysql2', 'Trilogy'].include?(connection.adapter_name)
@@ -439,7 +447,7 @@ module ActiveRecord
                           CGI.escapeHTML(assoc_name)
                         end
       model_path = ::Rails.application.routes.url_helpers.send("#{_brick_index || table_name}_path".to_sym)
-      model_path << "?#{self.inheritance_column}=#{self.name}" if self != base_class
+      model_path << "__?#{self.inheritance_column}=#{self.name}" if self != base_class
       av_class = Class.new.extend(ActionView::Helpers::UrlHelper)
       av_class.extend(ActionView::Helpers::TagHelper) if ActionView.version < ::Gem::Version.new('7')
       link = av_class.link_to(assoc_html_name ? name : assoc_name, model_path)
@@ -1107,9 +1115,9 @@ JOIN (SELECT #{hm_selects.map { |s| _br_quoted_name("#{'br_t0.' if from_clause}#
                              end
           tbl_and_col_name << v_parts.last
           if v.last.is_a?(String) && ['>', '<'].include?(first_char = v.last.first[0]) # Greater than or less than?
-            col_name = v.last.first[1..-1]
-            col_name = "'#{col_name}'" unless [:integer, :boolean, :decimal, :float].include?(klass.columns_hash[v.first].type)
-            where_comparisons << "#{tbl_and_col_name.join('.')} #{first_char} #{col_name}"
+            val = v.last.first[1..-1]
+            val = "'#{val}'" unless [:integer, :boolean, :decimal, :float].include?(klass.columns_hash[v.first].type)
+            where_comparisons << "#{tbl_and_col_name.join('.')} #{first_char} #{val}"
           else
             (is_not ? where_nots : s)[tbl_and_col_name.join('.')] = v.last
           end
@@ -1834,7 +1842,7 @@ class Object
           code << "  has_secure_password\n"
         end
         # Accommodate singular or camel-cased table names such as "order_detail" or "OrderDetails"
-        code << "  self.table_name = '#{self.table_name = matching}'\n" if (inheritable_name || model_name).underscore.pluralize != matching
+        code << "  self.table_name = '#{self.table_name = matching}'\n" if table_name != matching
 
         if (inh_col = relation.fetch(:sti_col, nil) ||
                       ::Brick.config.sti_type_column.find { |_k, v| v.include?(matching) }&.first)
@@ -1875,7 +1883,7 @@ class Object
             if our_pks.length > 1 && pk_mutator
               new_model_class.send(pk_mutator, our_pks)
               code << "  self.#{pk_mutator[0..-2]} = #{our_pks.map(&:to_sym).inspect}\n"
-            else
+            elsif new_model_class.primary_key != our_pks.first
               new_model_class.primary_key = (pk_sym = our_pks.first.to_sym)
               code << "  self.primary_key = #{pk_sym.inspect}\n"
             end
@@ -2206,7 +2214,7 @@ class Object
       end
       table_name = model&.table_name || ActiveSupport::Inflector.underscore(plural_class_name)
       pk = model&._brick_primary_key(relations.fetch(table_name, nil))
-      is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+      is_postgres = ['PostgreSQL', 'PostGIS'].include?(ActiveRecord::Base.connection.adapter_name)
       is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name)
 
       namespace = nil if namespace == ::Object

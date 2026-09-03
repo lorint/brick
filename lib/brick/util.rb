@@ -49,7 +49,7 @@ module Brick
           # then required in place of the original.
 
           Kernel.module_exec do
-            alias_method :orig_require, :require
+            alias_method :_orig_require, :require
             # To be most faithful to Ruby's normal behaviour, this should look like a public singleton
             define_method(:require) do |name|
               # %%% Can get a message such as "ActionDispatch::Routing is not missing constant RouteSet! (NameError)"
@@ -62,14 +62,14 @@ module Brick
                 else
                   is_replaced = false
                   if (replacement_path = ::Brick::Util._write_patched(folder_matcher, name, extension, ::Brick::Util._custom_require_dir, patched_filename, replacements))
-                    is_replaced = Kernel.send(:orig_require, replacement_path)
+                    is_replaced = _orig_require(replacement_path)
                   elsif replacement_path.nil?
                     puts "Couldn't find #{name} to require it!"
                   end
                   is_replaced
                 end
               else
-                Kernel.send(:orig_require, name)
+                _orig_require(name)
               end
             end
           end

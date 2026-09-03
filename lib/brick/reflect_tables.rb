@@ -100,7 +100,7 @@ module Brick
         is_postgres = nil
         is_mssql = ActiveRecord::Base.connection.adapter_name == 'SQLServer'
         case ActiveRecord::Base.connection.adapter_name
-        when 'PostgreSQL', 'SQLServer'
+        when 'PostgreSQL', 'PostGIS', 'SQLServer'
           is_postgres = !is_mssql
           db_schemas = if is_postgres
                          ActiveRecord::Base.execute_sql('SELECT nspname AS table_schema, MAX(oid) AS dt FROM pg_namespace GROUP BY 1 ORDER BY 1;')
@@ -177,8 +177,8 @@ module Brick
         measures = []
         ::Brick.is_oracle = true if ActiveRecord::Base.connection.adapter_name == 'OracleEnhanced'
         case ActiveRecord::Base.connection.adapter_name
-        when 'PostgreSQL', 'SQLite' # These bring back a hash for each row because the query uses column aliases
-          # schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+        when 'PostgreSQL', 'PostGIS', 'SQLite' # These bring back a hash for each row because the query uses column aliases
+          # schema ||= 'public' if ['PostgreSQL', 'PostGIS'].include?(ActiveRecord::Base.connection.adapter_name)
           retrieve_schema_and_tables(sql, is_postgres, is_mssql, schema).each do |r|
             # If Apartment gem lists the table as being associated with a non-tenanted model then use whatever it thinks
             # is the default schema, usually 'public'.
@@ -275,7 +275,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         end
 
         # PostGIS adds three views which would confuse Rails if models were to be built for them.
-        if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+        if ['PostgreSQL', 'PostGIS'].include?(ActiveRecord::Base.connection.adapter_name)
           if relations.key?('geography_columns') && relations.key?('geometry_columns') && relations.key?('spatial_ref_sys')
             (::Brick.config.exclude_tables ||= []) << 'geography_columns'
             ::Brick.config.exclude_tables << 'geometry_columns'
@@ -284,7 +284,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         end
 
         # # Add unique OIDs
-        # if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+        # if ['PostgreSQL', 'PostGIS'].include?(ActiveRecord::Base.connection.adapter_name)
         #   ActiveRecord::Base.execute_sql(
         #     "SELECT c.oid, n.nspname, c.relname
         #     FROM pg_catalog.pg_namespace AS n
@@ -309,7 +309,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
         kcus = nil
         entry_type = nil
         case ActiveRecord::Base.connection.adapter_name
-        when 'PostgreSQL', 'Mysql2', 'Trilogy', 'SQLServer'
+        when 'PostgreSQL', 'PostGIS', 'Mysql2', 'Trilogy', 'SQLServer'
           # Part 1 -- all KCUs
           sql = "SELECT CONSTRAINT_CATALOG, CONSTRAINT_SCHEMA, CONSTRAINT_NAME, ORDINAL_POSITION,
                         TABLE_NAME, COLUMN_NAME
@@ -369,7 +369,7 @@ ORDER BY 1, 2, c.internal_column_id, acc.position"
           fk_references = ActiveRecord::Base.execute_sql(sql)
         end
         ::Brick.is_oracle = true if ActiveRecord::Base.connection.adapter_name == 'OracleEnhanced'
-        # ::Brick.default_schema ||= schema ||= 'public' if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+        # ::Brick.default_schema ||= schema ||= 'public' if ['PostgreSQL', 'PostGIS'].include?(ActiveRecord::Base.connection.adapter_name)
         ::Brick.default_schema ||= 'public' if is_postgres
         fk_references&.each do |fk|
           fk = fk.values unless fk.is_a?(Array)
