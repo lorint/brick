@@ -218,11 +218,11 @@ module Brick
               data = []
               updates = []
               relation[:cols].each do |col, _col_type|
-                # Skip primary key columns, unless they are part of a foreign key.
+                # Skip primary key columns, unless they are part of a foreign key or a composite key.
                 # (But always add all columns if it's Airtable!)
                 next if !(fk = fkeys.find { |assoc| col == assoc[:fk] }) &&
                         !is_airtable &&
-                        pkey_cols.include?(col) && orig_pk_val.is_a?(Integer)
+                        pkey_cols.first == col && orig_pk_val.is_a?(Integer)
 
                 # Used to be:  obj.send(col)
                 # (and with that it was possible to raise ActiveRecord::Encryption::Errors::Configuration...)

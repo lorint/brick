@@ -38,6 +38,8 @@
 
 # Upon creation of a new object, when going to the index page, highlight this new object and scroll it into view (likely to the very bottom of everything, although might be sorted differently)
 
+# If there is a module defined with the same name as a schema found in a Postgres, MSSQL, or Oracle database then missing models that should exist underneath that module are not auto-generated.
+
 # ==========================================================
 # Dynamically create model or controller classes when needed
 # ==========================================================
@@ -213,7 +215,7 @@ module ActiveRecord
       end
 
       def is_postgres
-        @is_postgres ||= connection.adapter_name == 'PostgreSQL'
+        @is_postgres ||= ['PostgreSQL', 'PostGIS'].include?(connection.adapter_name)
       end
       def is_mysql
         @is_mysql ||= ['Mysql2', 'Trilogy'].include?(connection.adapter_name)
@@ -439,7 +441,7 @@ module ActiveRecord
                           CGI.escapeHTML(assoc_name)
                         end
       model_path = ::Rails.application.routes.url_helpers.send("#{_brick_index || table_name}_path".to_sym)
-      model_path << "?#{self.inheritance_column}=#{self.name}" if self != base_class
+      model_path << "__?#{self.inheritance_column}=#{self.name}" if self != base_class
       av_class = Class.new.extend(ActionView::Helpers::UrlHelper)
       av_class.extend(ActionView::Helpers::TagHelper) if ActionView.version < ::Gem::Version.new('7')
       link = av_class.link_to(assoc_html_name ? name : assoc_name, model_path)
@@ -2206,7 +2208,7 @@ class Object
       end
       table_name = model&.table_name || ActiveSupport::Inflector.underscore(plural_class_name)
       pk = model&._brick_primary_key(relations.fetch(table_name, nil))
-      is_postgres = ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
+      is_postgres = ['PostgreSQL', 'PostGIS'].include?(ActiveRecord::Base.connection.adapter_name)
       is_mysql = ['Mysql2', 'Trilogy'].include?(ActiveRecord::Base.connection.adapter_name)
 
       namespace = nil if namespace == ::Object
