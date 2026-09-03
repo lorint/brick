@@ -189,7 +189,7 @@ module Brick
             # disable the final FK migration by using a ".rbx" file extension.
             fks_extension = if after_fks.length > 500
               minutes = (after_fks.length + 1000) / 1500
-              mig << "    if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'\n"
+              mig << "    if ['PostgreSQL', '"PostGIS"'].include?(ActiveRecord::Base.connection.adapter_name)\n"
               mig << "      puts 'NOTE:  It could take around #{minutes} #{'minute'.pluralize(minutes)} on a FAST machine for Postgres to do all the final processing for these foreign keys.  Please be patient!'\n"
 
               mig << "      # Vacuum takes only about ten seconds when all the tables are empty,
@@ -204,7 +204,7 @@ module Brick
             end
             mig << +"  end\n"
             increment_time(mig_path, current_mig_time)
-            base_name = "_#{relations[:base_name]&.tr(' ', '')&.underscore}" if relations[:base_name]
+            base_name = "_#{relations[:base_name].tr(' ', '').underscore}" if relations.key?(:base_name)
             versions_to_create << migration_file_write(mig_path, "create_brick_fks#{base_name}.#{fks_extension}", current_mig_time, ar_version, mig)
             puts "Have written out a final migration called 'create_brick_fks#{base_name}.#{fks_extension}' which creates #{after_fks.length} foreign keys."
             if fks_extension == 'rbx'
