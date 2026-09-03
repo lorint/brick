@@ -16,6 +16,17 @@ module Brick
                   'double precision' => 'float',
                   'smallint' => 'integer', # %%% Need to put in "limit: 2"
                   'ARRAY' => 'string', # Note that we'll also add ", array: true"
+                  # MySQL data types
+                  'tinytext' => 'text',   # 255 bytes
+                  # 'text' => 'text',     # 64kb
+                  'mediumtext' => 'text', # 16mb
+                  'longtext' => 'text',   # 4gb
+                  'tinyblob' => 'binary',
+                  'blob' => 'binary',
+                  'mediumblob' => 'binary',
+                  'longblob' => 'binary',
+                  'enum' => 'string',
+                  'set' => 'string', # Note that we'll also add ", array: true"
                   # Oracle data types
                   'VARCHAR2' => 'string',
                   'CHAR' => 'string',
@@ -189,7 +200,7 @@ module Brick
             # disable the final FK migration by using a ".rbx" file extension.
             fks_extension = if after_fks.length > 500
               minutes = (after_fks.length + 1000) / 1500
-              mig << "    if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'\n"
+              mig << "    if ['PostgreSQL', 'PostGIS'].include?(ActiveRecord::Base.connection.adapter_name)\n"
               mig << "      puts 'NOTE:  It could take around #{minutes} #{'minute'.pluralize(minutes)} on a FAST machine for Postgres to do all the final processing for these foreign keys.  Please be patient!'\n"
 
               mig << "      # Vacuum takes only about ten seconds when all the tables are empty,
@@ -204,7 +215,7 @@ module Brick
             end
             mig << +"  end\n"
             increment_time(mig_path, current_mig_time)
-            base_name = "_#{relations[:base_name]&.tr(' ', '')&.underscore}" if relations[:base_name]
+            base_name = "_#{relations[:base_name].tr(' ', '').underscore}" if relations.key?(:base_name)
             versions_to_create << migration_file_write(mig_path, "create_brick_fks#{base_name}.#{fks_extension}", current_mig_time, ar_version, mig)
             puts "Have written out a final migration called 'create_brick_fks#{base_name}.#{fks_extension}' which creates #{after_fks.length} foreign keys."
             if fks_extension == 'rbx'
@@ -361,7 +372,7 @@ module Brick
                      SQL_TYPES.find { |r| r.first.is_a?(Regexp) && col_type.first =~ r.first }&.last ||
                      col_type.first
           suffix = col_type[3] || pkey_cols&.include?(col) ? +', null: false' : +''
-          suffix << ', array: true' if (col_type.first == 'ARRAY')
+          suffix << ', array: true' if (['ARRAY', 'set'].include?(col_type.first))
           if !is_4x_rails && klass && (comment = klass.columns_hash.fetch(col, nil)&.comment)&.present?
             suffix << ", comment: #{comment.inspect}"
           end
@@ -428,7 +439,7 @@ module Brick
         mig << "    end\n"
         if pk_is_also_fk
           mig << "    reversible do |dir|\n"
-          mig << "      dir.up { execute('ALTER TABLE #{tbl} ADD PRIMARY KEY (#{pk_is_also_fk})') }\n"
+          mig << "      dir.up { execute('ALTER TABLE #{tbl} ADD PRIMARY KEY (#{pkey_cols.map { |pk| "\"#{pk}\"" }.join(', ')})') }\n"
           mig << "    end\n"
         end
         add_fks.each do |add_fk|
