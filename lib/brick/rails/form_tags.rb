@@ -807,7 +807,7 @@ function onImagesLoaded(event) {
                        klass, sti_type, rel_name = ::Brick.ctrl_to_klass(controller_path)
                        if klass
                          type_col = klass.inheritance_column # Usually 'type'
-                         filter_parts << "#{type_col}=#{sti_type}" if sti_type && klass.column_names.include?(type_col)
+                         filter_parts << "__#{type_col}=#{sti_type}" if sti_type && klass.column_names.include?(type_col)
                          path_params = request.path_parameters
                          pk = (klass.primary_key || ActiveRecord::Base.primary_key).to_sym
                          if ((id = (path_params[pk] || path_params[:id] || path_params["#{klass.name.underscore}_id".to_sym])) && (obj = klass.find_by(pk => id))) ||
@@ -829,7 +829,7 @@ function onImagesLoaded(event) {
                                                      .pluck(assoc_klass.primary_key).first)
                                foreign_id = new_id
                              end
-                             filter_parts << "#{path_param}=#{foreign_id}"
+                             filter_parts << "__#{path_param}=#{foreign_id}"
                            end
                            klass
                          end
@@ -839,7 +839,7 @@ function onImagesLoaded(event) {
     if klass_or_obj
       if klass_or_obj.is_a?(ActiveRecord::Relation)
         klass_or_obj.where_values_hash.each do |whr|
-          filter_parts << "#{whr.first}=#{whr.last}" if whr.last && !whr.last.is_a?(Array)
+          filter_parts << "__#{whr.first}=#{whr.last}" if whr.last && !whr.last.is_a?(Array)
         end
         klass_or_obj = klass_or_obj.klass
       end
@@ -849,7 +849,7 @@ function onImagesLoaded(event) {
       if klass_or_obj.is_a?(Class) && klass_or_obj <= ActiveRecord::Base
         type_col = klass_or_obj.inheritance_column
         if klass_or_obj.column_names.include?(type_col) && klass_or_obj.name != klass_or_obj.base_class.name
-          filter_parts << "#{type_col}=#{klass_or_obj.name}"
+          filter_parts << "__#{type_col}=#{klass_or_obj.name}"
         end
       end
       filter = "?#{filter_parts.join('&')}" if filter_parts.present?

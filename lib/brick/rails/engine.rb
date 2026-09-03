@@ -705,7 +705,7 @@ window.addEventListener(\"popstate\", linkSchemas);
 
               if @_brick_model
                 pk = @_brick_model._brick_primary_key(::Brick.relations.fetch((table_name = @_brick_model.table_name.split('.').last), nil))
-                rn_start = (mn_split = model_name.split('::')).length > 1 ? -2 : -1
+                rn_start = (mn_split = @_brick_model.base_class.name.split('::')).length > 1 ? -2 : -1
                 obj_name = mn_split[rn_start..-1].join.underscore.singularize
                 res_name = obj_name.pluralize
 
@@ -1096,14 +1096,14 @@ end %>#{"
       until this_model == base_model do
         this_model = this_model.superclass
         path = send(\"#\{this_model._brick_index}_path\")
-        path << \"?#\{base_model.inheritance_column}=#\{this_model.name}\" unless this_model == base_model
+        path << \"?__#\{base_model.inheritance_column}=#\{this_model.name}\" unless this_model == base_model
         parent_links << link_to(this_model.name, path)
       end
       \"<tr><td colspan=\\\"#\{td_count}\\\">Parent: #\{parent_links.join(' ')}</tr>\".html_safe
     end
 %><%= if (children = model.descendants).present?
   child_links = children.map do |child|
-    path = send(\"#\{child._brick_index}_path\") + \"?#\{base_model.inheritance_column}=#\{child.name}\"
+    path = send(\"#\{child._brick_index}_path\") + \"?__#\{base_model.inheritance_column}=#\{child.name}\"
     link_to(child.name, path)
   end
   \"<tr><td colspan=\\\"#\{td_count}\\\">Children: #\{child_links.join(' ')}</tr>\".html_safe
@@ -1128,8 +1128,8 @@ end
                %><% end %></h3><%
        end
      end %>
-  <span class=\"__brick\">(<%= link_to \"See all #\{model.base_class.name.split('::').last.pluralize}\", #{@_brick_model._brick_index}_path %>)</span>
-<% end
+  <span class=\"__brick\">(<%= link_to \"See all #\{base_model.name.split('::').last.pluralize}\", #{@_brick_model._brick_index}_path %>)</span>
+<% end %><%
    # COLUMN EXCLUSIONS
    if @_brick_excl&.present? %>
   <div id=\"exclusions\">Excluded columns:
@@ -1403,7 +1403,7 @@ end
 #{(inh_col = @_brick_model.inheritance_column).present? &&
 "    if obj.respond_to?(:#{inh_col}) && (model_name = @#{obj_name}.#{inh_col}) &&
        !model_name.is_a?(Numeric) && model_name != base_model.name
-      see_all_path << \"?#{inh_col}=#\{model_name}\"
+      see_all_path << \"?__#{inh_col}=#\{model_name}\"
     end
     model_name = base_model.name if model_name.is_a?(Numeric)"}
     model_name = nil if model_name == ''
@@ -1642,7 +1642,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
   var mermaidCode;
   var cbs = {<%= callbacks.map do |k, v|
                    path = send(\"#\{v._brick_index}_path\".to_sym)
-                   path << \"?#\{v.base_class.inheritance_column}=#\{v.name}\" unless v == v.base_class
+                   path << \"?__#\{v.base_class.inheritance_column}=#\{v.name}\" unless v == v.base_class
                    \"#\{k}: \\\"#\{path}\\\"\"
                  end.join(', ').html_safe %>};
   if (imgErd) imgErd.addEventListener(\"click\", showErd);
