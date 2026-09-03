@@ -127,7 +127,7 @@ module Brick
     def set_db_schema(params = nil)
       # If Apartment::Tenant.current is not still the default (usually 'public') then an elevator has brought us into
       # a different tenant.  If so then don't allow schema navigation.
-      if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL' && apartment_multitenant
+      if ['PostgreSQL', 'PostGIS'].include?(ActiveRecord::Base.connection.adapter_name) && apartment_multitenant
         current_schema = (ActiveRecord::Base.execute_sql('SELECT current_schemas(true)')
                                             .first['current_schemas'][1..-2]
                                             .split(',') - ['pg_catalog', 'pg_toast', 'heroku_ext']).first
@@ -1547,8 +1547,8 @@ module ActiveRecord
 
     elsif private_instance_methods.include?(:select_association_list) # AR >= 6.1
       alias _brick_select_association_list select_association_list
-      def select_association_list(associations, stashed_joins = nil)
-        result = _brick_select_association_list(associations, stashed_joins)
+      def select_association_list(associations, stashed_joins = nil, &block)
+        result = _brick_select_association_list(associations, stashed_joins, &block)
         result.instance_variable_set(:@relation, self)
         result
       end
@@ -1686,11 +1686,11 @@ module ActiveRecord
             if (relation = child.instance_variable_get(:@assocs)&.instance_variable_get(:@relation))
               link_path = child.instance_variable_get(:@link_path)
               relation.brick_links(false)[link_path] = if child.table.is_a?(Arel::Nodes::TableAlias)
-                                                  child.table.right
-                                                else
-                                                  # Was:  result.first&.left&.table_alias || child.table_name
-                                                  child.table.table_alias || child.table_name
-                                                end
+                                                         child.table.right
+                                                       else
+                                                         # Was:  result.first&.left&.table_alias || child.table_name
+                                                         child.table.table_alias || child.table_name
+                                                       end
             end
             result
           end

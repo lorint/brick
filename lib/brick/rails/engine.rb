@@ -705,7 +705,7 @@ window.addEventListener(\"popstate\", linkSchemas);
 
               if @_brick_model
                 pk = @_brick_model._brick_primary_key(::Brick.relations.fetch((table_name = @_brick_model.table_name.split('.').last), nil))
-                rn_start = (mn_split = model_name.split('::')).length > 1 ? -2 : -1
+                rn_start = (mn_split = @_brick_model.base_class.name.split('::')).length > 1 ? -2 : -1
                 obj_name = mn_split[rn_start..-1].join.underscore.singularize
                 res_name = obj_name.pluralize
 
@@ -1041,8 +1041,8 @@ if (window.brickFontFamily) {
     });
   }
 </script>
-<script src=\"https://apis.google.com/js/api.js\"></script>
-<script async defer src=\"https://accounts.google.com/gsi/client\" id=\"gapiScript\"<%= @_request.env['_brick_nonce'] %>></script>
+<script async defer src=\"https://apis.google.com/js/api.js\"></script>
+<script async defer src=\"https://accounts.google.com/gsi/client\" id=\"gapiScript\"></script>
 <script<%= @_request.env['_brick_nonce'] %>>
   document.getElementById(\"gapiScript\").addEventListener(\"onload\",
     function () { // gapiLoaded
@@ -1096,14 +1096,67 @@ end %>#{"
       until this_model == base_model do
         this_model = this_model.superclass
         path = send(\"#\{this_model._brick_index}_path\")
-        path << \"?#\{base_model.inheritance_column}=#\{this_model.name}\" unless this_model == base_model
+        path << \"?__#\{base_model.inheritance_column}=#\{this_model.name}\" unless this_model == base_model
         parent_links << link_to(this_model.name, path)
       end
       \"<tr><td colspan=\\\"#\{td_count}\\\">Parent: #\{parent_links.join(' ')}</tr>\".html_safe
     end
+%><%
+    # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
+    # If the resource is missing, has the user simply created an inappropriately pluralised name for a table?
+    @#{res_name} ||= if (dym_list = instance_variables.reject do |entry|
+                           entry.to_s.start_with?('@_') ||
+                           ['@cache_hit', '@marked_for_same_origin_verification', '@view_renderer', '@view_flow', '@output_buffer', '@virtual_path'].include?(entry.to_s)
+                         end).present?
+                       msg = +\"Can't find resource \\\"#{res_name}\\\".\"
+                       # Can't be sure otherwise of what is up, so check DidYouMean and offer a suggestion.
+                       if (dym = DidYouMean::SpellChecker.new(dictionary: dym_list).correct('@#{res_name}')).present?
+                         msg << \"\nIf you meant \\\"#\{found_dym = dym.first[1..-1]}\\\" then to avoid this message add this entry into inflections.rb:\n\"
+                         msg << \"  inflect.irregular '#{obj_name}', '#\{found_dym}'\"
+                         puts
+                         puts \"WARNING:  #\{msg}\"
+                         puts
+                         @#{res_name} = instance_variable_get(dym.first.to_sym)
+                       else
+                         raise ActiveRecord::RecordNotFound.new(msg)
+                       end
+                     end
+
+    # Starts as being just has_many columns, and will be augmented later with all the other columns
+    cols = {#{hms_keys = []
+            hms_headers.map do |hm|
+              hms_keys << (assoc_name = (assoc = hm.first).name.to_s)
+              "#{assoc_name.inspect} => [#{(assoc.options[:through] && !assoc.through_reflection).inspect}, #{assoc.klass.name}, #{hm[1].inspect}, #{hm[2].inspect}]"
+            end.join(', ')}}
+
+    # %%% Why in the Canvas LMS app does ActionView::Helpers get cleared / reloaded, or otherwise lose access to #brick_grid ???
+    # Possible fix if somewhere we can implement the #include with:
+    # (ActiveSupport.const_defined?('Reloader') ? ActiveSupport : ActionDispatch)::Reloader.to_prepare do ... end
+    # or
+    # Rails.application.reloader.to_prepare do ... end
+    self.class.class_exec { include ::Brick::Rails::FormTags } unless respond_to?(:brick_grid)
+
+    # Prepare the main content now so that we have a chance to become aware of any STI child classes represented in the rows returned.
+    main_content = #{
+      # Determine if we should render an N:M representation or the standard "mega_grid"
+      taa = ::Brick.config.treat_as_associative&.fetch(table_name, nil)
+      options = {}
+      options[:prefix] = prefix unless prefix.blank?
+      if taa.is_a?(String) || # Write out a constellation
+         (taa.is_a?(Array) && (options[:axes] = taa[0..-2]) && (options[:dsl] = taa.last))
+        representation = :constellation
+        "brick_constellation(@#{res_name}, #{options.inspect}, bt_descrip: @_brick_bt_descrip, bts: bts)"
+      elsif taa.is_a?(Symbol) # Write out a bezier representation
+        "brick_bezier(@#{res_name}, #{options.inspect}, bt_descrip: @_brick_bt_descrip, bts: bts)"
+      else # Write out the mega-grid
+        representation = :grid
+        "brick_grid(@#{res_name}, @_brick_sequence, @_brick_incl, @_brick_excl,
+               cols, bt_descrip: @_brick_bt_descrip,
+               poly_cols: poly_cols, bts: bts, hms_keys: #{hms_keys.inspect}, hms_cols: {#{hms_columns.join(', ')}})"
+      end}
 %><%= if (children = model.descendants).present?
   child_links = children.map do |child|
-    path = send(\"#\{child._brick_index}_path\") + \"?#\{base_model.inheritance_column}=#\{child.name}\"
+    path = send(\"#\{child._brick_index}_path\") + \"?__#\{base_model.inheritance_column}=#\{child.name}\"
     link_to(child.name, path)
   end
   \"<tr><td colspan=\\\"#\{td_count}\\\">Children: #\{child_links.join(' ')}</tr>\".html_safe
@@ -1128,8 +1181,8 @@ end
                %><% end %></h3><%
        end
      end %>
-  <span class=\"__brick\">(<%= link_to \"See all #\{model.base_class.name.split('::').last.pluralize}\", #{@_brick_model._brick_index}_path %>)</span>
-<% end
+  <span class=\"__brick\">(<%= link_to \"See all #\{base_model.name.split('::').last.pluralize}\", #{@_brick_model._brick_index}_path %>)</span>
+<% end %><%
    # COLUMN EXCLUSIONS
    if @_brick_excl&.present? %>
   <div id=\"exclusions\">Excluded columns:
@@ -1211,60 +1264,7 @@ end
 </div></div>
 #{::Brick::Rails.erd_markup(@_brick_model, prefix) if @_brick_model}
 
-<%= # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
-    # If the resource is missing, has the user simply created an inappropriately pluralised name for a table?
-    @#{res_name} ||= if (dym_list = instance_variables.reject do |entry|
-                             entry.to_s.start_with?('@_') ||
-                             ['@cache_hit', '@marked_for_same_origin_verification', '@view_renderer', '@view_flow', '@output_buffer', '@virtual_path'].include?(entry.to_s)
-                           end).present?
-                         msg = +\"Can't find resource \\\"#{res_name}\\\".\"
-                         # Can't be sure otherwise of what is up, so check DidYouMean and offer a suggestion.
-                         if (dym = DidYouMean::SpellChecker.new(dictionary: dym_list).correct('@#{res_name}')).present?
-                           msg << \"\nIf you meant \\\"#\{found_dym = dym.first[1..-1]}\\\" then to avoid this message add this entry into inflections.rb:\n\"
-                           msg << \"  inflect.irregular '#{obj_name}', '#\{found_dym}'\"
-                           puts
-                           puts \"WARNING:  #\{msg}\"
-                           puts
-                           @#{res_name} = instance_variable_get(dym.first.to_sym)
-                         else
-                           raise ActiveRecord::RecordNotFound.new(msg)
-                         end
-                       end
-
-    # Starts as being just has_many columns, and will be augmented later with all the other columns
-    cols = {#{hms_keys = []
-              hms_headers.map do |hm|
-                hms_keys << (assoc_name = (assoc = hm.first).name.to_s)
-                "#{assoc_name.inspect} => [#{(assoc.options[:through] && !assoc.through_reflection).inspect}, #{assoc.klass.name}, #{hm[1].inspect}, #{hm[2].inspect}]"
-              end.join(', ')}}
-
-    # %%% Why in the Canvas LMS app does ActionView::Helpers get cleared / reloaded, or otherwise lose access to #brick_grid ???
-    # Possible fix if somewhere we can implement the #include with:
-    # (ActiveSupport.const_defined?('Reloader') ? ActiveSupport : ActionDispatch)::Reloader.to_prepare do ... end
-    # or
-    # Rails.application.reloader.to_prepare do ... end
-    self.class.class_exec { include ::Brick::Rails::FormTags } unless respond_to?(:brick_grid)
-
-    #{# Determine if we should render an N:M representation or the standard "mega_grid"
-      taa = ::Brick.config.treat_as_associative&.fetch(table_name, nil)
-      options = {}
-      options[:prefix] = prefix unless prefix.blank?
-      if taa.is_a?(String) || # Write out a constellation
-         (taa.is_a?(Array) && (options[:axes] = taa[0..-2]) && (options[:dsl] = taa.last))
-        representation = :constellation
-        "
-    brick_constellation(@#{res_name}, #{options.inspect}, bt_descrip: @_brick_bt_descrip, bts: bts)"
-      elsif taa.is_a?(Symbol) # Write out a bezier representation
-        "
-    brick_bezier(@#{res_name}, #{options.inspect}, bt_descrip: @_brick_bt_descrip, bts: bts)"
-      else # Write out the mega-grid
-        representation = :grid
-        "
-    brick_grid(@#{res_name}, @_brick_sequence, @_brick_incl, @_brick_excl,
-               cols, bt_descrip: @_brick_bt_descrip,
-               poly_cols: poly_cols, bts: bts, hms_keys: #{hms_keys.inspect}, hms_cols: {#{hms_columns.join(', ')}})"
-      end}
- %>
+<%= main_content %>
 
 #{"<hr><%= link_to_brick(model, new: true, class: '__brick') %>" unless @_brick_model.is_view?}
 #{script}
@@ -1394,6 +1394,7 @@ end
                          end
 
                        when 'show', 'new', 'update'
+                         representation = :show
 +"<html>
 <head>
 #{css}
@@ -1403,7 +1404,7 @@ end
 #{(inh_col = @_brick_model.inheritance_column).present? &&
 "    if obj.respond_to?(:#{inh_col}) && (model_name = @#{obj_name}.#{inh_col}) &&
        !model_name.is_a?(Numeric) && model_name != base_model.name
-      see_all_path << \"?#{inh_col}=#\{model_name}\"
+      see_all_path << \"?__#{inh_col}=#\{model_name}\"
     end
     model_name = base_model.name if model_name.is_a?(Numeric)"}
     model_name = nil if model_name == ''
@@ -1642,7 +1643,7 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
   var mermaidCode;
   var cbs = {<%= callbacks.map do |k, v|
                    path = send(\"#\{v._brick_index}_path\".to_sym)
-                   path << \"?#\{v.base_class.inheritance_column}=#\{v.name}\" unless v == v.base_class
+                   path << \"?__#\{v.base_class.inheritance_column}=#\{v.name}\" unless v == v.base_class
                    \"#\{k}: \\\"#\{path}\\\"\"
                  end.join(', ').html_safe %>};
   if (imgErd) imgErd.addEventListener(\"click\", showErd);
@@ -1704,7 +1705,8 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 <% end %>
 "
               end
-              if representation == :grid
+              case representation
+              when :grid
                 inline << "<script<%= @_request.env['_brick_nonce'] %>>
 <% # Make column headers sort when clicked
    # %%% Create a smart javascript routine which can do this client-side %>
@@ -1719,6 +1721,9 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
     }
   });
 });
+</script>"
+              when :show
+                inline << "<script<%= @_request.env['_brick_nonce'] %>>
 document.querySelectorAll(\"input, select\").forEach(function (inp) {
   var origVal = getInpVal(),
       prevVal = origVal;
