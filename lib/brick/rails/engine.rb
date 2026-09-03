@@ -1103,7 +1103,7 @@ end %>#{"
     end
 %><%= if (children = model.descendants).present?
   child_links = children.map do |child|
-    path = send(\"#\{child._brick_index}_path\") + \"?#\{base_model.inheritance_column}=#\{child.name}\"
+    path = send(\"#\{child._brick_index}_path\") + \"?__#\{base_model.inheritance_column}=#\{child.name}\"
     link_to(child.name, path)
   end
   \"<tr><td colspan=\\\"#\{td_count}\\\">Children: #\{child_links.join(' ')}</tr>\".html_safe
