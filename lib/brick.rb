@@ -127,7 +127,7 @@ module Brick
     def set_db_schema(params = nil)
       # If Apartment::Tenant.current is not still the default (usually 'public') then an elevator has brought us into
       # a different tenant.  If so then don't allow schema navigation.
-      if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL' && apartment_multitenant
+      if ['PostgreSQL', 'PostGIS'].include?(ActiveRecord::Base.connection.adapter_name) && apartment_multitenant
         current_schema = (ActiveRecord::Base.execute_sql('SELECT current_schemas(true)')
                                             .first['current_schemas'][1..-2]
                                             .split(',') - ['pg_catalog', 'pg_toast', 'heroku_ext']).first
