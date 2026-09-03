@@ -27,7 +27,7 @@ module ::Brick::Rails
                               (val && ::Brick.is_geography?(val))
                             )
                           )
-            # MySQL's \"Internal Geometry Format\" and MSSQL's Geography are like WKB, but with an initial 4 bytes that indicates the SRID.
+            # MySQL's "Internal Geometry Format" and MSSQL's Geography are like WKB, but with an initial 4 bytes that indicates the SRID.
             if (srid = val&.[](0..3)&.unpack('I'))
               val = val.dup.force_encoding('BINARY')[4..-1].bytes
 
@@ -109,7 +109,7 @@ module ::Brick::Rails
       if ((signature = @image_signatures.find { |k, _v| val[0...k.length] == k }&.last) ||
           (val[0..3] == 'RIFF' && val[8..11] == 'WEBP' && binding.local_variable_set(:signature, 'webp'))) &&
          val.length < max_size
-        "<img src=\"data:image/#{signature.last};base64,#{Base64.encode64(val)}\">"
+        "<img src=\"data:image/#{signature};base64,#{Base64.encode64(val)}\">"
       else
         descrip = "#{signature ? "#{signature} image" : 'Binary'}, #{val.length} bytes"
         no_escaped_html ? "< #{descrip} >" : "&lt;&nbsp;#{descrip}&nbsp;>"
