@@ -122,7 +122,7 @@ module ::Brick::Rails
       "<div id=\"mermaidErd\">
   <div id=\"mermaidDiagram\" class=\"mermaid\">
 erDiagram
-<% shown_classes = {}
+<%= shown_classes = {}
 
    def erd_sidelinks(shown_classes, klass)
      links = []
@@ -137,20 +137,20 @@ erDiagram
      links.join
    end
 
-   @_brick_bt_descrip&.each do |bt|
+   @_brick_bt_descrip&.each_with_object(+'') do |bt, s|
      bt_class = bt[1].first.first
      callbacks[bt_name = bt_class.name.split('::').last] = bt_class
      # Used to have:  &.inverse_of  before  &.macro
      is_has_one = ::#{model.name}.reflect_on_association(bt.first)&.macro == :has_one ||
                   ::Brick.config.has_ones&.fetch('#{model.name}', nil)&.key?(bt.first.to_s)
-    %>  <%= \"#{model_short_name} #\{is_has_one ? '||--o|' : '}o--||'} #\{bt_name} : \\\"#\{
+    s << \"  #{model_short_name} #\{is_has_one ? '||--o|' : '}o--||'} #\{bt_name} : \\\"#\{
         bt_underscored = bt[1].first.first.name.underscore.singularize
         bt.first unless bt.first.to_s == bt_underscored.split('/').last # Was:  bt_underscored.tr('/', '_')
-        }\\\"\".html_safe %>
-<%=  erd_sidelinks(shown_classes, bt_class).html_safe %>
-<% end
+        }\\\"\n\"
+     s << erd_sidelinks(shown_classes, bt_class)
+   end&.html_safe %><%=
    last_hm = nil
-   @_brick_hm_counts&.each do |hm|
+   @_brick_hm_counts&.each_with_object(+'') do |hm, s|
      # Skip showing self-referencing HM links since they would have already been drawn while evaluating the BT side
      next if (hm_class = hm.last&.klass) == ::#{model.name}
 
@@ -159,21 +159,21 @@ erDiagram
        through_name = (through_assoc = hm.last.source_reflection).active_record.name.split('::').last
        callbacks[through_name] = through_assoc.active_record
        if last_hm == through # Same HM, so no need to build it again, and for clarity just put in a blank line
-%><%=    \"\n\"
-%><%   else
-%>  <%= \"#{model_short_name} ||--o{ #\{through_name}\".html_safe %> : \"\"
-<%=      erd_sidelinks(shown_classes, through_assoc.active_record).html_safe %>
-<%       last_hm = through
+         s << \"\\n\"
+       else
+         s << \"  #{model_short_name} ||--o{ #\{through_name} : \\\"\\\"\\n\"
+         s << erd_sidelinks(shown_classes, through_assoc.active_record)
+         last_hm = through
        end
-%>    <%= \"#\{through_name} }o--|| #\{hm_name}\".html_safe %> : \"\"
-    <%= \"#{model_short_name} }o..o{ #\{hm_name} : \\\"#\{hm.first}\\\"\".html_safe %><%
+       s << \"    #\{through_name} }o--|| #\{hm_name} : \\\"\\\"\\n\"
+       s << \"#{model_short_name} }o..o{ #\{hm_name} : \\\"#\{hm.first}\\\"\\n\"
      else # has_many
-%>  <%= \"#{model_short_name} #\{hm.last.macro == :has_and_belongs_to_many ? '}o' : '||'}--o{ #\{hm_name} : \\\"#\{
+       s << \"  #{model_short_name} #\{hm.last.macro == :has_and_belongs_to_many ? '}o' : '||'}--o{ #\{hm_name} : \\\"#\{
             hm.first.to_s unless (last_hm = hm.first.to_s).downcase == hm_class.name.underscore.pluralize.tr('/', '_')
-          }\\\"\".html_safe %><%
-     end %>
-<%=  erd_sidelinks(shown_classes, hm_class).html_safe %>
-<% end
+          }\\\"\\n\"
+     end
+     s << erd_sidelinks(shown_classes, hm_class)
+   end&.html_safe %><%
    def dt_lookup(dt)
      { 'integer' => 'int', 'character varying' => 'varchar', 'double precision' => 'float',
        'timestamp without time zone' => 'timestamp',
@@ -186,26 +186,26 @@ erDiagram
      pkeys = cb_relation[:pkey]&.first&.last
      fkeys = cb_relation[:fks]&.values&.each_with_object([]) { |fk, s| s << fk[:fk] if fk.fetch(:is_bt, nil) }
      cols = cb_relation[:cols]
- %>  <%= cb_k %> {<%
-     pkeys&.each do |pk| %>
-    <%= \"#\{dt_lookup(cols[pk].first)} #\{pk} \\\"PK#\{' fk' if fkeys&.include?(pk)}\\\"\".html_safe %><%
-     end %><%
-     fkeys&.each do |fk|
+ %>  <%= cb_k %> {<%=
+     pkeys&.each_with_object(+'') do |pk, s|
+       s << \"#\{dt_lookup(cols[pk].first)} #\{pk} \\\"PK#\{' fk' if fkeys&.include?(pk)}\\\"\"
+     end&.html_safe %><%=
+     fkeys&.each_with_object(+'') do |fk, s|
        if fk.is_a?(Array)
-         fk.each do |fk_part| %>
-    <%= \"#\{dt_lookup(cols[fk_part].first)} #\{fk_part} \\\"&nbsp;&nbsp;&nbsp;&nbsp;fk\\\"\".html_safe unless pkeys&.include?(fk_part) %><%
+         fk.each do |fk_part|
+           s << \"#\{dt_lookup(cols[fk_part].first)} #\{fk_part} \\\"&nbsp;&nbsp;&nbsp;&nbsp;fk\\\"\" unless pkeys&.include?(fk_part)
          end
        else # %%% Does not yet accommodate polymorphic BTs
-    %>
-    <%= \"#\{dt_lookup(cols[fk]&.first)} #\{fk} \\\"&nbsp;&nbsp;&nbsp;&nbsp;fk\\\"\".html_safe unless pkeys&.include?(fk) %><%
+         s << \"#\{dt_lookup(cols[fk]&.first)} #\{fk} \\\"&nbsp;&nbsp;&nbsp;&nbsp;fk\\\"\" unless pkeys&.include?(fk)
        end
-     end %><%
+     end&.html_safe %><%=
      if (erd_sc = Brick.config.erd_show_columns) == true || erd_sc&.include?(cb_class.name)
-       cols&.each do |col|
-         next if pkeys.include?(col.first) || fkeys.include?(col.first) %>
-    <%= \"#\{dt_lookup(col[1]&.first&.to_s)} #\{col.first}\".html_safe %><%
+       cols&.each_with_object(+'') do |col, s|
+         next if pkeys.include?(col.first) || fkeys.include?(col.first)
+
+         s << \"#\{dt_lookup(col[1]&.first&.to_s)} #\{col.first}\"
        end
-     end %>
+     end&.html_safe %>
   }
 <% end
  # callback < %= cb_k % > erdClick

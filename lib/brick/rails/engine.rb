@@ -828,13 +828,13 @@ window.addEventListener(\"popstate\", linkSchemas);
               end
               css = +"
 <%
-          if @_request.respond_to?(:content_security_policy) && (csp = @_request.content_security_policy)&.directives&.present?
+          if @_request.respond_to?(:content_security_policy) && (csp = @_request.content_security_policy)&.directives&.present? %><%
             @_request.env['_is_brick'] = true
             if @_request.respond_to?(:content_security_policy_nonce_directives)
               @_request.content_security_policy_nonce_directives = %w[ script-src ]
               @_request.env['_brick_nonce'] = \" nonce=\\\"#\{@_request.content_security_policy_nonce}\\\"\".html_safe
               %><meta name=\"csp-nonce\" content=\"<%= @_request.content_security_policy_nonce %>\"><%
-            end
+            end %><%
             if !@_request.respond_to?(:_brick_content_security_policy)
               if csp.instance_variables.exclude?(:@_brick_style_shas)
                 csp.instance_variable_set(:@_brick_style_shas, [
@@ -1042,7 +1042,7 @@ if (window.brickFontFamily) {
   }
 </script>
 <script src=\"https://apis.google.com/js/api.js\"></script>
-<script async defer src=\"https://accounts.google.com/gsi/client\" id=\"gapiScript\"<%= @_request.env['_brick_nonce'] %>></script>
+<script async defer src=\"https://accounts.google.com/gsi/client\" id=\"gapiScript\"></script>
 <script<%= @_request.env['_brick_nonce'] %>>
   document.getElementById(\"gapiScript\").addEventListener(\"onload\",
     function () { // gapiLoaded
@@ -1075,14 +1075,16 @@ if (window.brickFontFamily) {
 </head>
 <body>
 <div id=\"titleBox\"><div id=\"titleSticky\">
-<% if request.respond_to?(:flash)
-     if (alert)
-%><p class=\"flashAlert\"><%= alert.html_safe %></p><%
-     end
-     if (notice)
-%><p class=\"flashNotice\"><%= notice.html_safe %></p><%
-     end
-end %>#{"
+<%= if request.respond_to?(:flash)
+      out = +''
+      if (alert)
+        out << \"<p class=\\\"flashAlert\\\">#\{alert}</p>\"
+      end
+      if (notice)
+        out << \"<p class=\\\"flashNotice\\\">#\{notice}</p>\"
+      end
+      out.html_safe
+    end %>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><tr>
@@ -1114,22 +1116,22 @@ end
    if description.present? %><span class=\"__brick\"><%=
      description %></span><br><%
    end
-   # FILTER PARAMETERS
+   # FILTER PARAMETERS %><%
    if @_brick_params&.present? %>
-  <% if @_brick_params.length == 1 # %%% Does not yet work with composite keys
+  <% if @_brick_params.length == 1 # %%% Does not yet work with composite keys %><%
        k, id = @_brick_params.first
        id = id.first if id.is_a?(Array) && id.length == 1
-       origin = (key_parts = k.split('.')).length == 1 ? model : model.reflect_on_association(key_parts.first).klass
+       origin = (key_parts = k.split('.')).length == 1 ? model : model.reflect_on_association(key_parts.first).klass %><%
        if (destination_fk = Brick.relations[origin.table_name][:fks].values.find { |fk| fk[:fk] == key_parts.last }) &&
-          (objs = (destination = origin.reflect_on_association(destination_fk[:assoc_name])&.klass)&.find(id))
+          (objs = (destination = origin.reflect_on_association(destination_fk[:assoc_name])&.klass)&.find(id)) %><%
          objs = [objs] unless objs.is_a?(Array) %>
          <h3 class=\"__brick\">for <% objs.each do |obj| %><%=
                       link_to \"#{"#\{obj.brick_descrip\} (#\{destination.name\})\""}, send(\"#\{destination._brick_index(:singular)\}_path\".to_sym, id)
                %><% end %></h3><%
-       end
+       end %><%
      end %>
   <span class=\"__brick\">(<%= link_to \"See all #\{model.base_class.name.split('::').last.pluralize}\", #{@_brick_model._brick_index}_path %>)</span>
-<% end
+<% end %><%
    # COLUMN EXCLUSIONS
    if @_brick_excl&.present? %>
   <div id=\"exclusions\">Excluded columns:
@@ -1144,9 +1146,10 @@ end
       });
     });
   </script>
-<% end
+<% end %><%
    # SEARCH BOX
-   if @_brick_es && @_brick_es&.index('r') # Must have at least Elasticsearch Read access %>
+   if @_brick_es && @_brick_es&.index('r') # Must have at least Elasticsearch Read access
+%>
   <input type=\"text\" id=\"esSearch\" class=\"dimmed\">
   <script<%= @_request.env['_brick_nonce'] %>>
     var esSearch = document.getElementById(\"esSearch\");
@@ -1211,7 +1214,8 @@ end
 </div></div>
 #{::Brick::Rails.erd_markup(@_brick_model, prefix) if @_brick_model}
 
-<%= # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
+<%=
+    # Consider getting the name from the association -- hm.first.name -- if a more \"friendly\" alias should be used for a screwy table name
     # If the resource is missing, has the user simply created an inappropriately pluralised name for a table?
     @#{res_name} ||= if (dym_list = instance_variables.reject do |entry|
                              entry.to_s.start_with?('@_') ||
@@ -1419,25 +1423,27 @@ end
   c23.141-70.188,89.141-120.906,167.063-120.906c97.25,0,176,78.813,176,176C511.828,227.078,404.391,119.641,271.844,119.641z\" />
 </svg>
 
-<% if request.respond_to?(:flash)
-     if (alert)
-%><p class=\"flashAlert\"><%= alert.html_safe %></p><%
-     end
-     if (notice)
-%><p class=\"flashNotice\"><%= notice.html_safe %></p><%
-     end
-end %>#{"
+<%= if request.respond_to?(:flash)
+      out = +''
+      if (alert)
+        out << \"<p class=\\\"flashAlert\\\">#\{alert}</p>\"
+      end
+      if (notice)
+        out << \"<p class=\\\"flashNotice\\\">#\{notice}</p>\"
+      end
+      out.html_safe
+    end %>#{"
 #{schema_options}" if schema_options}
 <select id=\"tbl\">#{table_options}</select>
 <table id=\"resourceName\"><tr><td><h1><%= page_title %></h1></td>
-<% rel = Brick.relations[#{model_name}.table_name]
+<%= rel = Brick.relations[#{model_name}.table_name]
    if (in_app = rel.fetch(:existing, nil)&.fetch(:show, nil))
      begin
-       in_app = send(\"#\{in_app}_path\", #{pk.is_a?(String) ? "obj.#{pk}" : '[' + pk.map { |pk_part| "obj.#{pk_part}" }.join(', ') + ']' }) if in_app.is_a?(Symbol) %>
-     <td><%= link_to(::Brick::Rails::IN_APP.html_safe, in_app) %></td>
-<%   rescue ActionController::UrlGenerationError
+       in_app = send(\"#\{in_app}_path\", #{pk.is_a?(String) ? "obj.#{pk}" : '[' + pk.map { |pk_part| "obj.#{pk_part}" }.join(', ') + ']' }) if in_app.is_a?(Symbol)
+       \"\\n     <td>#\{link_to(::Brick::Rails::IN_APP.html_safe, in_app)}</td>\\n\".html_safe
+     rescue ActionController::UrlGenerationError
      end
-   end
+   end %><%
 
    if Object.const_defined?('Avo') && ::Avo.respond_to?(:railtie_namespace) %>
   <td><%= link_to_brick(
@@ -1448,19 +1454,19 @@ end %>#{"
                    end,
         title: \"#\{page_title} in Avo\" }
     ) %></td>
-<% end
+<% end %><%=
 
    if Object.const_defined?('ActiveAdmin')
-     ActiveAdmin.application.namespaces.names.each do |ns| %>
-<td><%= link_to_brick(
-   ::Brick::Rails::AA_PNG.html_safe,
-   { show_proc: Proc.new do |aa_model, relation|
-                  path_helper = \"#\{ns}_#\{relation.fetch(:auto_prefixed_schema, nil)}#\{aa_model.model_name.singular_route_key}_path\".to_sym
-                  send(path_helper, obj) if respond_to?(path_helper)
-                end,
-     title: \"#\{page_title} in ActiveAdmin\" }
- ) %></td>
-<%   end
+     ActiveAdmin.application.namespaces.names.each_with_object(+'') do |ns, s|
+       s << \"\\n<td>#\{link_to_brick(
+         ::Brick::Rails::AA_PNG.html_safe,
+         { show_proc: Proc.new do |aa_model, relation|
+                         path_helper = \"#\{ns}_#\{relation.fetch(:auto_prefixed_schema, nil)}#\{aa_model.model_name.singular_route_key}_path\".to_sym
+                         send(path_helper, obj) if respond_to?(path_helper)
+                       end,
+           title: \"#\{page_title} in ActiveAdmin\" }
+         )}</td>\\n\"
+     end
    end %>
 </tr></table>
 <%
@@ -1472,7 +1478,8 @@ end
 <% if obj %>
   <br><br>
 
-<%= # Write out the mega-form
+<%=
+    # Write out the mega-form
     brick_form_with(model: obj, bts: bts, pk: #{pk.inspect}) %>
 
 #{unless args.first == 'new'
@@ -1706,7 +1713,8 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
               end
               if representation == :grid
                 inline << "<script<%= @_request.env['_brick_nonce'] %>>
-<% # Make column headers sort when clicked
+<%
+   # Make column headers sort when clicked
    # %%% Create a smart javascript routine which can do this client-side %>
 [... document.getElementsByTagName(\"TH\")].forEach(function (th) {
   th.addEventListener(\"click\", function (e) {
