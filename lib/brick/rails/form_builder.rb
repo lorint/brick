@@ -7,7 +7,8 @@ module Brick::Rails::FormBuilder
   #   @_date_fields_present - To include flatpickr date / time editor
   #   @_json_fields_present - To include JSONEditor
   def brick_field(method, html_options = {}, val = nil, col = nil,
-                  bt = nil, bt_class = nil, bt_name = nil, bt_pair = nil)
+                  bt = nil, bt_class = nil, bt_name = nil, bt_pair = nil,
+                  is_readonly = nil)
     model = self.object.class
     col ||= model.columns_hash[method.to_s]
     out = +'<table><tr><td>'
@@ -20,8 +21,6 @@ module Brick::Rails::FormBuilder
       bt_name ||= bt[1].map { |x| x.first.name }.join('/')
       bt_pair ||= bt[1].first
 
-      html_options[:prompt] = "Select #{bt_name}"
-      out << self.select(method_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options)
       bt_obj = nil
       begin
         bt_obj = bt_class&.find_by(bt_pair[1] => val)
@@ -29,6 +28,10 @@ module Brick::Rails::FormBuilder
         # %%% Would be cool to indicate to the user that a subclass is missing.
         # Its name starts at:  e.message.index('failed to locate the subclass: ') + 31
       end
+      html_options[:prompt] = "Select #{bt_name}"
+      out << (is_readonly ? (bt_obj&.brick_descrip || val.to_s) + '&nbsp;' :
+                            self.select(method_sym, bt[3], { value: val || '^^^brick_NULL^^^' }, html_options)
+             )
       bt_link = if bt_obj
                   bt_path = template.send(
                               "#{bt_class.base_class._brick_index(:singular)}_path".to_sym,

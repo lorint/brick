@@ -367,13 +367,14 @@ module Brick::Rails::FormTags
     </th>
     <td>
         "
-        if pk_pos &&
+        if !pk_pos || bt ||
            # Allow new records to have a text-based primary key to be entered
-           (!obj.new_record? || [:string, :text].exclude?(col.type))
-          out << val.to_s
-        else
+           (pk_pos && obj.new_record? && [:string, :text].include?(col.type))
           has_updatable_fields = true
-          out << f.brick_field(k, html_options = {}, val, col, bt, bt_class, bt_name, bt_pair)
+          out << f.brick_field(k, html_options = {}, val, col, bt, bt_class, bt_name, bt_pair,
+                 pk_pos && !obj.new_record?) # Cause it to be read-only if it's part of a primary key
+        else
+          out << val.to_s
         end
         out << "
     </td>
