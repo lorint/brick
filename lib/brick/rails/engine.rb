@@ -1165,7 +1165,7 @@ if (window.brickFontFamily) {
 end
 %><%= if (page_num = @#{res_name}&._brick_page_num)
            \"<tr><td colspan=\\\"#\{td_count}\\\">Page #\{page_num}</td></tr>\".html_safe
-         end %></table>#{template_link}<%
+         end %></table><%
    if description.present? %><span class=\"__brick\"><%=
      description %></span><br><%
    end
@@ -1583,8 +1583,79 @@ end}
                            puts "Couldn't work with action #{args.first}"
                          end
                        end
+
+
+              case representation
+              when :grid
+                inline << "<script<%= @_request.env['_brick_nonce'] %>>
+<%#  Make column headers sort when clicked
+   # %%% Create a smart javascript routine which can do this client-side %>
+[... document.getElementsByTagName(\"TH\")].forEach(function (th) {
+  th.addEventListener(\"click\", function (e) {
+    var xOrder,
+        currentOrder;
+    if (xOrder = this.getAttribute(\"x-order\")) {
+      if ((currentOrder = changeout(location.href, \"_brick_order\")) === xOrder)
+        xOrder = \"-\" + xOrder;
+      location.href = changeout(location.href, \"_brick_order\", xOrder);
+    }
+  });
+});
+</script>"
+              when :show
+                inline << "<script<%= @_request.env['_brick_nonce'] %>>
+document.querySelectorAll(\"input, select\").forEach(function (inp) {
+  var origVal = getInpVal(),
+      prevVal = origVal;
+  var revert;
+  if (inp.getAttribute(\"type\") == \"hidden\" || inp.getAttribute(\"type\") == \"submit\") return;
+
+  var svgTd = null;
+  if ((revert = ((inp.tagName === \"SELECT\" && (svgTd = inp.parentElement.nextElementSibling) && svgTd.firstElementChild) ||
+                 ((svgTd = inp.parentElement.nextElementSibling) && svgTd.firstElementChild))
+     ) && revert.tagName.toLowerCase() === \"svg\")
+    revert.addEventListener(\"click\", function (e) {
+      if (inp.type === \"checkbox\")
+        inp.checked = origVal;
+      else
+        inp.value = origVal;
+      revert.style.display = \"none\";
+      if (inp._flatpickr)
+        inp._flatpickr.setDate(origVal);
+      else
+        inp.focus();
+    });
+  inp.addEventListener(inp.type === \"checkbox\" ? \"change\" : \"input\", function (e) {
+    if(inp.className.split(\" \").indexOf(\"check-validity\") > 0) {
+      if (inp.checkValidity()) {
+        prevVal = getInpVal();
+      } else {
+        inp.value = prevVal;
+      }
+    } else {
+      // If this is the result of changing an hour or minute, keep the calendar open.
+      // And if it was the result of selecting a date, the calendar can now close.
+      if (inp._flatpickr &&
+           // Test only for changes in the date portion of a date or datetime
+           ((giv = getInpVal()) && (giv1 = giv.split(' ')[0])) !== (prevVal && prevVal.split(' ')[0]) &&
+           giv1.indexOf(\":\") < 0 // (definitely not any part of a time thing)
+         )
+        inp._flatpickr.close();
+      prevVal = getInpVal();
+    }
+    // Show or hide the revert button
+    if (revert) revert.style.display = getInpVal() === origVal ? \"none\" : \"block\";
+  });
+  function getInpVal() {
+    return inp.type === \"checkbox\" ? inp.checked : inp.value;
+  }
+});
+</script>"
+              end
+
+
               unless is_crosstab
-                inline << "
+                inline << "#{template_link}
 <% if @_date_fields_present %>
 <link rel=\"stylesheet\" type=\"text/css\" href=\"https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css\">
 <style>
@@ -1709,73 +1780,6 @@ flatpickr(\".timepicker\", {enableTime: true, noCalendar: true});
 %></script>
 <% end %>
 "
-              end
-              case representation
-              when :grid
-                inline << "<script<%= @_request.env['_brick_nonce'] %>>
-<%#  Make column headers sort when clicked
-   # %%% Create a smart javascript routine which can do this client-side %>
-[... document.getElementsByTagName(\"TH\")].forEach(function (th) {
-  th.addEventListener(\"click\", function (e) {
-    var xOrder,
-        currentOrder;
-    if (xOrder = this.getAttribute(\"x-order\")) {
-      if ((currentOrder = changeout(location.href, \"_brick_order\")) === xOrder)
-        xOrder = \"-\" + xOrder;
-      location.href = changeout(location.href, \"_brick_order\", xOrder);
-    }
-  });
-});
-</script>"
-              when :show
-                inline << "<script<%= @_request.env['_brick_nonce'] %>>
-document.querySelectorAll(\"input, select\").forEach(function (inp) {
-  var origVal = getInpVal(),
-      prevVal = origVal;
-  var revert;
-  if (inp.getAttribute(\"type\") == \"hidden\" || inp.getAttribute(\"type\") == \"submit\") return;
-
-  var svgTd = null;
-  if ((revert = ((inp.tagName === \"SELECT\" && (svgTd = inp.parentElement.nextElementSibling) && svgTd.firstElementChild) ||
-                 ((svgTd = inp.parentElement.nextElementSibling) && svgTd.firstElementChild))
-     ) && revert.tagName.toLowerCase() === \"svg\")
-    revert.addEventListener(\"click\", function (e) {
-      if (inp.type === \"checkbox\")
-        inp.checked = origVal;
-      else
-        inp.value = origVal;
-      revert.style.display = \"none\";
-      if (inp._flatpickr)
-        inp._flatpickr.setDate(origVal);
-      else
-        inp.focus();
-    });
-  inp.addEventListener(inp.type === \"checkbox\" ? \"change\" : \"input\", function (e) {
-    if(inp.className.split(\" \").indexOf(\"check-validity\") > 0) {
-      if (inp.checkValidity()) {
-        prevVal = getInpVal();
-      } else {
-        inp.value = prevVal;
-      }
-    } else {
-      // If this is the result of changing an hour or minute, keep the calendar open.
-      // And if it was the result of selecting a date, the calendar can now close.
-      if (inp._flatpickr &&
-           // Test only for changes in the date portion of a date or datetime
-           ((giv = getInpVal()) && (giv1 = giv.split(' ')[0])) !== (prevVal && prevVal.split(' ')[0]) &&
-           giv1.indexOf(\":\") < 0 // (definitely not any part of a time thing)
-         )
-        inp._flatpickr.close();
-      prevVal = getInpVal();
-    }
-    // Show or hide the revert button
-    if (revert) revert.style.display = getInpVal() === origVal ? \"none\" : \"block\";
-  });
-  function getInpVal() {
-    return inp.type === \"checkbox\" ? inp.checked : inp.value;
-  }
-});
-</script>"
               end
               # puts "==============="
               # puts inline
